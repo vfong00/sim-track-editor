@@ -263,12 +263,12 @@ print(f"Car initialized at (x={car_x:.2f}, y={car_y:.2f}) with velocity={car_vel
 
 # Constants for physics model
 max_base_speed = 365.0
-min_curve_speed_factor = 100 # Higher means sharper corners need to be slower
-min_speed_ratio = 0.1 # Minimum speed as a ratio of max_base_speed
-max_acceleration = 60
-max_braking_deceleration = 150
+min_curve_speed_factor = 2_000
+min_speed_ratio = 0.135 # Minimum speed as a ratio of max_base_speed
+max_acceleration = 52
+max_braking_deceleration = 80
 drag_coefficient = 0.0005
-lookahead_indices = 120 # New parameter to control lookahead distance for predictive braking
+lookahead_indices = 30 # New parameter to control lookahead distance for predictive braking
 
 def get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min_speed_ratio):
     # Ensure curvature is positive for calculation
@@ -276,52 +276,178 @@ def get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min
 
     # Use a non-linear term to adjust speed based on curvature
     # Power > 1 makes it less punitive at low curvature, more punitive at high curvature
-    max_speed_unbounded = max_base_speed / (1 + abs_curvature**1.5 * min_curve_speed_factor)
+    max_speed_unbounded = max_base_speed / (1 + abs_curvature**1.8 * min_curve_speed_factor)
 
     # Apply a minimum speed limit to prevent the car from stopping entirely
     max_speed = max(max_speed_unbounded, max_base_speed * min_speed_ratio)
     return max_speed
 
-# Test the function with sample curvature values
-sample_curvatures = [0, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5] # More varied samples for testing
+"""## Theoretical Acceleration and Braking Times (Factoring in Drag)"""
 
-print("Testing get_max_speed function:")
-for curv in sample_curvatures:
-    speed = get_max_speed(curv, max_base_speed, min_curve_speed_factor, min_speed_ratio)
-    print(f"  Curvature: {curv:.2f}, Max Speed: {speed:.2f}")
+import numpy as np
+
+# Target speed for acceleration/braking test
+target_speed = 300.0 # units/second
+
+# --- Acceleration with Drag ---
+# dv/dt = max_acceleration - drag_coefficient * v^2
+# Integral of dv / (a - c*v^2) from 0 to target_speed
+# Result is 1/(2*sqrt(ac)) * ln |(sqrt(a) + v*sqrt(c)) / (sqrt(a) - v*sqrt(c))|
+
+a = max_acceleration
+c = drag_coefficient
+
+# Check for potential division by zero or negative argument in sqrt/log
+if a * c <= 0 or (np.sqrt(a) - target_speed * np.sqrt(c)) <= 0:
+    print("Cannot calculate acceleration time with drag using this formula (parameters lead to singularity or imaginary numbers).")
+    print("This could mean target_speed is too high for given max_acceleration and drag, or parameters are zero.")
+    time_to_accelerate_drag = np.inf
+else:
+    term_sqrt_ac = np.sqrt(a * c)
+    term_sqrt_a = np.sqrt(a)
+    term_sqrt_c = np.sqrt(c)
+
+    # Ensure the argument for log is positive
+    numerator = term_sqrt_a + target_speed * term_sqrt_c
+    denominator = term_sqrt_a - target_speed * term_sqrt_c
+
+    if denominator <= 0: # This means the car cannot reach target_speed due to drag limiting top speed
+        print(f"Warning: Car's top speed ({term_sqrt_a / term_sqrt_c:.2f} units/s) is less than target_speed ({target_speed:.2f} units/s) with current drag/acceleration.")
+        time_to_accelerate_drag = np.inf # Car can't reach this speed
+    else:
+        time_to_accelerate_drag = (1 / (2 * term_sqrt_ac)) * np.log(numerator / denominator)
+
+
+# --- Braking with Drag ---
+# dv/dt = -max_braking_deceleration - drag_coefficient * v^2
+# Integral of -dv / (d + c*v^2) from target_speed to 0
+# Result is 1/sqrt(dc) * (arctan(v0*sqrt(c/d)) - arctan(vf*sqrt(c/d)))
+# For braking to 0, vf=0, so arctan(0) = 0.
+
+d = max_braking_deceleration
+c = drag_coefficient
+
+if d * c <= 0:
+    print("Cannot calculate braking time with drag using this formula (parameters lead to singularity). Parameters might be zero.")
+    time_to_brake_drag = np.inf
+else:
+    term_sqrt_dc = np.sqrt(d * c)
+    term_sqrt_c_div_d = np.sqrt(c / d)
+    time_to_brake_drag = (1 / term_sqrt_dc) * np.arctan(target_speed * term_sqrt_c_div_d)
+
+print(f"Time to accelerate from 0 to {target_speed:.2f} units/s (with drag): {time_to_accelerate_drag:.2f} seconds")
+print(f"Time to brake from {target_speed:.2f} units/s to 0 (with drag): {time_to_brake_drag:.2f} seconds")
+
+# For comparison, re-print values without drag (from cell be7cdcf9)
+# time_to_accelerate_no_drag = target_speed / max_acceleration
+# time_to_brake_no_drag = target_speed / max_braking_deceleration
+# print(f"For comparison, without drag: Acceleration Time: {time_to_accelerate_no_drag:.2f}s, Braking Time: {time_to_brake_no_drag:.2f}s")
+
+"""## Max speed vs curvature"""
+
+# --- Plotting the sample curvatures vs speeds ---
+curvature_range = np.linspace(0, 0.04, 1000) # From 0 to 0.05 with 500 points
+
+# Calculate max speed for each curvature in the range
+max_speeds_for_range = [
+    get_max_speed(curv, max_base_speed, min_curve_speed_factor, min_speed_ratio)
+    for curv in curvature_range
+]
+
+fig, ax = plt.subplots(figsize=(12, 6))
+
+ax.plot(curvature_range, max_speeds_for_range, linestyle='-', color='blue')
+
+min_allowed_speed = min_speed_ratio * max_base_speed
+ax.axhline(y=min_allowed_speed, color='red', linestyle='--', label=f'Min Allowed Speed ({min_allowed_speed:.2f})')
+
+ax.set_xlabel('Curvature Magnitude')
+ax.set_ylabel('Maximum Allowed Speed (units/s)')
+ax.set_title(f'Maximum Allowed Speed vs. Curvature (min_curve_speed_factor={min_curve_speed_factor})')
+ax.grid(True, linestyle='--', alpha=0.7)
+
+plt.tight_layout()
+plt.show()
+# --- End plotting ---
 
 """## Visualize Track Curvature"""
 
-# Normalize curvature for coloring
-# We'll take the absolute value of curvature, and then scale it.
-# Clipping at a certain max value can make colors more distinct if there are extreme outliers.
-abs_curvature = np.abs(curvature)
-max_display_curvature = np.percentile(abs_curvature, 95) # Cap at 95th percentile to avoid outliers dominating
-norm_curvature = np.clip(abs_curvature, 0, max_display_curvature) / max_display_curvature
+import matplotlib.colors as mcolors
 
-# Choose a colormap: 'RdYlGn_r' is Red-Yellow-Green reversed, so green is low, red is high
-cmap = plt.cm.get_cmap('RdYlGn_r')
-colors = cmap(norm_curvature)
+# Calculate anticipated max speed for each point based on the lookahead window
+# This replicates the predictive braking logic for visualization.
+anticipated_max_speeds_for_plotting = []
+num_track_points = len(tracks_data[filename]['geometry']['curvature'])
+
+for i in range(num_track_points):
+    lookahead_window_start = i
+    lookahead_window_end = min(i + lookahead_indices, num_track_points)
+
+    # Handle wrap-around for a continuous track in lookahead if needed,
+    # but for simplicity, we'll cap at the end for static visualization.
+    lookahead_curvatures = tracks_data[filename]['geometry']['curvature'][lookahead_window_start:lookahead_window_end]
+
+    if len(lookahead_curvatures) == 0: # Should not happen if lookahead_indices is reasonable
+        max_speed_in_window = get_max_speed(tracks_data[filename]['geometry']['curvature'][i], max_base_speed, min_curve_speed_factor, min_speed_ratio)
+    else:
+        max_speeds_in_window = [
+            get_max_speed(c, max_base_speed, min_curve_speed_factor, min_speed_ratio)
+            for c in lookahead_curvatures
+        ]
+        max_speed_in_window = np.min(max_speeds_in_window)
+
+    anticipated_max_speeds_for_plotting.append(max_speed_in_window)
+
+anticipated_max_speeds_for_plotting = np.array(anticipated_max_speeds_for_plotting)
+
+# Choose a colormap: 'RdYlGn' (Red-Yellow-Green) is good, with Red for low speed, Green for high speed.
+cmap = plt.cm.get_cmap('RdYlGn')
 
 fig, ax = plt.subplots(figsize=(10, 10))
-ax.imshow(img[...,::-1], extent=[0, img.shape[1] * track_scale, img.shape[0] * track_scale, 0]) # Ensure correct image orientation
+ax.imshow(img[...,::-1], extent=[0, img.shape[1] * track_scale, img.shape[0] * track_scale, 0])
 
-# Plot the track points, colored by curvature
-# Use scatter to color each point individually
-scatter = ax.scatter(x_smooth, y_smooth, c=norm_curvature, cmap=cmap, s=20, zorder=2)
+# Plot the track points, colored by anticipated maximum allowed speed with linear scale
+scatter = ax.scatter(
+    x_smooth, y_smooth,
+    c=anticipated_max_speeds_for_plotting,
+    cmap=cmap,
+    s=20,
+    zorder=2
+)
 
-ax.set_title('Track Curvature Visualization (Green=Low, Red=High)')
+ax.set_title('Track Anticipated Max Speed Visualization (Red=Low Speed, Green=High Speed)')
 ax.set_aspect('equal', adjustable='box')
 
 # Add a colorbar
 cbar = fig.colorbar(scatter, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
-cbar.set_label('Normalized Absolute Curvature')
+cbar.set_label('Anticipated Maximum Allowed Speed (units/s)')
 
 plt.show()
 
-# Increase animation embed limit to allow larger animations
-mpl.rcParams['animation.embed_limit'] = 200.0 # Set to 200 MB
-redo_simulation = False
+"""## Track Curvature Magnitude Plot"""
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Assuming 'curvature' array is available from previous cells
+# Use absolute curvature to represent magnitude
+abs_curvature = np.abs(tracks_data[filename]['geometry']['curvature'])
+
+fig, ax = plt.subplots(figsize=(15, 6))
+
+# Plot curvature magnitude against point index
+ax.plot(abs_curvature)
+
+ax.set_xlabel('Track Point Index')
+ax.set_ylabel('Absolute Curvature Magnitude')
+ax.set_title('Track Curvature Magnitude Across Points')
+ax.grid(True, linestyle='--', alpha=0.7)
+
+plt.tight_layout()
+plt.show()
+
+mpl.rcParams['animation.embed_limit'] = 300.0 # Raise to 300 MB
+redo_simulation = True # Ensure simulation is re-run with new logic
 
 # --- Helper Functions for Caching and Simulation ---
 
@@ -331,7 +457,7 @@ def generate_sim_cache_key(physics_params):
     params_str = str(sorted_params)
     return hashlib.sha256(params_str.encode('utf-8')).hexdigest()
 
-def simulate_car_trajectory(geometry_data, physics_params, num_frames=1080):
+def simulate_car_trajectory(geometry_data, physics_params, num_frames=2500):
     # Extract geometry data
     x_smooth = geometry_data['x_smooth']
     y_smooth = geometry_data['y_smooth']
@@ -357,37 +483,53 @@ def simulate_car_trajectory(geometry_data, physics_params, num_frames=1080):
     car_x_points = []
     car_y_points = []
     car_velocities_history = []
-    car_headings_history = [] # New: Store car heading at each frame
-    lap_times_with_frame = [] # Store (lap_duration, frame_completed) tuples
+    car_headings_history = [] # Store car heading at each frame
+    lap_durations = [] # Store lap durations
+    lap_completion_frames = [] # Store the frame index when each lap was completed
 
-    car_current_index = start_index
-    car_current_track_length = cumulative_path_length[start_index]
+    # Car state variables
+    car_odometer_distance = 0.0 # Total distance traveled by the car since the start of simulation
     car_velocity = 0.0
     car_acceleration = 0.0
-    lap_count = 0
-    lap_start_time = 0.0 # Will be updated when simulation starts
+
+    # Lap timing specific variables
+    # We define the start line as the position corresponding to start_index
+    start_line_absolute_position = cumulative_path_length[start_index]
+    last_lap_completion_time = 0.0 # Time when the last lap was completed
+    laps_recorded = 0
 
     # Simulation loop
     for frame in range(num_frames):
+        # Calculate current position on the track loop based on odometer and initial start_index offset
+        # This ensures the car's position on the track accurately reflects a continuous loop
+        current_pos_on_loop = (start_line_absolute_position + car_odometer_distance) % total_track_length
+
+        # Find the new_car_current_index for curvature (nearest point on discrete path)
+        new_car_current_index = np.searchsorted(cumulative_path_length, current_pos_on_loop, side='right') - 1
+        car_current_index = max(0, min(new_car_current_index, len(x_smooth) - 1))
+
         # Get current curvature at the car's position
         current_curvature = curvature[car_current_index]
 
         # --- Predictive Braking Logic ---
         # Calculate minimum allowed speed within a lookahead window
         lookahead_window_start = car_current_index
-        lookahead_window_end = min(car_current_index + lookahead_indices, len(curvature))
-        # If we are near the end of the track, wrap around for lookahead if it's a continuous loop
-        # For simplicity, we will just cap at the end of the track for now.
+        # Ensure lookahead wraps around the track if near the end
+        lookahead_curvatures_list = []
+        for k in range(lookahead_indices):
+            idx = (lookahead_window_start + k) % len(curvature)
+            lookahead_curvatures_list.append(curvature[idx])
+        lookahead_curvatures = np.array(lookahead_curvatures_list)
 
-        # Get curvatures in the lookahead window
-        lookahead_curvatures = curvature[lookahead_window_start:lookahead_window_end]
-
-        # If the lookahead window is empty (e.g., at the very end of the track), default to current curvature
-        if len(lookahead_curvatures) == 0:
+        # If the lookahead window is empty (should not happen with good lookahead_indices), default to current curvature
+        if len(lookahead_curvatures) == 0: # Should not happen if lookahead_indices is reasonable
             max_speed_in_lookahead = get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min_speed_ratio)
         else:
             # Calculate max allowed speed for each point in the lookahead window
-            max_speeds_in_window = [get_max_speed(c, max_base_speed, min_curve_speed_factor, min_speed_ratio) for c in lookahead_curvatures]
+            max_speeds_in_window = [
+                get_max_speed(c, max_base_speed, min_curve_speed_factor, min_speed_ratio)
+                for c in lookahead_curvatures
+            ]
             # The minimum of these is the speed limit the car should anticipate
             max_speed_in_lookahead = np.min(max_speeds_in_window)
 
@@ -414,43 +556,36 @@ def simulate_car_trajectory(geometry_data, physics_params, num_frames=1080):
         # Update car_velocity
         car_velocity += car_acceleration * dt
         # Clamp car_velocity to be non-negative (can't go backwards) and not exceed max_base_speed for safety
-        # It should also not exceed max_speed_in_lookahead if we are braking for it, but the braking logic should handle that.
         car_velocity = max(0.0, min(car_velocity, max_base_speed))
 
-        # Calculate distance moved
+        # Calculate distance moved in this frame
         distance_moved = car_velocity * dt
 
-        # Update car_current_track_length
-        car_current_track_length += distance_moved
+        # Update car's odometer
+        car_odometer_distance += distance_moved
 
-        # Implement track looping and lap counting
-        if car_current_track_length >= total_track_length:
-            if lap_count == 0:
-                # Initialize lap_start_time for the first lap, adjusting for initial track_length
-                lap_start_time = frame * dt - (total_track_length - cumulative_path_length[start_index]) / car_velocity
+        # Lap counting logic: A lap is completed when car_odometer_distance exceeds a full track length
+        laps_covered_by_distance = int(car_odometer_distance // total_track_length)
 
-            lap_duration = (frame * dt) - lap_start_time
-            lap_times_with_frame.append(lap_duration) # Store just the duration
-            print(f"Lap {lap_count + 1} completed in {lap_duration:.2f} seconds (frame {frame})")
-            lap_start_time = frame * dt # Reset timer for next lap
+        if laps_covered_by_distance > laps_recorded:
+            # A full lap has been completed.
+            current_frame_time = frame * dt
+            lap_duration = current_frame_time - last_lap_completion_time
+            lap_durations.append(lap_duration)
+            lap_completion_frames.append(frame)
+            print(f"Lap {laps_recorded + 1} completed in {lap_duration:.2f} seconds (frame {frame})")
+            last_lap_completion_time = current_frame_time
+            laps_recorded = laps_covered_by_distance
 
-            car_current_track_length -= total_track_length # Wrap around
-            lap_count += 1
-
-        # Find the new_car_current_index for curvature (nearest point on discrete path)
-        new_car_current_index = np.searchsorted(cumulative_path_length, car_current_track_length, side='right') - 1
-        car_current_index = max(0, min(new_car_current_index, len(x_smooth) - 1))
-
-        # Calculate precise (x,y) on spline based on car_current_track_length
-        current_u_value = np.interp(car_current_track_length, cumulative_path_length, u_fine)
-        current_car_x, current_car_y = splev(current_u_value, tck)
+        # Calculate precise (x,y) on spline based on car's current position on the track loop
+        current_car_x, current_car_y = splev(np.interp(current_pos_on_loop, cumulative_path_length, u_fine), tck)
 
         car_x_points.append(current_car_x)
         car_y_points.append(current_car_y)
         car_velocities_history.append(car_velocity)
-        car_headings_history.append(headings_deg[car_current_index]) # New: Store heading
+        car_headings_history.append(headings_deg[car_current_index]) # Store heading
 
-    return car_x_points, car_y_points, car_velocities_history, car_headings_history, lap_times_with_frame
+    return car_x_points, car_y_points, car_velocities_history, car_headings_history, lap_durations, lap_completion_frames
 
 # --- Simulation Caching Logic ---
 
@@ -478,47 +613,50 @@ if not redo_simulation and sim_cache_key in tracks_data[filename]['simulation_re
     trajectory_x = cached_sim_results['x']
     trajectory_y = cached_sim_results['y']
     trajectory_velocities = cached_sim_results['velocities']
-    trajectory_headings = cached_sim_results['headings'] # New: retrieve headings
-    final_lap_times = cached_sim_results['lap_times']
+    trajectory_headings = cached_sim_results['headings'] # retrieve headings
+    final_lap_durations = cached_sim_results['lap_durations']
+    final_lap_completion_frames = cached_sim_results['lap_completion_frames']
 else:
     print("Simulating car trajectory...")
-    trajectory_x, trajectory_y, trajectory_velocities, trajectory_headings, final_lap_times = simulate_car_trajectory(geometry_data, physics_params) # New: capture headings
+    trajectory_x, trajectory_y, trajectory_velocities, trajectory_headings, final_lap_durations, final_lap_completion_frames = simulate_car_trajectory(geometry_data, physics_params) # capture headings
 
     # Store results in cache
     tracks_data[filename]['simulation_results'][sim_cache_key] = {
         'x': trajectory_x,
         'y': trajectory_y,
         'velocities': trajectory_velocities,
-        'headings': trajectory_headings, # New: store headings
-        'lap_times': final_lap_times
+        'headings': trajectory_headings,
+        'lap_durations': final_lap_durations,
+        'lap_completion_frames': final_lap_completion_frames
     }
     print(f"Simulation completed. Cached with key: {sim_cache_key}")
 
 # --- Simplified Update Function for Animation ---
 
-def update(frame, car_artist, text_artist_speed, text_artist_lap, traj_x, traj_y, traj_velocities, traj_headings, lap_times_data, ax_transform):
+def update(frame, car_artist, text_artist_speed, text_artist_lap, traj_x, traj_y, traj_velocities, traj_headings, lap_durations_data, lap_completion_frames_data, ax_transform):
     current_car_x = traj_x[frame]
     current_car_y = traj_y[frame]
     current_car_velocity = traj_velocities[frame]
-    current_car_heading = traj_headings[frame] # New: get current heading
+    current_car_heading = traj_headings[frame]
 
     # Update the car's position and rotation using an Affine2D transform
-    # The Rectangle was created with its center at (0,0) (i.e., xy=(-width/2, -height/2))
-    # So we apply a rotation around (0,0) then translate to the car's current position
-    # The transform must be combined with the axis's data transform
     transform = Affine2D().rotate_deg(current_car_heading) + Affine2D().translate(current_car_x, current_car_y) + ax_transform
     car_artist.set_transform(transform)
 
     text_artist_speed.set_text(f'Speed: {current_car_velocity:.2f} units/s')
 
-    # Display the most recent completed lap time up to the current frame
-    # For this simplified display, we'll just show the latest completed lap time, if any.
-    # If the simulation generated 'final_lap_times' it's the duration of completed laps.
-    # We need to know which lap it is.
-    if len(lap_times_data) > 0: # Check if any laps were completed
-        current_lap_index = len(lap_times_data) - 1 # Get the last completed lap index
-        current_lap_duration = lap_times_data[current_lap_index]
-        text_artist_lap.set_text(f'Last Lap: {current_lap_duration:.2f}s')
+    # Find the most recent lap completed by the current frame
+    current_lap_duration_to_display = None
+    current_lap_number_to_display = 0
+    for i, completion_frame in enumerate(lap_completion_frames_data):
+        if frame >= completion_frame:
+            current_lap_duration_to_display = lap_durations_data[i]
+            current_lap_number_to_display = i + 1
+        else:
+            break # Laps are ordered by completion_frame, so no more laps will be completed yet
+
+    if current_lap_duration_to_display is not None:
+        text_artist_lap.set_text(f'Lap {current_lap_number_to_display}: {current_lap_duration_to_display:.2f}s')
     else:
         text_artist_lap.set_text('Laps: --')
 
@@ -583,7 +721,8 @@ text_lap = ax.text(0.05, 0.90, '', transform=ax.transAxes, color='black', fontsi
 num_animation_frames = len(trajectory_x)
 
 ani = FuncAnimation(fig, update, frames=num_animation_frames, interval=20, blit=True, fargs=(
-    car, text_speed, text_lap, trajectory_x, trajectory_y, trajectory_velocities, trajectory_headings, final_lap_times, ax.transData # Pass trajectory_headings and ax.transData
+    car, text_speed, text_lap, trajectory_x, trajectory_y, trajectory_velocities, trajectory_headings,
+    final_lap_durations, final_lap_completion_frames, ax.transData # Pass new lap data
 ))
 
 # Close the figure to prevent it from being displayed as a static image
