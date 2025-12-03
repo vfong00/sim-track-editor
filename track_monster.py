@@ -21,39 +21,9 @@ import time
 from skimage.morphology import skeletonize
 from matplotlib.transforms import Affine2D
 import matplotlib.patches as patches
+import matplotlib.colors as mcolors
 
-"""### Car on a simple circular path"""
-
-# Simple circular track
-# Reduced number of points to speed up animation generation
-theta = np.linspace(0, 2*np.pi, 100) # Changed from 500 to 100 points
-x = 100 + 80 * np.cos(theta)
-y = 100 + 80 * np.sin(theta)
-
-fig, ax = plt.subplots(figsize=(5,5))
-ax.set_xlim(0, 200)
-ax.set_ylim(0, 200)
-
-# plot track
-ax.plot(x, y, color='black')
-
-# the "car"
-dot, = ax.plot([], [], 'o', color='red', markersize=8)
-
-def update(frame, x_data, y_data, artist):
-  # The print statement is commented out to avoid excessive output during animation
-  artist.set_data([x_data[frame]], [y_data[frame]])
-  return artist,
-
-ani = FuncAnimation(fig, update, frames=len(x), interval=10, fargs=(x, y, dot))
-
-# Close the figure to prevent it from being displayed as a static image
-plt.close(fig)
-
-# # Display the animation in Colab
-# HTML(ani.to_jshtml())
-
-"""### Converting a png of a track"""
+"""## PNG conversion of track"""
 
 tracks_data = dict()
 
@@ -80,6 +50,11 @@ def track_details(filename):
     tracks_data[filename]["start_index"] = 471
     tracks_data[filename]["direction"] = True
     tracks_data[filename]["track_scale"] = 1.5
+  elif filename == "yas marina.png":
+    tracks_data[filename]["name"] = "Yas Marina"
+    tracks_data[filename]["start_index"] = 1400
+    tracks_data[filename]["direction"] = False
+    tracks_data[filename]["track_scale"] = 1.5
 
   # Retrieve the updated details for return
   name = tracks_data[filename]["name"]
@@ -89,11 +64,11 @@ def track_details(filename):
 
   return name, start_index, direction, track_scale
 
-filename = "gb.png"
+filename = "yas marina.png"
 smoothing_factor = 15000 # smoothing factor
 total_path_vertices = 1500
 
-"""### Cache Spline, Curvature into Geometry object"""
+"""## Cache splines and curvatures into Geometry objects"""
 
 # Step 1: Load your track image (upload into Colab first)
 img = cv2.imread(filename)
@@ -165,42 +140,75 @@ pts = np.array(ordered_pts_list)
 # Apply scaling to the points BEFORE spline fitting
 pts_scaled = pts * track_scale
 
-# Sort/fit a nice smooth spline along pts
-tck, u = splprep([pts_scaled[:,1], pts_scaled[:,0]], s=smoothing_factor) # Use the scaled points
-u_fine = np.linspace(0, 1, total_path_vertices) # Increased to 1000 points for better curvature detail
-x_smooth, y_smooth = splev(u_fine, tck)
+# --- Initial spline fitting and geometry calculation (natural direction) ---
+tck_natural, u_fine_natural = splprep([pts_scaled[:,1], pts_scaled[:,0]], s=smoothing_factor)
+x_smooth_natural, y_smooth_natural = splev(u_fine_natural, tck_natural)
 
-# Calculate cumulative path length from the already scaled x_smooth, y_smooth
-distances = np.sqrt(np.diff(x_smooth)**2 + np.diff(y_smooth)**2)
-cumulative_path_length = np.concatenate(([0.], np.cumsum(distances)))
+distances_natural = np.sqrt(np.diff(x_smooth_natural)**2 + np.diff(y_smooth_natural)**2)
+cumulative_path_length_natural = np.concatenate(([0.], np.cumsum(distances_natural)))
 
-# Calculate derivatives for curvature and heading
-dx_du, dy_du = splev(u_fine, tck, der=1)
-d2x_du2, d2y_du2 = splev(u_fine, tck, der=2)
+dx_du_natural, dy_du_natural = splev(u_fine_natural, tck_natural, der=1)
+d2x_du2_natural, d2y_du2_natural = splev(u_fine_natural, tck_natural, der=2)
 
-# Calculate curvature
-# Note: Curvature will be 1/track_scale * original_curvature if coordinates are scaled.
-# This is physically correct for a scaled track.
-curvature = (dx_du * d2y_du2 - dy_du * d2x_du2) / (dx_du**2 + dy_du**2)**1.5
+curvature_natural = (dx_du_natural * d2y_du2_natural - dy_du_natural * d2x_du2_natural) / (dx_du_natural**2 + dy_du_natural**2)**1.5
 
-# Calculate heading angles (tangent to the path) in degrees
-headings_rad = np.arctan2(dy_du, dx_du)
-headings_deg = np.degrees(headings_rad)
+headings_rad_natural = np.arctan2(dy_du_natural, dx_du_natural)
+headings_deg_natural = np.degrees(headings_rad_natural)
+
+# --- Conditional Reversal Logic ---
+if not track_direction: # If track_direction is False, reverse the path
+    print(f"Reversing track direction for {filename}.")
+
+    # Reverse the order of points for spline fitting
+    pts_scaled_reversed = pts_scaled[::-1]
+
+    # Re-fit spline for the reversed path
+    tck_reversed, u_fine_reversed = splprep([pts_scaled_reversed[:,1], pts_scaled_reversed[:,0]], s=smoothing_factor)
+    x_smooth, y_smooth = splev(u_fine_reversed, tck_reversed)
+
+    # Recalculate geometry for the reversed path
+    distances = np.sqrt(np.diff(x_smooth)**2 + np.diff(y_smooth)**2)
+    cumulative_path_length = np.concatenate(([0.], np.cumsum(distances)))
+
+    dx_du, dy_du = splev(u_fine_reversed, tck_reversed, der=1)
+    d2x_du2, d2y_du2 = splev(u_fine_reversed, tck_reversed, der=2)
+
+    curvature = (dx_du * d2y_du2 - dy_du * d2x_du2) / (dx_du**2 + dy_du**2)**1.5
+
+    headings_rad = np.arctan2(dy_du, dx_du)
+    headings_deg = np.degrees(headings_rad)
+
+    # Adjust start_index for the reversed path
+    start_index = (len(x_smooth) - 1 - start_index)
+    start_index = max(0, min(start_index, len(x_smooth) - 1)) # Ensure valid index
+
+    # Assign reversed tck and u_fine
+    tck = tck_reversed
+    u_fine = u_fine_reversed
+
+else:
+    # If not reversed, use the natural calculations
+    x_smooth = x_smooth_natural
+    y_smooth = y_smooth_natural
+    cumulative_path_length = cumulative_path_length_natural
+    curvature = curvature_natural
+    headings_deg = headings_deg_natural
+    tck = tck_natural
+    u_fine = u_fine_natural
 
 # Store all resulting geometry data into tracks_data[filename]['geometry']
-# x_smooth, y_smooth, cumulative_path_length are already scaled by pts_scaled
 tracks_data[filename]['geometry']['x_smooth'] = x_smooth
 tracks_data[filename]['geometry']['y_smooth'] = y_smooth
 tracks_data[filename]['geometry']['curvature'] = curvature
 tracks_data[filename]['geometry']['cumulative_path_length'] = cumulative_path_length
 tracks_data[filename]['geometry']['tck'] = tck
 tracks_data[filename]['geometry']['u_fine'] = u_fine
-tracks_data[filename]['geometry']['start_index'] = start_index
+tracks_data[filename]['geometry']['start_index'] = start_index # Store the potentially adjusted start_index
 tracks_data[filename]['geometry']['headings_deg'] = headings_deg # Store heading degrees
 
 print(f"Geometry data for {filename} (track '{trackname}') stored in tracks_data.")
 
-"""### Helper Visualization for Track Initialization: Display Nth Point on Spline"""
+"""### Diagnostic Display Nth Point on Spline"""
 
 def visualize_nth_point(n_point, x_data, y_data, track_image, title="Highlighted Point on Track"):
     if not (0 <= n_point < len(x_data)):
@@ -231,26 +239,20 @@ def visualize_nth_point(n_point, x_data, y_data, track_image, title="Highlighted
 
 # Retrieve values from track_details
 trackname_val, start_index_val, track_direction_val, track_scale_val = track_details(filename)
-
 visualize_nth_point(start_index_val, x_smooth, y_smooth, img, title=f'Starting Point ({start_index_val}) for {trackname_val}')
-
-# # Step 5: Animate a rectangle "car" moving along the spline
-# fig, ax = plt.subplots(figsize=(6,6))
-# ax.imshow(img[...,::-1])  # convert BGR -> RGB
-# car, = ax.plot([], [], 's', markersize=10, color='red')
-
-# # Define a simple update function locally for this animation
-# def simple_update(frame, x_data, y_data, artist):
-#   artist.set_data([x_data[frame]], [y_data[frame]])
-#   return artist,
-
-# plt.close(fig)
-# ani = FuncAnimation(fig, simple_update, frames=len(x_smooth), interval=10, fargs=(x_smooth, y_smooth, car))
-
-# HTML(ani.to_jshtml())
 
 """## Initialize Physics Model
 
+### Implement Braking Distance Calculation
+
+### Subtask:
+Create a function `calculate_braking_distance(initial_velocity, target_velocity, max_deceleration, drag_coefficient)` that accurately calculates the distance required to slow down from `initial_velocity` to `target_velocity`, considering `max_deceleration` and `drag_coefficient`. This will involve solving the integral ds = v * dv / (-max_deceleration - drag_coefficient * v^2).
+
+#### Instructions
+1. Define a Python function named `calculate_braking_distance` that accepts four arguments: `initial_velocity`, `target_velocity`, `max_deceleration`, and `drag_coefficient`.
+2. Inside the function, implement the analytical solution for the braking distance by integrating the formula `ds = v * dv / (-max_deceleration - drag_coefficient * v^2)` from `initial_velocity` to `target_velocity`.
+3. Make sure to handle edge cases such as `target_velocity` being greater than or equal to `initial_velocity` (in which case braking distance should be 0 or negative, or an error should be returned), or parameters that might lead to division by zero or non-real results.
+4. Return the calculated braking distance.
 """
 
 car_x = x_smooth[start_index]
@@ -268,7 +270,7 @@ min_speed_ratio = 0.135 # Minimum speed as a ratio of max_base_speed
 max_acceleration = 52
 max_braking_deceleration = 80
 drag_coefficient = 0.0005
-lookahead_indices = 30 # New parameter to control lookahead distance for predictive braking
+dt = 0.05 # Time step for numerical integration
 
 def get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min_speed_ratio):
     # Ensure curvature is positive for calculation
@@ -282,9 +284,118 @@ def get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min
     max_speed = max(max_speed_unbounded, max_base_speed * min_speed_ratio)
     return max_speed
 
-"""## Theoretical Acceleration and Braking Times (Factoring in Drag)"""
+def calculate_braking_distance(initial_velocity, target_velocity, max_deceleration, drag_coefficient):
+    """
+    Calculates the distance required to slow down from initial_velocity to target_velocity,
+    considering max_deceleration and drag_coefficient.
 
-import numpy as np
+    Args:
+        initial_velocity (float): The car's initial speed.
+        target_velocity (float): The desired final speed.
+        max_deceleration (float): The maximum braking deceleration (positive value).
+        drag_coefficient (float): The drag coefficient (positive or zero).
+
+    Returns:
+        float: The calculated braking distance. Returns 0 if initial_velocity <= target_velocity
+               or if any parameter is invalid. Returns np.inf if target_velocity cannot be reached
+               (e.g., trying to brake to a speed below what drag allows if drag_coefficient is 0).
+    """
+
+    # Input validation and edge cases
+    if initial_velocity < 0 or target_velocity < 0 or max_deceleration <= 0 or drag_coefficient < 0:
+        print("Error: All velocities must be non-negative, max_deceleration must be positive, and drag_coefficient non-negative.")
+        return 0.0
+
+    if target_velocity >= initial_velocity:
+        return 0.0 # No braking distance needed or impossible to reach higher speed by braking
+
+    # Case 1: No drag (drag_coefficient is 0)
+    if drag_coefficient == 0:
+        # Simple kinematic equation: v_f^2 = v_i^2 + 2*a*s => s = (v_f^2 - v_i^2) / (2*a)
+        # Here, a = -max_deceleration
+        braking_distance = (target_velocity**2 - initial_velocity**2) / (2 * -max_deceleration)
+        return braking_distance # Return positive distance directly
+
+    # Case 2: With drag (drag_coefficient > 0)
+    try:
+        # The formula derived from integrating ds = v dv / (-D - c v^2)
+        # where D = max_deceleration, c = drag_coefficient
+        # S = (1 / (2*c)) * ln( (D + c * v_i^2) / (D + c * v_f^2) )
+
+        numerator_term = max_deceleration + drag_coefficient * initial_velocity**2
+        denominator_term = max_deceleration + drag_coefficient * target_velocity**2
+
+        if denominator_term <= 0 or numerator_term <= 0: # Should not happen with positive D, c, v^2
+            # This case indicates that the target velocity is unreachable or the formula is misused.
+            # For example, if target_velocity is too low that drag alone is greater than deceleration.
+            print("Error: Logarithm argument non-positive, check parameters or target_velocity.")
+            return np.inf # Return infinity if target is unreachable
+
+        braking_distance = (1 / (2 * drag_coefficient)) * np.log(numerator_term / denominator_term)
+        return braking_distance
+    except Exception as e:
+        print(f"An error occurred during braking distance calculation: {e}")
+        return 0.0
+
+print("--- Re-testing calculate_braking_distance after fix ---")
+
+# Test Case 1: Braking to a stop with drag
+initial_v1 = 100.0
+target_v1 = 0.0
+max_decel1 = 80.0
+drag_c1 = 0.0005
+dist1 = calculate_braking_distance(initial_v1, target_v1, max_decel1, drag_c1)
+print(f"Initial V: {initial_v1}, Target V: {target_v1}, Decel: {max_decel1}, Drag: {drag_c1} => Distance: {dist1:.2f}")
+
+# Test Case 2: Braking to a stop without drag (should now be positive)
+initial_v2 = 100.0
+target_v2 = 0.0
+max_decel2 = 80.0
+drag_c2 = 0.0 # No drag
+dist2 = calculate_braking_distance(initial_v2, target_v2, max_decel2, drag_c2)
+print(f"Initial V: {initial_v2}, Target V: {target_v2}, Decel: {max_decel2}, Drag: {drag_c2} => Distance: {dist2:.2f}")
+
+# Test Case 3: Braking from a high speed to a lower speed with drag
+initial_v3 = 150.0
+target_v3 = 50.0
+max_decel3 = 80.0
+drag_c3 = 0.0005
+dist3 = calculate_braking_distance(initial_v3, target_v3, max_decel3, drag_c3)
+print(f"Initial V: {initial_v3}, Target V: {target_v3}, Decel: {max_decel3}, Drag: {drag_c3} => Distance: {dist3:.2f}")
+
+# Test Case 4: Target velocity >= initial velocity (should return 0)
+initial_v4 = 50.0
+target_v4 = 50.0
+max_decel4 = 80.0
+drag_c4 = 0.0005
+dist4 = calculate_braking_distance(initial_v4, target_v4, max_decel4, drag_c4)
+print(f"Initial V: {initial_v4}, Target V: {target_v4}, Decel: {max_decel4}, Drag: {drag_c4} => Distance: {dist4:.2f} (Expected: 0.00)")
+
+# Test Case 5: Target velocity > initial velocity (should return 0)
+initial_v5 = 50.0
+target_v5 = 70.0
+max_decel5 = 80.0
+drag_c5 = 0.0005
+dist5 = calculate_braking_distance(initial_v5, target_v5, max_decel5, drag_c5)
+print(f"Initial V: {initial_v5}, Target V: {target_v5}, Decel: {max_decel5}, Drag: {drag_c5} => Distance: {dist5:.2f} (Expected: 0.00)")
+
+# Test Case 6: Invalid input (negative velocity, should return 0 and print error)
+initial_v6 = -10.0
+target_v6 = 0.0
+max_decel6 = 80.0
+drag_c6 = 0.0005
+dist6 = calculate_braking_distance(initial_v6, target_v6, max_decel6, drag_c6)
+print(f"Initial V: {initial_v6}, Target V: {target_v6}, Decel: {max_decel6}, Drag: {drag_c6} => Distance: {dist6:.2f} (Expected: 0.00 and Error)")
+
+# Test Case 7: Invalid input (zero deceleration, should return 0 and print error)
+initial_v7 = 100.0
+target_v7 = 0.0
+max_decel7 = 0.0
+drag_c7 = 0.0005
+dist7 = calculate_braking_distance(initial_v7, target_v7, max_decel7, drag_c7)
+print(f"Initial V: {initial_v7}, Target V: {target_v7}, Decel: {max_decel7}, Drag: {drag_c7} => Distance: {dist7:.2f} (Expected: 0.00 and Error)")
+
+"""### Theoretical Acceleration and Braking Times (Factoring in Drag)"""
 
 # Target speed for acceleration/braking test
 target_speed = 300.0 # units/second
@@ -343,7 +454,7 @@ print(f"Time to brake from {target_speed:.2f} units/s to 0 (with drag): {time_to
 # time_to_brake_no_drag = target_speed / max_braking_deceleration
 # print(f"For comparison, without drag: Acceleration Time: {time_to_accelerate_no_drag:.2f}s, Braking Time: {time_to_brake_no_drag:.2f}s")
 
-"""## Max speed vs curvature"""
+"""### Max speed vs curvature"""
 
 # --- Plotting the sample curvatures vs speeds ---
 curvature_range = np.linspace(0, 0.04, 1000) # From 0 to 0.05 with 500 points
@@ -370,38 +481,127 @@ plt.tight_layout()
 plt.show()
 # --- End plotting ---
 
-"""## Visualize Track Curvature"""
+"""## Track diagnostic visualizations
 
-import matplotlib.colors as mcolors
+### Track speed limits map
+"""
 
-# Calculate anticipated max speed for each point based on the lookahead window
-# This replicates the predictive braking logic for visualization.
+def calculate_max_entry_speed(target_velocity, braking_distance, max_deceleration, drag_coefficient):
+    """
+    Calculates the maximum initial speed a car can have to brake to target_velocity
+    within a given braking_distance. (Reverse of calculate_braking_distance)
+
+    Args:
+        target_velocity (float): The desired final speed.
+        braking_distance (float): The distance over which to brake.
+        max_deceleration (float): The maximum braking deceleration (positive value).
+        drag_coefficient (float): The drag coefficient (positive or zero).
+
+    Returns:
+        float: The maximum initial speed. Returns np.inf if not constrained by braking.
+               Returns target_velocity if braking_distance is 0.
+    """
+    if braking_distance <= 0:
+        return target_velocity # If no distance to brake, max entry speed is the target speed
+
+    if drag_coefficient == 0:
+        # v_i^2 = v_f^2 + 2*a*s => v_i^2 = v_f^2 + 2 * max_deceleration * S
+        # Note: here 'a' is deceleration, so it's positive in this context.
+        # Ensure argument to sqrt is non-negative
+        arg = target_velocity**2 + 2 * max_deceleration * braking_distance
+        return np.sqrt(max(0.0, arg))
+    else:
+        try:
+            D = max_deceleration
+            c = drag_coefficient
+            S = braking_distance
+            v_f = target_velocity
+
+            term_exp = np.exp(2 * c * S)
+            numerator_term = term_exp * (D + c * v_f**2) - D
+
+            if numerator_term < 0: # This can happen if target_velocity is too high or braking_distance too short
+                return 0.0 # Cannot reach this speed, or physically impossible to slow down
+            return np.sqrt(numerator_term / c)
+        except Exception as e:
+            print(f"Error in calculate_max_entry_speed with drag: {e}")
+            return max_base_speed # Fallback to max_base_speed if calculation fails (effectively unconstrained)
+
+
+
+# Define a lookahead_distance_factor for this visualization
+lookahead_distance_factor_viz = 2.0 # Similar to the one used in simulation
+
+# Calculate anticipated max speed for each point based on the dynamic lookahead window
 anticipated_max_speeds_for_plotting = []
 num_track_points = len(tracks_data[filename]['geometry']['curvature'])
+total_track_length = tracks_data[filename]['geometry']['cumulative_path_length'][-1]
+cumulative_path_length = tracks_data[filename]['geometry']['cumulative_path_length']
 
 for i in range(num_track_points):
-    lookahead_window_start = i
-    lookahead_window_end = min(i + lookahead_indices, num_track_points)
+    current_pos_on_track = cumulative_path_length[i]
+    current_curvature = tracks_data[filename]['geometry']['curvature'][i]
+    max_speed_at_current_point_from_curvature = get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min_speed_ratio)
 
-    # Handle wrap-around for a continuous track in lookahead if needed,
-    # but for simplicity, we'll cap at the end for static visualization.
-    lookahead_curvatures = tracks_data[filename]['geometry']['curvature'][lookahead_window_start:lookahead_window_end]
+    # Initialize with the maximum possible speed at current point based on its curvature
+    effective_max_speed_at_current_point = max_speed_at_current_point_from_curvature
 
-    if len(lookahead_curvatures) == 0: # Should not happen if lookahead_indices is reasonable
-        max_speed_in_window = get_max_speed(tracks_data[filename]['geometry']['curvature'][i], max_base_speed, min_curve_speed_factor, min_speed_ratio)
-    else:
-        max_speeds_in_window = [
-            get_max_speed(c, max_base_speed, min_curve_speed_factor, min_speed_ratio)
-            for c in lookahead_curvatures
-        ]
-        max_speed_in_window = np.min(max_speeds_in_window)
+    # The lookahead distance for visualization should reflect how far the car *would* look ahead
+    # to plan braking. Let's use max_base_speed to define this lookahead for plotting purposes.
+    dynamic_lookahead_distance = max_base_speed * lookahead_distance_factor_viz
 
-    anticipated_max_speeds_for_plotting.append(max_speed_in_window)
+    # Find the next critical point (point with lowest speed limit) within the lookahead
+    min_speed_in_lookahead_future = max_base_speed
+    distance_to_critical_point = 0.0
+    found_critical_point = False
+
+    for k in range(1, num_track_points): # Start from the next point (k=1) relative to 'i'
+        idx = (i + k) % num_track_points
+
+        dist_along_track_to_idx = cumulative_path_length[idx]
+
+        if dist_along_track_to_idx >= current_pos_on_track:
+            distance_from_current_point_to_idx = dist_along_track_to_idx - current_pos_on_track
+        else: # Wrap around case
+            distance_from_current_point_to_idx = (total_track_length - current_pos_on_track) + dist_along_track_to_idx
+
+        # Break if we exceed the dynamic lookahead distance
+        if distance_from_current_point_to_idx > dynamic_lookahead_distance:
+            break
+
+        max_allowed_speed_at_idx = get_max_speed(
+            tracks_data[filename]['geometry']['curvature'][idx],
+            max_base_speed,
+            min_curve_speed_factor,
+            min_speed_ratio
+        )
+
+        # Update the minimum speed found in the lookahead window
+        if max_allowed_speed_at_idx < min_speed_in_lookahead_future:
+            min_speed_in_lookahead_future = max_allowed_speed_at_idx
+            distance_to_critical_point = distance_from_current_point_to_idx
+            found_critical_point = True
+
+    # If a critical point with a lower speed limit was found, calculate the max speed the car
+    # could be at the *current* point 'i' to be able to brake to that future speed limit.
+    if found_critical_point and distance_to_critical_point > 0:
+        max_speed_from_braking_consideration = calculate_max_entry_speed(
+            min_speed_in_lookahead_future,
+            distance_to_critical_point,
+            max_braking_deceleration,
+            drag_coefficient
+        )
+        effective_max_speed_at_current_point = min(effective_max_speed_at_current_point, max_speed_from_braking_consideration)
+
+    # Also, ensure we don't exceed the global max_base_speed
+    effective_max_speed_at_current_point = min(effective_max_speed_at_current_point, max_base_speed)
+
+    anticipated_max_speeds_for_plotting.append(effective_max_speed_at_current_point)
 
 anticipated_max_speeds_for_plotting = np.array(anticipated_max_speeds_for_plotting)
 
 # Choose a colormap: 'RdYlGn' (Red-Yellow-Green) is good, with Red for low speed, Green for high speed.
-cmap = plt.cm.get_cmap('RdYlGn')
+cmap = mpl.colormaps['RdYlGn'] # Updated to use matplotlib.colormaps
 
 fig, ax = plt.subplots(figsize=(10, 10))
 ax.imshow(img[...,::-1], extent=[0, img.shape[1] * track_scale, img.shape[0] * track_scale, 0])
@@ -415,7 +615,7 @@ scatter = ax.scatter(
     zorder=2
 )
 
-ax.set_title('Track Anticipated Max Speed Visualization (Red=Low Speed, Green=High Speed)')
+ax.set_title(f'Track Anticipated Max Speed Visualization (Dynamic Lookahead: {lookahead_distance_factor_viz}xMaxSpeed)')
 ax.set_aspect('equal', adjustable='box')
 
 # Add a colorbar
@@ -424,40 +624,81 @@ cbar.set_label('Anticipated Maximum Allowed Speed (units/s)')
 
 plt.show()
 
-"""## Track Curvature Magnitude Plot"""
+"""### Track curvatures map"""
 
-import matplotlib.pyplot as plt
+# Ensure `curvature`, `x_smooth`, `y_smooth`, `img`, `track_scale` are available from previous cells
+# Use absolute curvature to represent magnitude on the map
+abs_curvature = np.abs(tracks_data[filename]['geometry']['curvature'])
+
+# Choose a colormap: 'viridis' as requested
+cmap = mpl.colormaps['RdYlGn_r'] # Using 'viridis' for a smooth gradient
+
+fig, ax = plt.subplots(figsize=(10, 10))
+ax.imshow(img[...,::-1], extent=[0, img.shape[1] * track_scale, img.shape[0] * track_scale, 0])
+
+# Plot the track points, colored by absolute curvature magnitude
+scatter = ax.scatter(
+    x_smooth, y_smooth,
+    c=abs_curvature,
+    cmap=cmap,
+    s=20, # Size of markers
+    zorder=2, # Ensure dots are on top of the image
+    norm=mpl.colors.SymLogNorm(linthresh=0.01, vmin=abs_curvature.min(), vmax=abs_curvature.max()) # Use SymLogNorm with linthresh=0.01
+)
+
+ax.set_title('Track Curvature Map (SymLogNorm with linthresh=0.01: Emphasizing Curvature > 0.01)')
+ax.set_aspect('equal', adjustable='box')
+
+# Add a colorbar
+cbar = fig.colorbar(scatter, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
+cbar.set_label('Absolute Curvature Magnitude')
+
+plt.show()
+
+"""### Track curvatures vs index
+
+
+"""
+
 import numpy as np
 
-# Assuming 'curvature' array is available from previous cells
+# Assuming 'curvature' array and 'start_index' are available from previous cells
 # Use absolute curvature to represent magnitude
 abs_curvature = np.abs(tracks_data[filename]['geometry']['curvature'])
+start_index_for_plot = tracks_data[filename]['geometry']['start_index']
+
+# Reorder abs_curvature to start from start_index and loop around
+abs_curvature_reordered = np.roll(abs_curvature, -start_index_for_plot)
 
 fig, ax = plt.subplots(figsize=(15, 6))
 
-# Plot curvature magnitude against point index
-ax.plot(abs_curvature)
+# Plot reordered curvature magnitude against point index
+ax.plot(abs_curvature_reordered)
 
-ax.set_xlabel('Track Point Index')
+ax.set_xlabel('Track Point Index (starting from track\'s start_index)')
 ax.set_ylabel('Absolute Curvature Magnitude')
-ax.set_title('Track Curvature Magnitude Across Points')
+ax.set_title('Track Curvature Magnitude Across Points (reordered from start_index)')
 ax.grid(True, linestyle='--', alpha=0.7)
 
 plt.tight_layout()
 plt.show()
 
-mpl.rcParams['animation.embed_limit'] = 300.0 # Raise to 300 MB
-redo_simulation = True # Ensure simulation is re-run with new logic
+"""## Track simulation and caching
 
-# --- Helper Functions for Caching and Simulation ---
+### Simulation
+"""
 
-def generate_sim_cache_key(physics_params):
+def generate_sim_cache_key(physics_params, filename):
     # Convert physics_params dictionary to a sorted string for consistent hashing
     sorted_params = sorted(physics_params.items())
-    params_str = str(sorted_params)
-    return hashlib.sha256(params_str.encode('utf-8')).hexdigest()
+    # Include filename in the string to be hashed
+    params_and_filename_str = str(sorted_params) + filename
+    return hashlib.sha256(params_and_filename_str.encode('utf-8')).hexdigest()
 
-def simulate_car_trajectory(geometry_data, physics_params, num_frames=2500):
+mpl.rcParams['animation.embed_limit'] = 300.0 # Raise to 300 MB
+redo_simulation = False # Ensure simulation is re-run with new logic
+
+def simulate_car_trajectory(geometry_data, physics_params, num_frames=1765):
     # Extract geometry data
     x_smooth = geometry_data['x_smooth']
     y_smooth = geometry_data['y_smooth']
@@ -477,7 +718,7 @@ def simulate_car_trajectory(geometry_data, physics_params, num_frames=2500):
     max_acceleration = physics_params['max_acceleration']
     max_braking_deceleration = physics_params['max_braking_deceleration']
     drag_coefficient = physics_params['drag_coefficient']
-    lookahead_indices = physics_params['lookahead_indices'] # New parameter to control lookahead distance for predictive braking
+    lookahead_distance_factor = physics_params['lookahead_distance_factor'] # New parameter
 
     # Initialize local simulation state variables
     car_x_points = []
@@ -511,37 +752,68 @@ def simulate_car_trajectory(geometry_data, physics_params, num_frames=2500):
         # Get current curvature at the car's position
         current_curvature = curvature[car_current_index]
 
-        # --- Predictive Braking Logic ---
-        # Calculate minimum allowed speed within a lookahead window
-        lookahead_window_start = car_current_index
-        # Ensure lookahead wraps around the track if near the end
-        lookahead_curvatures_list = []
-        for k in range(lookahead_indices):
-            idx = (lookahead_window_start + k) % len(curvature)
-            lookahead_curvatures_list.append(curvature[idx])
-        lookahead_curvatures = np.array(lookahead_curvatures_list)
+        # --- Predictive Braking Logic (Dynamic Lookahead) ---
+        dynamic_lookahead_distance = car_velocity * lookahead_distance_factor
 
-        # If the lookahead window is empty (should not happen with good lookahead_indices), default to current curvature
-        if len(lookahead_curvatures) == 0: # Should not happen if lookahead_indices is reasonable
+        min_speed_in_lookahead = max_base_speed
+        distance_to_critical_point = np.inf
+
+        # Iterate through points ahead of the car
+        for k in range(len(curvature)): # Iterate up to all points, will break if distance exceeded
+            idx = (car_current_index + k) % len(curvature)
+
+            # Calculate distance from car to this point 'idx'
+            dist_along_track_to_idx = cumulative_path_length[idx]
+
+            if dist_along_track_to_idx >= current_pos_on_loop:
+                distance_from_car = dist_along_track_to_idx - current_pos_on_loop
+            else: # Wrap around case
+                distance_from_car = (total_track_length - current_pos_on_loop) + dist_along_track_to_idx
+
+            if distance_from_car > dynamic_lookahead_distance and k > 0: # Only break if we've moved past the first point and exceeded lookahead
+                break
+
+            max_allowed_speed_at_idx = get_max_speed(curvature[idx], max_base_speed, min_curve_speed_factor, min_speed_ratio)
+
+            if max_allowed_speed_at_idx < min_speed_in_lookahead:
+                min_speed_in_lookahead = max_allowed_speed_at_idx
+                distance_to_critical_point = distance_from_car
+
+        # If no critical point was found (e.g., very short lookahead, flat track), default to current point's max speed
+        if distance_to_critical_point == np.inf:
             max_speed_in_lookahead = get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min_speed_ratio)
+            distance_to_critical_point = 0.0 # Effectively no braking needed for upcoming turns
         else:
-            # Calculate max allowed speed for each point in the lookahead window
-            max_speeds_in_window = [
-                get_max_speed(c, max_base_speed, min_curve_speed_factor, min_speed_ratio)
-                for c in lookahead_curvatures
-            ]
-            # The minimum of these is the speed limit the car should anticipate
-            max_speed_in_lookahead = np.min(max_speeds_in_window)
+            max_speed_in_lookahead = min_speed_in_lookahead
 
         # Determine desired acceleration based on current and predictive max speeds
-        target_acceleration = 0.0
+        target_acceleration = 0.0 # Default to coasting
 
-        # If car is currently faster than the upcoming speed limit, brake
-        if car_velocity > max_speed_in_lookahead:
+        current_max_allowed_speed_at_point = get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min_speed_ratio)
+
+        # Calculate required braking distance to slow down from current velocity to the future minimum speed
+        required_braking_distance = calculate_braking_distance(
+            car_velocity,
+            min_speed_in_lookahead, # Use min_speed_in_lookahead as the target velocity for braking
+            max_braking_deceleration,
+            drag_coefficient
+        )
+
+        # Apply intelligent braking heuristic
+        # Condition 1: Need to brake for an upcoming turn
+        # We need to brake if our current speed is too high for the upcoming critical point,
+        # AND we are within the braking distance for that point.
+        # Add a small buffer to distance_to_critical_point to brake slightly early
+        braking_buffer = dt * car_velocity * 0.5 # A small distance equivalent to half a time step travel
+
+        if car_velocity > min_speed_in_lookahead and required_braking_distance >= (distance_to_critical_point - braking_buffer):
             target_acceleration = -max_braking_deceleration
-        # Otherwise, accelerate up to the current max allowed speed (which might be higher than lookahead_speed)
-        elif car_velocity < get_max_speed(current_curvature, max_base_speed, min_curve_speed_factor, min_speed_ratio):
+        # Condition 2: Accelerate if currently below the allowed speed for the current point and not braking for a future point
+        elif car_velocity < current_max_allowed_speed_at_point:
             target_acceleration = max_acceleration
+        # Condition 3: If neither braking for an upcoming turn nor accelerating for current point, then coast (target_acceleration remains 0)
+        # This covers scenarios where car_velocity is between min_speed_in_lookahead and current_max_allowed_speed_at_point,
+        # and we are not yet at the braking point for the upcoming critical speed.
 
         # Calculate drag force (proportional to velocity squared)
         drag_force = drag_coefficient * car_velocity**2
@@ -550,8 +822,13 @@ def simulate_car_trajectory(geometry_data, physics_params, num_frames=2500):
         car_acceleration = target_acceleration - drag_force
 
         # Clamp car_acceleration to respect max_acceleration limits
-        # For now, we should accept that drag helps max_deceleration!
-        car_acceleration = min(car_acceleration, max_acceleration)
+        # For now, we should accept that drag helps max_deceleration! (max_acceleration is for positive acceleration)
+        # If target_acceleration is -max_braking_deceleration, the actual deceleration can be greater due to drag
+        if target_acceleration >= 0: # Accelerating or coasting
+            car_acceleration = min(car_acceleration, max_acceleration)
+        else: # Braking
+            # Ensure effective deceleration is not less than max_braking_deceleration (i.e. not accelerating)
+            car_acceleration = max(car_acceleration, -max_braking_deceleration)
 
         # Update car_velocity
         car_velocity += car_acceleration * dt
@@ -587,7 +864,7 @@ def simulate_car_trajectory(geometry_data, physics_params, num_frames=2500):
 
     return car_x_points, car_y_points, car_velocities_history, car_headings_history, lap_durations, lap_completion_frames
 
-# --- Simulation Caching Logic ---
+"""### Loading/caching"""
 
 # Get geometry data for the current filename
 geometry_data = tracks_data[filename]['geometry']
@@ -601,10 +878,10 @@ physics_params = {
     'max_acceleration': max_acceleration,
     'max_braking_deceleration': max_braking_deceleration,
     'drag_coefficient': drag_coefficient,
-    'lookahead_indices': lookahead_indices
+    'lookahead_distance_factor': 2.0 # Updated: Use a dynamic lookahead based on distance
 }
 
-sim_cache_key = generate_sim_cache_key(physics_params)
+sim_cache_key = generate_sim_cache_key(physics_params, filename)
 
 # Check if simulation results are cached
 if not redo_simulation and sim_cache_key in tracks_data[filename]['simulation_results']:
@@ -631,7 +908,7 @@ else:
     }
     print(f"Simulation completed. Cached with key: {sim_cache_key}")
 
-# --- Simplified Update Function for Animation ---
+"""### Animation updating function"""
 
 def update(frame, car_artist, text_artist_speed, text_artist_lap, traj_x, traj_y, traj_velocities, traj_headings, lap_durations_data, lap_completion_frames_data, ax_transform):
     current_car_x = traj_x[frame]
@@ -662,7 +939,7 @@ def update(frame, car_artist, text_artist_speed, text_artist_lap, traj_x, traj_y
 
     return car_artist, text_artist_speed, text_artist_lap
 
-"""## Car Speed Profile Over Time (pre-animation sanity check)"""
+"""### Diagnostic: Velocity Profile"""
 
 fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -679,7 +956,7 @@ ax.legend()
 plt.tight_layout()
 plt.show()
 
-"""## Animation of Physics Model on Track"""
+"""## Animation of Model on Track"""
 
 redo_simulation = False
 
