@@ -1,5 +1,5 @@
 import type { CarState, Controls } from '../race/car';
-import { CAR_RADIUS, clamp, type LanePlans, type LaneSet } from '../race/lanes';
+import { clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet } from '../race/lanes';
 import type { CarModel, PhysicsParams } from '../physics/model';
 import type { Rng } from '../rng';
 import type { Corner } from '../track/corners';
@@ -78,7 +78,7 @@ function distTo(lanes: LaneSet, s: number, apex: number): number {
 export function wakeEffects(me: CraftCar, near: Near[], ctx: CraftContext): { grip: number; drag: number; source: number } {
   let best: Near | null = null;
   for (const o of near) {
-    if (o.gap <= 2 * CAR_RADIUS || o.gap > WAKE_RANGE || Math.abs(o.dd) > WAKE_WIDTH) continue;
+    if (o.gap <= HIT_LEN || o.gap > WAKE_RANGE || Math.abs(o.dd) > WAKE_WIDTH) continue;
     if (!best || o.gap < best.gap) best = o;
   }
   if (!best) return { grip: 1, drag: 1, source: -1 };
@@ -108,7 +108,10 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
 
   // Target speed: braking envelope, scaled for dirty air (corner speed ∝ √grip).
   const ahead = st.s + (st.v * dt) / lanes.stretch(st.s, st.delta);
-  let vEnv = plans.envelope(ahead, st.delta) * Math.sqrt(wake.grip);
+  // How deep in the tow and in dirty air (0 = clean, 1 = full): plan braking for it.
+  const ph = ctx.physics;
+  const depth = { tow: ph.slipstream > 0 ? (1 - wake.drag) / ph.slipstream : 0, dirty: ph.dirtyAir > 0 ? (1 - wake.grip) / ph.dirtyAir : 0 };
+  let vEnv = plans.envelope(ahead, st.delta, depth.tow, depth.dirty);
   let wantDelta = 0;
   let started: Mistake | null = null;
 
@@ -145,8 +148,8 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   // --- Who is directly in front (roughly in line) and who is close behind.
   let front: Near | null = null, behind: Near | null = null;
   for (const o of near) {
-    if (o.gap > 2 * CAR_RADIUS - 0.5 && o.gap < 60 && Math.abs(o.dd) < 3.5 && (!front || o.gap < front.gap)) front = o;
-    if (o.gap < -2 * CAR_RADIUS + 0.5 && o.gap > -25 && (!behind || o.gap > behind.gap)) behind = o;
+    if (o.gap > HIT_LEN - 0.5 && o.gap < 60 && Math.abs(o.dd) < HIT_W + 1 && (!front || o.gap < front.gap)) front = o;
+    if (o.gap < -HIT_LEN + 0.5 && o.gap > -25 && (!behind || o.gap > behind.gap)) behind = o;
   }
   // Cars alongside, by side (+1 = on my left).
   let leftBusy = false, rightBusy = false, anyAlongside = false, allOutside = true;
@@ -165,7 +168,9 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     const faster = target.plans.lapTime - plans.lapTime; // s per lap the attacker is quicker
     const closing = st.v - front.v;
     const close = front.gap < 14 + 6 * drv.aggression;
-    const want = drv.aggression * 0.6 + Math.max(0, faster) * 0.8 + (closing > 1 ? 0.3 : 0);
+    // A reason to go: a pace advantage or a run on the car (closing speed). Aggression alone
+    // only rarely starts a move on an equal car.
+    const want = drv.aggression * 0.15 + Math.max(0, faster) * 0.8 + (closing > 1 ? 0.3 : 0);
     if (close && toCorner > 60 && me.rng.next() < want) {
       // Prefer the inside of the next corner, else the other side, if there's room.
       const inside = corner ? corner.dir : 1;
@@ -188,7 +193,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     for (const x of near) if (x.j === cr.other) o = x;
     const passed = !o || o.gap < -ALONGSIDE;
     const dropped = o && o.gap > 35;
-    const beatenAtApex = o && toCorner < 8 && corner && ci === cr.corner && o.gap > 2 * CAR_RADIUS;
+    const beatenAtApex = o && toCorner < 8 && corner && ci === cr.corner && o.gap > HIT_LEN;
     if (passed || dropped || beatenAtApex || ci !== cr.corner && o && o.gap > ALONGSIDE) {
       cr.mode = 'line';
     } else if (o) {
@@ -200,7 +205,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       const committed = o.gap < ALONGSIDE + 6;
       if (!committed && !room(cr.side) && room(-cr.side) && !busy(-cr.side)) cr.side = -cr.side;
       wantDelta = clamp(o.d + cr.side * (SIDE_GAP + 0.3), -lim, lim) - lineD;
-      // Brave: carry more speed into the braking zone while fighting for the corner.
+      // Brave: brake later while fighting for the corner (not a higher cornering speed).
       if (Math.abs(o.gap) < 12) brave = 1 + 0.05 * drv.bravery;
     }
   }
@@ -225,7 +230,35 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   // --- Side by side into a corner: whoever is on the inside keeps the inside line.
   if (cr.mode === 'line' && corner && toCorner < 150 && anyAlongside && allOutside) wantDelta = st.delta;
 
-  vEnv *= brave;
+  // Only in the braking zone (the envelope asks to slow down) and before the turn-in: the car
+  // brakes later and less, but never speeds up from it, and corner speed is unchanged.
+  wantDelta = feasibleDelta(me, wantDelta, depth, ahead);
+  const braveNow = brave > 1 && vEnv < st.v && toCorner > 30;
+  if (braveNow) vEnv = Math.min(st.v, vEnv * brave);
   const tc = trafficControls({ st, d: me.d, model: me.model, plans, lanes, dt }, near, wantDelta, vEnv);
-  return { ctl: { ...tc.ctl, effects }, following: tc.following, mistake: started };
+  // Moving across the road: respect the speed of the lane we're heading for too, so a car isn't
+  // carried onto a tighter line faster than it can take it.
+  let vLane = plans.envelope(ahead, tc.ctl.deltaTarget, depth.tow, depth.dirty);
+  if (braveNow) vLane = Math.min(st.v, vLane * brave);
+  const ctl = { ...tc.ctl, vTarget: Math.min(tc.ctl.vTarget, vLane), effects };
+  return { ctl, following: tc.following, mistake: started };
+}
+
+/**
+ * A driver doesn't steer onto a lane it can't take at its current speed: at the cornering limit
+ * there is no grip left to slow down, so tightening the line mid-corner would only slide. Moves
+ * the wanted offset back toward the current one until the lane's braking envelope (just ahead
+ * and a little further on) allows the current speed.
+ */
+function feasibleDelta(me: CraftCar, want: number, depth: { tow: number; dirty: number }, ahead: number): number {
+  const { st, plans } = me;
+  const ok = (delta: number) =>
+    plans.envelope(ahead, delta, depth.tow, depth.dirty) >= st.v * 0.995 &&
+    plans.envelope(ahead + st.v * 0.5, delta, depth.tow, depth.dirty) >= st.v * 0.995;
+  if (ok(want)) return want;
+  for (let f = 0.75; f > 0; f -= 0.25) {
+    const d = st.delta + (want - st.delta) * f;
+    if (ok(d)) return d;
+  }
+  return st.delta;
 }

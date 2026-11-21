@@ -6,7 +6,9 @@ import type { Track } from '../track/track';
 /** Car body: drawn size and the collision circle. */
 export const CAR_LENGTH = 4.0;
 export const CAR_WIDTH = 1.8;
-export const CAR_RADIUS = 2.0;
+/** Collision footprint (centre to centre) in the (s, d) frame: car length, and width plus a small margin. */
+export const HIT_LEN = CAR_LENGTH;
+export const HIT_W = CAR_WIDTH + 0.2;
 
 /** Hard sideways limit for the car's centre so the body stays on the road. */
 export const dHard = (track: Track) => track.width / 2 - CAR_WIDTH / 2;
@@ -102,15 +104,37 @@ export class LanePlans {
   private readonly speeds: Float64Array[];
   /** Braking envelopes (no forward pass): the speed a driver may carry at each point. */
   readonly envelopes: Float64Array[];
-  constructor(readonly lanes: LaneSet, readonly model: CarModel, effects?: Effects) {
+  /**
+   * `tow` / `dirty`: effects in the fullest slipstream (less drag to help braking) and the
+   * thickest dirty air (less grip). Drivers blend toward each envelope by how deep in it they
+   * are, so they brake for the car they're actually driving, not the clean-air one.
+   */
+  constructor(readonly lanes: LaneSet, readonly model: CarModel, effects?: Effects, tow?: Effects, dirty?: Effects) {
     this.profiles = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects }));
     this.envelopes = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects, forward: false }).v);
     this.speeds = this.profiles.map((p) => p.v);
+    const inv = (v: Float64Array) => v.map((x) => 1 / Math.max(x * x, 1e-6));
+    const env = (fx?: Effects) => (fx ? lanes.paths.map((p) => inv(solveSpeedProfile(p, model, { effects: fx, forward: false }).v)) : this.invSq);
+    this.invSq = this.envelopes.map(inv);
+    this.towInvSq = env(tow);
+    this.dirtyInvSq = env(dirty);
   }
-  /** Braking-envelope speed at (s, δ). */
-  envelope(s: number, delta: number): number {
-    return this.lanes.sample(this.envelopes, s, delta);
+  private readonly towInvSq: Float64Array[];
+  private readonly dirtyInvSq: Float64Array[];
+  /**
+   * Braking-envelope speed at (s, δ). Between lanes it interpolates 1/v², not v: in a corner
+   * v² = grip / curvature and curvature is interpolated linearly, so a linear blend of speeds
+   * would ask for more grip than there is whenever a car sits between two lanes.
+   */
+  envelope(s: number, delta: number, tow = 0, dirty = 0): number {
+    const clean = this.lanes.sample(this.invSq, s, delta);
+    let q = clean;
+    // 1/v² blends linearly (see above); each effect adds its own shift from clean air.
+    if (tow > 0) q += Math.min(1, tow) * (this.lanes.sample(this.towInvSq, s, delta) - clean);
+    if (dirty > 0) q += Math.min(1, dirty) * (this.lanes.sample(this.dirtyInvSq, s, delta) - clean);
+    return 1 / Math.sqrt(q);
   }
+  private readonly invSq: Float64Array[];
   /** Planned speed at (s, δ). */
   speed(s: number, delta: number): number {
     return this.lanes.sample(this.speeds, s, delta);

@@ -7,7 +7,7 @@ import { makeRng, type Rng } from '../rng';
 import type { Track } from '../track/track';
 import { type CarState, newCarState, stepCar } from './car';
 import { resolveCollisions } from './collide';
-import { LanePlans, LaneSet } from './lanes';
+import { HIT_LEN, LanePlans, LaneSet } from './lanes';
 import { DT } from './lap';
 
 export interface RaceOptions {
@@ -127,7 +127,8 @@ export class Race {
       const model = new CarModel(e.car, opts.physics);
       const key = JSON.stringify([e.car, model.physics, e.driver.pace]);
       let plans = cache!.get(key);
-      if (!plans) cache!.set(key, (plans = new LanePlans(this.lanes, model, { grip: e.driver.pace, drag: 1 })));
+      if (!plans) cache!.set(key, (plans = new LanePlans(this.lanes, model, { grip: e.driver.pace, drag: 1 },
+        { grip: e.driver.pace, drag: 1 - this.physics.slipstream }, { grip: e.driver.pace * (1 - this.physics.dirtyAir), drag: 1 })));
       // Staggered two-wide grid behind the line.
       const s0 = -5 - 7 * idx;
       const s = ((s0 % track.length) + track.length) % track.length;
@@ -231,8 +232,9 @@ export class Race {
   }
 
   /**
-   * A pass is a swap in race distance between two running cars on the same lap that holds for
-   * 1.5 s (so side-by-side wobbles don't count twice). Lapping isn't a pass.
+   * A pass is a swap in race distance between two running cars on the same lap, with the passer
+   * clear by a car length, that holds for 1.5 s (so side-by-side wobbles don't count). Lapping
+   * isn't a pass.
    */
   private detectPasses(order: number[]): void {
     const L = this.track.length;
@@ -244,9 +246,12 @@ export class Race {
         const diff = A.st.dist - B.st.dist;
         if (Math.abs(diff) > L / 2) continue;
         const key = a * 1000 + b;
-        const ahead = diff >= 0 ? a : b;
         const rec = this.pairAhead.get(key);
-        if (!rec) { this.pairAhead.set(key, { ahead, since: this.t, confirmed: ahead }); continue; }
+        if (!rec) { this.pairAhead.set(key, { ahead: diff >= 0 ? a : b, since: this.t, confirmed: diff >= 0 ? a : b }); continue; }
+        // Who is ahead only changes once a car is clear by a car length: nose swaps while
+        // side by side aren't passes.
+        if (Math.abs(diff) < HIT_LEN) continue;
+        const ahead = diff >= 0 ? a : b;
         if (rec.ahead !== ahead) { rec.ahead = ahead; rec.since = this.t; }
         if (rec.ahead !== rec.confirmed && this.t - rec.since >= 1.5) {
           rec.confirmed = rec.ahead;

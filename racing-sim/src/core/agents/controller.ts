@@ -1,5 +1,5 @@
 import type { Controls } from '../race/car';
-import { CAR_RADIUS, clamp, type LanePlans, type LaneSet } from '../race/lanes';
+import { clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet } from '../race/lanes';
 import type { CarModel } from '../physics/model';
 import type { CarState } from '../race/car';
 
@@ -15,9 +15,9 @@ export interface Near {
 }
 
 /** Lateral clearance two cars keep when side by side (centre to centre). */
-export const SIDE_GAP = 2 * CAR_RADIUS + 0.4;
+export const SIDE_GAP = HIT_W + 0.6;
 /** Longitudinal distance within which a car counts as alongside. */
-export const ALONGSIDE = 2 * CAR_RADIUS + 2;
+export const ALONGSIDE = HIT_LEN + 2;
 
 export interface DriverView {
   st: CarState;
@@ -62,10 +62,10 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   const b = brakeGain * me.model.maxBrake(st.v, 0);
   for (const o of near) {
     if (o.gap <= 0 || o.gap > look) continue;
-    const overlap = Math.min(Math.abs(o.d - me.d), Math.abs(o.d - targetD)) < 2 * CAR_RADIUS + 0.2;
+    const overlap = Math.min(Math.abs(o.d - me.d), Math.abs(o.d - targetD)) < HIT_W + 0.2;
     if (!overlap) continue;
     const bo = me.model.maxBrake(o.v, 0);
-    const room = o.gap - 2 * CAR_RADIUS - 1.0 - 0.03 * st.v;
+    const room = o.gap - HIT_LEN - 1.0 - 0.03 * st.v;
     const vAllowed = room > 0 ? Math.sqrt(o.v * o.v * (b / bo) + 2 * b * room) : Math.max(0, o.v - 2 + room);
     if (vAllowed < vTarget) {
       vTarget = vAllowed;

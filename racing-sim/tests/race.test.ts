@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAR_RADIUS, dHard, generateTrack, LaneSet, makeField, makeRng, Race } from '../src/core';
+import { dHard, HIT_LEN, HIT_W, generateTrack, LaneSet, makeField, makeRng, Race } from '../src/core';
 
 const track = generateTrack({ seed: 7 });
 const lanes = new LaneSet(track);
@@ -14,7 +14,8 @@ describe('a field of cars', () => {
   it('finishes, and nobody overlaps or leaves the road on any tick', () => {
     expect(r.finished).toBe(true);
     const lim = dHard(track) + 1e-6;
-    let minGap = Infinity;
+    // Overlap of the two footprints: positive on both axes means the cars intersect.
+    let worst = -Infinity;
     for (const f of r.frames) {
       for (let i = 0; i < N; i++) {
         expect(Math.abs(f[i * 3 + 1])).toBeLessThanOrEqual(lim);
@@ -22,12 +23,13 @@ describe('a field of cars', () => {
           let ds = f[j * 3] - f[i * 3];
           if (ds > L / 2) ds -= L;
           if (ds < -L / 2) ds += L;
-          minGap = Math.min(minGap, Math.hypot(ds, f[j * 3 + 1] - f[i * 3 + 1]));
+          const dd = f[j * 3 + 1] - f[i * 3 + 1];
+          worst = Math.max(worst, Math.min(HIT_LEN - Math.abs(ds), HIT_W - Math.abs(dd)));
         }
       }
     }
     // Float32 log rounding allowance.
-    expect(minGap).toBeGreaterThan(2 * CAR_RADIUS - 1e-3);
+    expect(worst).toBeLessThan(1e-3);
   });
 
   it('positions are a permutation, follow race distance every tick, and end in finish order', () => {

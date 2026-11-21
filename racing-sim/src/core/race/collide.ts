@@ -1,5 +1,5 @@
 import type { CarState } from './car';
-import { CAR_RADIUS, clamp, type LaneSet } from './lanes';
+import { clamp, HIT_LEN, HIT_W, type LaneSet } from './lanes';
 
 export interface Contact {
   a: number;
@@ -17,14 +17,14 @@ interface Body {
 const SCRUB = 0.03;
 
 /**
- * Circle collisions in the (s, d) frame: overlapping cars are pushed apart along the line
- * between their centres, their closing speed along that line is removed (nearly inelastic)
+ * Rectangle collisions in the (s, d) frame (cars are roughly aligned with the road): overlapping
+ * cars are pushed apart along the axis of least overlap (nose-to-tail along s, side-by-side
+ * along d), their closing speed along that axis is removed (nearly inelastic)
  * and both scrub a little speed. Repeats until nothing overlaps. The road clamp still
  * applies; if one car is pinned against the edge, the other takes the whole push.
  */
 export function resolveCollisions(cars: Body[], lanes: LaneSet): Contact[] {
   const L = lanes.track.length;
-  const min = 2 * CAR_RADIUS;
   const out: Contact[] = [];
   const seen = new Set<number>();
   for (let iter = 0; iter < 30; iter++) {
@@ -35,13 +35,14 @@ export function resolveCollisions(cars: Body[], lanes: LaneSet): Contact[] {
         let ds = B.st.s - A.st.s;
         if (ds >= L / 2) ds -= L;
         else if (ds < -L / 2) ds += L;
-        if (Math.abs(ds) >= min) continue;
+        if (Math.abs(ds) >= HIT_LEN - 1e-9) continue;
         const dd = B.d - A.d;
-        const dist = Math.hypot(ds, dd);
-        if (dist >= min - 1e-9) continue;
+        if (Math.abs(dd) >= HIT_W - 1e-9) continue;
         any = true;
-        // Unit normal from A to B (in s, d); if exactly on top of each other, split along s.
-        const nx = dist > 1e-9 ? ds / dist : 1, ny = dist > 1e-9 ? dd / dist : 0;
+        // Separate along the axis with the smaller overlap (relative to the footprint size).
+        const penS = HIT_LEN - Math.abs(ds), penD = HIT_W - Math.abs(dd);
+        const alongS = penS / HIT_LEN <= penD / HIT_W;
+        const nx = alongS ? (ds >= 0 ? 1 : -1) : 0, ny = alongS ? 0 : dd >= 0 ? 1 : -1;
         const key = i * 1000 + j;
         if (!seen.has(key)) {
           seen.add(key);
@@ -57,7 +58,7 @@ export function resolveCollisions(cars: Body[], lanes: LaneSet): Contact[] {
             B.st.v *= 1 - SCRUB;
           }
         }
-        const push = min - dist + 1e-6;
+        const push = (alongS ? penS : penD) + 1e-6;
         const movedA = move(A, lanes, -push / 2 * nx, -push / 2 * ny, L);
         const left = push - movedA;
         move(B, lanes, left * nx, left * ny, L);
