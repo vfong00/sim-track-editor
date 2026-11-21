@@ -1,0 +1,261 @@
+# Racing Sim — Plan
+
+> A 2D racing simulator that runs races on any track you can draw or generate, with drivers of
+> different skill, watchable live like a broadcast and scriptable like a FIFA "custom match."
+> Successor to `track_monster.py` (the Colab notebook), rebuilt from scratch.
+
+## Vision
+
+- **Any track:** generate a random layout, draw one by clicking, or import a PNG.
+- **Real racing on it:** cars of different specs, drivers of different skill, and overtakes,
+  trains, mistakes and incidents that come out of simple rules rather than scripted events.
+- **Watch it live:** real-time 2D view with a timing tower, camera follow, playback speed
+  controls, and an event feed ("P3 Ortiz passes Lee into T1").
+- **Dream up scenarios:** "10 equal cars, one rookie with a rocket car, rain from lap 5,
+  reverse grid." A scenario is a file you can edit, share and rerun with the same seed.
+- **Ask "what if" at scale:** run the same scenario 1,000 times headless and get result
+  distributions (win %, average overtakes, how processional a layout is).
+
+**Not goals:** real-world accuracy (no F1-specific aerodynamics, power or tire models), 3D or
+elevation, multiplayer, or game physics engines. Plausible and fun beats faithful.
+
+## Design rules (lessons from reviewing the notebook)
+
+1. **One physics model.** The planner and the integrator must use the same limits. (The old bug:
+   braking planned with drag, simulated without it, so the car braked ~26% too late.)
+2. **Closed tracks are closed.** Periodic splines, evenly resampled, no seam.
+3. **Deterministic:** same scenario and seed give the same race. All randomness goes through one
+   seeded random number generator per race.
+4. **The sim never knows about rendering.** The core produces a state log, and viewers read it.
+   Headless runs and live view share the same code.
+5. **Every cache key covers every input** (track, cars, drivers, physics, seed, code version).
+6. **Behavior from rules, not special cases.** Trains, slipstream battles and defending should
+   emerge from the lane, gap and grip rules.
+7. **Self-testable.** Every phase ends with automated checks an agent can run, not "looks right."
+8. **Always keep the dev server up.** Start `npm run dev` (Vite, localhost) at the start of each
+   phase and leave it running throughout, so progress can be tracked visually. Each phase must add
+   something visible to the page (track, car, field, event feed). Verify it in the browser
+   (screenshot and console check) before calling the phase done, and leave the server running at
+   the end.
+
+## Architecture
+
+```
+racing-sim/
+  src/
+    core/        # pure, deterministic, no DOM: math, track, car, driver, race loop
+      track/     #   generation, spline, resample, curvature, width, (s,d) frame
+      physics/   #   point mass + friction circle, speed-profile solver
+      agents/    #   driver controller, overtaking, collisions
+      race/      #   race loop, timing, events, state log
+      scenario/  #   schema, validation, loading
+    view/        # HTML canvas renderer, camera, HUD, timing tower, event feed
+    editor/      # track drawing and scenario editing UI
+    cli/         # headless runner: run N races, write summary JSON
+  tests/
+  scenarios/     # example scenario JSON files
+```
+
+- **Stack:** TypeScript, Vite, HTML Canvas 2D, and Vitest for tests. The core runs in the browser
+  and in Node, so one codebase covers both the live view and batch runs.
+- **Coordinates:** each car's position is `(s, d)` (distance along the centerline, sideways
+  offset within the track width), converted to `(x, y)` only for drawing.
+- **Fixed timestep:** the sim ticks at a fixed `dt` (e.g. 1/60 s). The viewer interpolates between
+  ticks and can run at 0.25x–16x or skip ahead.
+
+## Scenario format (draft)
+
+```json
+{
+  "name": "Rookie with a rocket",
+  "seed": 42,
+  "track": { "type": "generated", "seed": 7, "width": 14, "complexity": 0.6 },
+  "race":  { "laps": 20, "start": "grid", "gridOrder": "reverse-rating" },
+  "physics": { "slipstream": 0.08, "dirtyAir": 0.2 },
+  "cars": [
+    { "id": "rocket", "topSpeed": 95, "accel": 14, "grip": 1.15, "brake": 1.1 },
+    { "id": "standard", "topSpeed": 85, "accel": 11, "grip": 1.0, "brake": 1.0 }
+  ],
+  "drivers": [
+    { "name": "Ortiz", "car": "rocket", "pace": 0.94, "consistency": 0.7,
+      "aggression": 0.8, "racecraft": 0.4, "bravery": 0.9 },
+    { "name": "Lee", "car": "standard", "pace": 0.99, "consistency": 0.95,
+      "aggression": 0.5, "racecraft": 0.9, "bravery": 0.5 }
+  ],
+  "events": [ { "lap": 5, "type": "grip", "value": 0.8, "note": "rain" } ]
+}
+```
+
+Track `type` can also be `"drawn"` (a list of points) or `"png"` (an image plus a known length for
+scale).
+
+## Phases
+
+Each phase is shippable on its own and ends with checks an agent can run. Every phase also
+ends with the localhost dev server running and showing that phase's visuals (design rule 8).
+
+### Phase 0: Skeleton
+- Vite + TypeScript project, Vitest, a seeded random number generator, a blank canvas page and a
+  CLI entry point.
+- **Done when:** `npm test` passes, `npm run dev` shows a page, and `npm run sim -- --help` works.
+
+### Phase 1: Tracks
+- Random generator: random points → convex hull → perturb → closed periodic spline, with a minimum
+  corner radius and no self-intersection.
+- Even resampling (~1 m), curvature, constant width, the `(s, d) ↔ (x, y)` mapping.
+- Drawn tracks from clicked points. PNG import ported from the notebook (thin to a centerline,
+  order the pixels, fit), scaled from a user-given length.
+- Canvas view: the track with curvature coloring.
+- **Checks:** a circle of radius r gives curvature 1/r everywhere; the generator never produces
+  self-intersecting tracks across 1,000 seeds; the spline is continuous at the seam; `(s, d)`
+  round-trips through `(x, y)`.
+
+### Phase 2: One car, one lap
+- Point-mass car with a friction circle (braking plus turning ≤ grip), top speed and acceleration.
+- Racing line heuristic: outside → apex → outside, smoothed, kept within the width.
+- Forward–backward speed solver on the racing line gives the lap time.
+- Time-stepped car that follows the line using the **same** limits (rule 1).
+- Live view: car driving, speed trace, lap timer.
+- **Checks:** the solver's lap time and the time-stepped lap time agree within 1%; constant-radius
+  circle speed equals `√(grip·g·r)`; braking and acceleration distances match the formulas; the
+  racing line is faster than the centerline on every generated track.
+
+### Phase 3: A field of cars
+- N cars, grid start, and lap and position timing.
+- Same-lane gap rule (can't pass through a car ahead), sideways spacing, collisions (push apart
+  and scrub speed; a car-sized 4 m × 2 m footprint since Phase 4, first a circle), staying on track.
+- Timing tower, camera follow, playback speed controls.
+- **Checks:** no two cars overlap after collision resolution; no car leaves the track; positions
+  and timing are consistent; same seed gives an identical state log.
+
+### Phase 4: Racing
+- Driver controller: follow the racing line → pull out to an open side when close behind →
+  brake later (bravery) → defend the inside once (racecraft) → keep the inside line at the apex.
+- Slipstream (drag cut when close behind on straights) and dirty air (grip loss in corners).
+- Mistakes (running wide, lock-ups) scaled by consistency and how far over the limit the driver is.
+- Event feed (passes, mistakes, contact).
+- **Checks:** with identical cars and drivers, overtakes happen but stay rare; with a large pace gap,
+  the faster driver gets through within a few laps; dirty air holds a faster car up (removing it
+  cuts the time spent stuck behind a slower car by ≥30%) and slipstream helps it by (removing it
+  raises that time by ≥30%), measured in 2-car races over 3%, 4.5% and 6% pace gaps; long-straight
+  tracks produce more passes than twisty ones.
+- **Done** (64e9b28, 7ca4885, 882e366). The original check "zero slipstream and dirty air removes
+  trains" was reworded: the two effects pull opposite ways and "within 1 s" can't tell a battle from
+  a car stuck behind. Drivers plan braking at 94% of maximum (the margin bravery uses up).
+  Soft spot: a 3%-faster car rarely gets past with dirty air on.
+
+### Phase 5: Incidents (crashes and off-track) — Opus
+- The road edge stops being a wall: a run-off strip beyond it with low grip and extra drag. A car
+  that slides wide, locks up or gets pushed in contact can drop wheels off, lose time and rejoin.
+- Spins: sliding well past the limit (or a hard hit at an angle) spins the car; it loses most of
+  its speed, may stop on track and becomes a hazard the others must avoid.
+- Crashes: a heavy off at speed or a big closing-speed contact ends the race for that car (DNF).
+  The car stays where it stopped (off line or in the run-off) for the rest of the race.
+- Light damage from contact: a small, lasting loss of grip or top speed.
+- Odds come from the physics (how far over the limit, closing speed), scaled by the driver's
+  consistency and risk-taking; nothing is rolled from thin air.
+- View: run-off drawn beside the road, spun / stopped / retired cars marked, DNF in the tower, and
+  feed lines ("Rossi spins at T3", "Kaur off at T5, rejoins P9", "Brandt crashes out at T2").
+- **Checks:** a lone, perfectly consistent driver never leaves the road or spins; every off-track
+  excursion, spin and crash follows a logged slide, lock-up or contact; incident rates rise with
+  risk-taking and fall with consistency; an average 12-car, 10-lap field has a sane DNF count
+  (e.g. mean 0–2 over seeds); stopped and retired cars are avoided (no car drives through one);
+  same seed still gives an identical log. Phase 3's "no car leaves the track" becomes "no car
+  leaves the road without a logged incident."
+- **Done.** Run-off 10 m each side (half grip, gravel drag) with a barrier; track limits are
+  cosmetic. Every off, spin and crash carries a `cause` chain to a slide, mistake or contact.
+  Risk-taking = mean(aggression, bravery). The rates check counts incidents rooted in the
+  driver's own slide or mistake (contact-caused ones are noise). Phase 4's wake checks now run
+  with `incidents: false` (the road edge is a wall again): with incidents on, brave late braking
+  that overshoots costs an off or spin, which cut slipstream's measured benefit to ~15%.
+
+### Phase 6: Scenarios — Opus
+- Scenario schema, validation and loading; example scenario files.
+- Driver ratings exposed simply: speed, consistency and risk-taking (the internal aggression,
+  racecraft and bravery derive from these).
+- Scenario editor UI (track, cars, drivers, race rules, incident settings, mid-race events like
+  grip changes or a safety car).
+- Share by file or URL; replays from seed.
+- **Checks:** every example scenario validates and runs to completion; invalid files fail with
+  clear errors; replay from seed matches the original log.
+- **Done.** Ratings: speed → pace 0.96–1.0 (0.5 = average 0.98); consistency as is; risk →
+  aggression and bravery (so riskTaking = risk); racecraft = mean(speed, consistency). Internal
+  ratings stay available as `advanced` overrides. Strict validation (unknown keys are errors with
+  "did you mean"; every error names its field), `version` 1. Events fire when the leader starts a
+  lap: grip (rebuilds every car's model and plans), spin, retire. Safety car deferred (a new
+  behaviour: pace car, no passing, bunching). Grid orders rank by solver lap time of car + driver.
+  Share links: deflate + base64url in `#s=`, refused over 16 kB (PNG tracks: share the file).
+  Fixed a Phase 5 avoidance bug the rain example exposed: hazards are judged where the car's lane
+  will be at the hazard, not where the car is now (a line sweeping across the road ran the field
+  into a wreck at the edge). Replay is bit-identical in one JS engine; generated and drawn tracks
+  also match between Node and Chrome, PNG tracks can differ in the last float digits.
+- **Follow-up (after Phase 6):** safety car (scripted `safety-car` event for N laps, or
+  `race.safetyCar: "auto"` when a car stops for good on or beside the road): enters 150 m ahead
+  of the leader at 60% of a standard car's pace; no attacking or defending; each car closes to a
+  14 m queue gap braking ≤ 3 m/s²; stragglers catch up at 85% pace; pulls in 400 m before the
+  line on its last lap; green when the leader crosses. Wrecks are not cleared under it. A beached
+  running car (still for 30 s) retires, fixing a Phase 5 hang. Viewer: wheel/+/− zoom, overview
+  pan, ↑/↓ step through drivers, Battle cam framing the followed car's group (and the safety car).
+
+### Phase 7: Batch runs and stats — Sonnet is likely enough
+- CLI runs a scenario N times and writes a summary: win %, average finishing positions, overtakes
+  and incidents per race, and a "processional vs chaotic" score for the track.
+- Optional in-browser "simulate 100" button with result charts.
+- **Checks:** results are stable across reruns with the same seed set; the most skilled driver
+  wins most often in an equal-car scenario.
+
+### Nice to haves (pick and choose)
+- Observable tuning: a panel to adjust a driver or car (ratings, grip, power, brakes) and see what
+  changes (lap time, speed trace, braking points, where it gains or loses on another car).
+- Tyres as management rather than strategy: wear and temperature that cost grip, so pushing hard
+  (or sliding, or following in dirty air) has a cost later in the stint. Pit stops not a focus.
+- Weather: grip changes over the race (drying line, rain from lap N), building on scenario events.
+- Dropped from the earlier "FIFA layer": rating cards, generated rosters, seasons and standings,
+  broadcast replays and commentary.
+
+## Open questions
+
+- Car sprites and art style: rectangles, simple top-down shapes or generated liveries?
+- Track width: constant first, varying later?
+- Do we want any player input (e.g. "team radio" orders like "push now" or "hold position"), or
+  is it pure watching?
+- Where will it run? Static site (e.g. GitHub Pages) or local only?
+
+## Ideas inventory (after Phase 6, before Phase 7)
+
+Size: S = an hour or two, M = a session, L = a phase of its own.
+
+**Watching**
+- Timeline scrubber and rewind (the state log is complete; the viewer only plays forward). Click a feed line to jump to that moment. S–M
+- Driver name labels over cars, and car numbers. S
+- Lap chart (positions by lap) and gap chart after or during the race. M
+- Mini-map of the whole track when zoomed in. S
+- Car art: top-down shapes or generated liveries (open question). S–M
+- Phone and tablet layout. M
+
+**Playing**
+- Team radio: orders to one driver ("push", "hold position", "let them by", "save the car"), changing pace, risk or consistency for a while. Turns watching into playing (open question). M
+- Pick your driver before the start and get their view by default. S
+
+**Racing and sim**
+- Safety car extras: clear wrecks under it (they stay for ever today), lapped cars unlapping, a virtual safety car (a speed limit with no queue), a red flag. S–M each
+- Tyres: wear and temperature that cost grip, so pushing or sliding costs later in a stint. M–L
+- Gradual weather: a drying line or rain that builds over laps (events are step changes today). S
+- Track width that varies along the lap (open question). M
+- Pit stops: not a focus.
+
+**Tuning and soft spots**
+- First-lap T1 pile-ups are common (the random field loses 2 on lap 1). M
+- A 3%-faster car rarely gets past when dirty air is on. M
+- Slipstream helps less with incidents on (~15% versus the 30% bar). M
+- Observable tuning panel: change a driver or car and see where it gains or loses. M
+- These three soft spots are easier to judge with Phase 7's batch stats.
+
+**Sharing and running**
+- Hosting: a static site such as GitHub Pages, or local only (open question). S
+- PNG tracks can differ between Node and Chrome in the last float digits. S if it matters
+
+**Phase 7 (batch runs and stats)**
+- CLI: run a scenario N times and report win %, finishing positions, overtakes and incidents per race, and a processional-to-chaotic score. "Simulate 100" in the browser with charts.
+
+**Dropped**: rating cards, rosters, seasons, broadcast replays, commentary.
