@@ -39,6 +39,12 @@ export class LaneSet {
       }
       const d = new Float64Array(track.n);
       for (let j = 0; j < track.n; j++) d[j] = clamp(this.line.d[j] + off, -this.lim, this.lim);
+      // Clamping leaves kinks where the shifted line meets the edge, which would read as tight
+      // corners. Two passes of a moving average (an average of in-bounds values stays in bounds)
+      // round them off.
+      const half = Math.round(15 / track.ds);
+      smoothPeriodic(d, half);
+      smoothPeriodic(d, half);
       this.paths.push(pathFromOffsets(track, d));
     }
   }
@@ -63,14 +69,17 @@ export class LaneSet {
     return clamp(this.lineD(s) + delta, -this.lim, this.lim);
   }
 
-  /** Bilinear sample of a per-lane node array at (s, δ). */
-  sample(get: (lane: number) => Float64Array, s: number, delta: number): number {
+  /** Bilinear sample of per-lane node arrays (one per lane) at (s, δ). */
+  sample(arrs: Float64Array[], s: number, delta: number): number {
     const u = s / this.track.ds;
     const l = this.laneOf(delta);
     const a = Math.floor(l), b = Math.min(a + 1, this.offsets.length - 1), t = l - a;
-    const va = interpNode(get(a), u);
-    return t === 0 ? va : va * (1 - t) + interpNode(get(b), u) * t;
+    const va = interpNode(arrs[a], u);
+    return t === 0 ? va : va * (1 - t) + interpNode(arrs[b], u) * t;
   }
+
+  /** Per-lane curvature arrays. */
+  readonly kappas: Float64Array[] = [];
 
   /** Path length per metre of centerline (segment-constant, so stepping is exact on a lane). */
   stretch(s: number, delta: number): number {
@@ -82,22 +91,45 @@ export class LaneSet {
   }
 
   kappa(s: number, delta: number): number {
-    return this.sample((l) => this.paths[l].kappa, s, delta);
+    if (this.kappas.length === 0) for (const p of this.paths) this.kappas.push(p.kappa);
+    return this.sample(this.kappas, s, delta);
   }
 }
 
 /** Speed plans for one car (or car + driver) on every lane. */
 export class LanePlans {
   readonly profiles: SpeedProfile[];
+  private readonly speeds: Float64Array[];
+  /** Braking envelopes (no forward pass): the speed a driver may carry at each point. */
+  readonly envelopes: Float64Array[];
   constructor(readonly lanes: LaneSet, readonly model: CarModel, effects?: Effects) {
     this.profiles = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects }));
+    this.envelopes = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects, forward: false }).v);
+    this.speeds = this.profiles.map((p) => p.v);
+  }
+  /** Braking-envelope speed at (s, δ). */
+  envelope(s: number, delta: number): number {
+    return this.lanes.sample(this.envelopes, s, delta);
   }
   /** Planned speed at (s, δ). */
   speed(s: number, delta: number): number {
-    return this.lanes.sample((l) => this.profiles[l].v, s, delta);
+    return this.lanes.sample(this.speeds, s, delta);
   }
   get lapTime(): number {
     return this.profiles[this.lanes.zero].lapTime;
+  }
+}
+
+/** In-place periodic moving average over ±half samples. */
+function smoothPeriodic(a: Float64Array, half: number): void {
+  const n = a.length;
+  const src = Float64Array.from(a);
+  let sum = 0;
+  for (let k = -half; k <= half; k++) sum += src[(k + n) % n];
+  const w = 2 * half + 1;
+  for (let i = 0; i < n; i++) {
+    a[i] = sum / w;
+    sum += src[(i + half + 1) % n] - src[(i - half + n) % n];
   }
 }
 

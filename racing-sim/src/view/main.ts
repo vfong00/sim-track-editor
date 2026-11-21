@@ -7,7 +7,7 @@ const canvas = $<HTMLCanvasElement>('c');
 const ctx = canvas.getContext('2d')!;
 const traceCanvas = $<HTMLCanvasElement>('trace');
 const tctx = traceCanvas.getContext('2d')!;
-const info = $('info'), hud = $('hud'), tower = $('tower');
+const info = $('info'), hud = $('hud'), tower = $('tower'), feed = $('feed');
 const drawBtn = $<HTMLButtonElement>('draw'), closeBtn = $<HTMLButtonElement>('close');
 
 const params = new URLSearchParams(location.search);
@@ -51,6 +51,7 @@ function startRace(track: Track, label: string, lanes?: LaneSet) {
   const race = new Race({ track, lanes, entrants: makeField(FIELD, makeRng(raceSeed)), laps: LAPS, seed: raceSeed });
   const overview = fitView(track.centerline(), canvas.width, canvas.height, 50 * (devicePixelRatio || 1));
   S = { track, lanes, race, overview, cam: { ...overview }, clock: 0, label };
+  feedKey = '';
   followIdx = 0;
   info.textContent = `${label} · ${track.length.toFixed(0)} m · ${FIELD} cars · ${LAPS} laps · race seed ${raceSeed}`;
   console.info(`[racing-sim] ${label}: ${track.length.toFixed(0)} m, ${FIELD} cars, ${LAPS} laps, race seed ${raceSeed}`);
@@ -104,13 +105,33 @@ function renderTower(s: Session, order: number[]) {
     const c = r.cars[i];
     return `<div class="tr${i === followIdx ? ' sel' : ''}${c.finished ? ' fin' : ''}" data-i="${i}">
       <span class="p">${p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
-      <span>${c.entrant.driver.name}</span><span class="gap">${gapText(r, i, order[0])}</span></div>`;
+      <span>${c.entrant.driver.name}${craftTag(c.craft.mode, c.finished)}</span><span class="gap">${gapText(r, i, order[0])}</span></div>`;
   }).join('');
   const html = `<div class="hd"><span>${r.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span><span>${fmtTime(s.clock)}</span></div>${rows}`;
   if (html !== towerKey) {
     tower.innerHTML = html;
     towerKey = html;
   }
+}
+
+/** Battle marker for the tower: who is attacking or defending right now. */
+function craftTag(mode: string, finished: boolean): string {
+  if (finished || mode === 'line') return '';
+  return `<span class="tag ${mode}">${mode === 'attack' ? 'ATK' : 'DEF'}</span>`;
+}
+
+const FEED_TYPES = new Set(['pass', 'mistake', 'contact']);
+const FEED_MAX = 40;
+let feedKey = '';
+/** Event feed: passes, mistakes and contact up to the viewer clock, newest first. */
+function renderFeed(s: Session) {
+  const evs = s.race.events.filter((e) => FEED_TYPES.has(e.type) && e.t <= s.clock);
+  const key = `${evs.length}`;
+  if (key === feedKey) return;
+  feedKey = key;
+  const rows = evs.slice(-FEED_MAX).reverse().map((e) =>
+    `<div class="ev ${e.type}" data-i="${e.cars[0]}"><span class="tm">L${e.lap} ${fmtTime(e.t)}</span><span class="tx">${e.text}</span></div>`).join('');
+  feed.innerHTML = `<div class="hd">Race events · ${evs.filter((e) => e.type === 'pass').length} passes</div>${rows || '<div class="ev"><span></span><span class="tm">Nothing yet</span></div>'}`;
 }
 
 function renderHud(s: Session, i: number, v: number, pos: number) {
@@ -169,6 +190,7 @@ function frame(now: number) {
       drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx);
     }
     renderTower(s, order);
+    renderFeed(s);
     if (followIdx >= 0) {
       const fp = poses[followIdx];
       renderHud(s, followIdx, fp.v, order.indexOf(followIdx) + 1);
@@ -238,6 +260,13 @@ function buildControls() {
   tower.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest('.tr') as HTMLElement | null;
     if (!row) return;
+    followIdx = Number(row.dataset.i);
+    follow = true;
+    syncCam();
+  });
+  feed.addEventListener('click', (e) => {
+    const row = (e.target as HTMLElement).closest('.ev') as HTMLElement | null;
+    if (!row?.dataset.i) return;
     followIdx = Number(row.dataset.i);
     follow = true;
     syncCam();

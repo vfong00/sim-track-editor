@@ -14,3 +14,5 @@ export * from './race/race';
 export * from './race/collide';
 export * from './agents/driver';
 export * from './agents/controller';
+export * from './track/corners';
+export * from './agents/racecraft';

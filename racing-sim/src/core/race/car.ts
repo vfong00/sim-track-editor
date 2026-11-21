@@ -66,7 +66,8 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
   const a = clamp((ctl.vTarget * ctl.vTarget - st.v * st.v) / (2 * look), -bMax, aMax);
 
   const v0 = st.v;
-  st.v = Math.max(0, v0 + a * dt);
+  // A sliding car scrubs speed (the tires are dragged sideways).
+  st.v = Math.max(0, v0 + (a - 0.5 * st.slide) * dt);
   st.vDelta += aSide * dt;
   const vm = (v0 + st.v) / 2;
   const vAlong = Math.sqrt(Math.max(0, vm * vm - st.vDelta * st.vDelta));

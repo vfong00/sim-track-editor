@@ -30,6 +30,17 @@
       #hud .big { font-size: 22px; font-weight: 600; }
       #hud .row { display: flex; justify-content: space-between; gap: 16px; }
       #hud .lbl { opacity: .6; }
+      #feed { right: 8px; bottom: 140px; width: 340px; max-height: 210px; overflow: auto; }
+      #feed .hd { font-weight: 600; padding: 2px 2px 5px; border-bottom: 1px solid #2a2f38; margin-bottom: 3px; }
+      .ev { display: grid; grid-template-columns: 64px 1fr; gap: 6px; padding: 2px; border-radius: 3px; cursor: pointer; }
+      .ev:hover { background: #22262d; }
+      .ev .tm { opacity: .55; white-space: nowrap; }
+      .ev.pass .tx { color: #9fd18b; }
+      .ev.mistake .tx { color: #e8c36a; }
+      .ev.contact .tx { color: #ef7d6f; }
+      .tr .tag { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 2px; margin-left: 4px; vertical-align: 1px; }
+      .tag.attack { background: #7a3b2e; }
+      .tag.defend { background: #2e4f7a; }
     </style>
   </head>
   <body>
@@ -45,6 +56,7 @@
     </div>
     <div id="tower" class="panel"></div>
     <div id="hud" class="panel"></div>
+    <div id="feed" class="panel"></div>
     <canvas id="c"></canvas>
     <canvas id="trace"></canvas>
     <script type="module" src="/src/view/main.ts"></script>

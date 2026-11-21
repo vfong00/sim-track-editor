@@ -1,6 +1,8 @@
 import { type Entrant } from '../agents/driver';
 import { trafficControls, type Near } from '../agents/controller';
-import { CarModel, type PhysicsParams } from '../physics/model';
+import { type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
+import { CarModel, DEFAULT_PHYSICS, type PhysicsParams } from '../physics/model';
+import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
 import type { Track } from '../track/track';
 import { type CarState, newCarState, stepCar } from './car';
@@ -17,6 +19,8 @@ export interface RaceOptions {
   dt?: number;
   /** Reuse a precomputed lane set for this track. */
   lanes?: LaneSet;
+  /** 'race' (default): full Phase 4 race craft. 'traffic': Phase 3 queueing rules only. */
+  ai?: 'race' | 'traffic';
 }
 
 export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'lap' | 'finish';
@@ -50,7 +54,26 @@ export interface RaceCar {
   /** Time at which the car reached each checkpoint (every CP metres of race distance). */
   cp: number[];
   following: number;
+  craft: Craft;
+  /** Who gave this car a tow / dirty air this tick (-1 = clean air). */
+  wake: number;
 }
+
+export interface RaceStats {
+  passes: number;
+  mistakes: number;
+  contacts: number;
+  /** Share of sampled (car, time) points where a car ran within 1.0 s of the car ahead (after lap 1). */
+  trainShare: number;
+  /**
+   * Car-seconds (after lap 1) a quicker car (clean-air lap ≥ 0.3 s faster) spent stuck within
+   * 1.0 s behind a slower one. Dirty air raises this; passing lowers it.
+   */
+  stuckTime: number;
+}
+
+/** Ticks between train samples. */
+const TRAIN_EVERY = 30;
 
 /** Checkpoint spacing for time gaps, and the race distance of checkpoint 0. */
 const CP = 10;
@@ -76,10 +99,18 @@ export class Race {
   readonly orders: Uint8Array[] = [];
   readonly events: RaceEvent[] = [];
   readonly rng: Rng;
+  readonly corners: Corner[];
+  readonly nextCorner: Int32Array;
+  readonly physics: PhysicsParams;
   t = 0;
   tick = 0;
   leaderFinished = false;
   private contactCooldown = new Map<number, number>();
+  /** Pair key → which car was ahead, and since when a swap has held (pass confirmation). */
+  private pairAhead = new Map<number, { ahead: number; since: number; confirmed: number }>();
+  private trainSamples = 0;
+  private trainHits = 0;
+  private stuckTime = 0;
 
   constructor(readonly opts: RaceOptions) {
     const { track, entrants } = opts;
@@ -87,6 +118,9 @@ export class Race {
     this.laps = opts.laps;
     this.lanes = opts.lanes ?? new LaneSet(track);
     this.rng = makeRng(opts.seed);
+    this.physics = { ...DEFAULT_PHYSICS, ...opts.physics };
+    this.corners = findCorners(this.lanes.line);
+    this.nextCorner = nextCornerTable(track.n, this.corners);
     let cache = planCache.get(this.lanes);
     if (!cache) planCache.set(this.lanes, (cache = new Map()));
     this.cars = entrants.map((e, idx) => {
@@ -104,6 +138,7 @@ export class Race {
         idx, entrant: e, model, plans, st, d, rng,
         startDelay: 0.15 + 0.35 * rng.next(),
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
+        craft: newCraft(), wake: -1,
       };
     });
     for (const c of this.cars) c.d = this.lanes.dAt(c.st.s, c.st.delta);
@@ -143,18 +178,35 @@ export class Race {
     return out;
   }
 
-  /** Decide this tick's controls for car i (Phase 4 replaces this with full race craft). */
+  /** Decide this tick's controls for car i. */
   protected controls(i: number, near: Near[]) {
     const c = this.cars[i];
-    const ahead = c.st.s + (c.st.v * this.dt) / this.lanes.stretch(c.st.s, c.st.delta);
-    const vPlan = c.plans.speed(ahead, c.st.delta);
-    const dec = trafficControls({ st: c.st, d: c.d, model: c.model, plans: c.plans, lanes: this.lanes, dt: this.dt }, near, 0, vPlan);
+    if (this.opts.ai === 'traffic') {
+      const ahead = c.st.s + (c.st.v * this.dt) / this.lanes.stretch(c.st.s, c.st.delta);
+      const dec = trafficControls({ st: c.st, d: c.d, model: c.model, plans: c.plans, lanes: this.lanes, dt: this.dt }, near, 0, c.plans.envelope(ahead, c.st.delta));
+      c.following = dec.following;
+      return dec.ctl;
+    }
+    const ctx: CraftContext = { t: this.t, dt: this.dt, lanes: this.lanes, corners: this.corners, nextCorner: this.nextCorner, physics: this.physics };
+    const dec = raceCraft(this.views[i], near, this.views, ctx);
     c.following = dec.following;
+    c.wake = dec.ctl.effects && (dec.ctl.effects.drag < 1 || dec.ctl.effects.grip < 1) ? 1 : -1;
+    if (dec.mistake) {
+      const corner = this.corners[dec.mistake.corner]?.name ?? '';
+      this.emit('mistake', [i], dec.mistake.kind === 'lockup' ? `${this.name(i)} locks up into ${corner}` : `${this.name(i)} runs wide at ${corner}`);
+    }
     return dec.ctl;
   }
 
+  /** Race-craft views of the cars (same objects every tick; `d` refreshed before use). */
+  private views: CraftCar[] = [];
+
   step(): void {
     const dt = this.dt;
+    if (this.views.length !== this.cars.length) {
+      this.views = this.cars.map((x) => ({ idx: x.idx, st: x.st, d: x.d, model: x.model, plans: x.plans, driver: x.entrant.driver, craft: x.craft, rng: x.rng }));
+    }
+    for (const v of this.views) v.d = this.cars[v.idx].d;
     const ctls = this.cars.map((c, i) => {
       if (this.t < c.startDelay) return { vTarget: 0, deltaTarget: c.st.delta };
       return this.controls(i, this.neighbours(i));
@@ -173,7 +225,65 @@ export class Race {
       this.contactCooldown.set(key, this.t);
     }
     this.cars.forEach((c, i) => this.timing(c, prev[i]));
-    this.log();
+    const order = this.log();
+    this.detectPasses(order);
+    if (this.tick % TRAIN_EVERY === 0) this.sampleTrains();
+  }
+
+  /**
+   * A pass is a swap in race distance between two running cars on the same lap that holds for
+   * 1.5 s (so side-by-side wobbles don't count twice). Lapping isn't a pass.
+   */
+  private detectPasses(order: number[]): void {
+    const L = this.track.length;
+    const n = this.cars.length;
+    for (let a = 0; a < n; a++) {
+      for (let b = a + 1; b < n; b++) {
+        const A = this.cars[a], B = this.cars[b];
+        if (A.finished || B.finished || A.st.dist < 0 || B.st.dist < 0) continue;
+        const diff = A.st.dist - B.st.dist;
+        if (Math.abs(diff) > L / 2) continue;
+        const key = a * 1000 + b;
+        const ahead = diff >= 0 ? a : b;
+        const rec = this.pairAhead.get(key);
+        if (!rec) { this.pairAhead.set(key, { ahead, since: this.t, confirmed: ahead }); continue; }
+        if (rec.ahead !== ahead) { rec.ahead = ahead; rec.since = this.t; }
+        if (rec.ahead !== rec.confirmed && this.t - rec.since >= 1.5) {
+          rec.confirmed = rec.ahead;
+          const passer = rec.ahead, passed = passer === a ? b : a;
+          const pos = order.indexOf(passer) + 1;
+          const pc = this.cars[passer];
+          const idx = Math.min(Math.floor(pc.st.s / this.track.ds), this.track.n - 1);
+          const c = this.corners[this.nextCorner[idx]];
+          const toC = c ? ((c.apex * this.track.ds - pc.st.s) % L + L) % L : Infinity;
+          const where = !c ? '' : toC < 150 ? ` into ${c.name}` : toC > L - 150 ? ` at ${c.name}` : ' on the straight';
+          const why = this.cars[passed].craft.mistake ? ' after a mistake' : '';
+          this.emit('pass', [passer, passed], `P${pos} ${this.name(passer)} passes ${this.name(passed)}${where}${why}`);
+        }
+      }
+    }
+  }
+
+  private sampleTrains(): void {
+    if (this.leaderLap < 2 || this.leaderFinished) return;
+    const order = this.order();
+    for (let p = 1; p < order.length; p++) {
+      const g = this.gapTo(order[p], order[p - 1]);
+      if (!Number.isFinite(g)) continue;
+      this.trainSamples++;
+      if (g < 1.0) this.trainHits++;
+      const quicker = this.cars[order[p - 1]].plans.lapTime - this.cars[order[p]].plans.lapTime >= 0.3;
+      if (quicker && g < 1.0) this.stuckTime += TRAIN_EVERY * this.dt;
+    }
+  }
+
+  stats(): RaceStats {
+    const count = (t: RaceEventType) => this.events.filter((e) => e.type === t).length;
+    return {
+      passes: count('pass'), mistakes: count('mistake'), contacts: count('contact'),
+      trainShare: this.trainSamples ? this.trainHits / this.trainSamples : 0,
+      stuckTime: this.stuckTime,
+    };
   }
 
   name(i: number): string {
@@ -209,16 +319,17 @@ export class Race {
   /** Classification key: finished cars by laps then finish time, running cars by distance. */
   order(): number[] {
     const L = this.track.length;
-    const key = (c: RaceCar) => (c.finished ? c.finishLaps * L : c.st.dist);
-    return this.cars
-      .map((c) => c.idx)
-      .sort((a, b) => {
-        const A = this.cars[a], B = this.cars[b];
-        const ka = key(A), kb = key(B);
-        if (ka !== kb) return kb - ka;
-        if (A.finished !== B.finished) return A.finished ? -1 : 1;
-        return (A.finishTime || 0) - (B.finishTime || 0) || a - b;
-      });
+    const n = this.cars.length;
+    const key = new Float64Array(n), ft = new Float64Array(n);
+    const idx: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const c = this.cars[i];
+      key[i] = c.finished ? c.finishLaps * L : c.st.dist;
+      ft[i] = c.finished ? c.finishTime : Infinity;
+      idx.push(i);
+    }
+    // Finished cars before running cars at the same distance; then by finish time.
+    return idx.sort((a, b) => key[b] - key[a] || ft[a] - ft[b] || a - b);
   }
 
   /** Time gap (s) of car i behind car j at car i's current race distance. */
@@ -233,7 +344,7 @@ export class Race {
     return tNow - tb;
   }
 
-  private log(): void {
+  private log(): number[] {
     const f = new Float32Array(this.cars.length * FRAME_STRIDE);
     this.cars.forEach((c, i) => {
       f[i * 3] = c.st.s;
@@ -241,7 +352,9 @@ export class Race {
       f[i * 3 + 2] = c.st.v;
     });
     this.frames.push(f);
-    this.orders.push(Uint8Array.from(this.order()));
+    const order = this.order();
+    this.orders.push(Uint8Array.from(order));
+    return order;
   }
 
   /** Run until everyone finishes (or the time limit). */

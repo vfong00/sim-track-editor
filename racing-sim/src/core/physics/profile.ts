@@ -26,6 +26,12 @@ export interface ProfileOptions {
   vEnd?: number;
   /** Extra per-node speed caps (e.g. a driver's own limits). */
   cap?: Float64Array;
+  /**
+   * false: skip the forward (acceleration) pass, giving the braking envelope: the fastest the
+   * car may be at each point and still make every corner. Drivers target this, so anything that
+   * helps them accelerate (slipstream) actually makes them faster.
+   */
+  forward?: boolean;
 }
 
 /**
@@ -63,9 +69,11 @@ export function solveSpeedProfile(path: PathLike, model: CarModel, opts: Profile
     let i0 = 0;
     for (let i = 1; i < n; i++) if (v[i] < v[i0]) i0 = i;
     for (let round = 0; round < 2; round++) {
-      for (let s = 0; s < n; s++) {
-        const i = (i0 + s) % n;
-        forward(i, (i + 1) % n);
+      if (opts.forward !== false) {
+        for (let s = 0; s < n; s++) {
+          const i = (i0 + s) % n;
+          forward(i, (i + 1) % n);
+        }
       }
       for (let s = 0; s < n; s++) {
         const j = (i0 - s + n) % n;
@@ -75,7 +83,7 @@ export function solveSpeedProfile(path: PathLike, model: CarModel, opts: Profile
   } else {
     v[0] = Math.min(v[0], opts.v0 ?? 0);
     if (opts.vEnd !== undefined) v[n - 1] = Math.min(v[n - 1], opts.vEnd);
-    for (let i = 0; i < n - 1; i++) forward(i, i + 1);
+    if (opts.forward !== false) for (let i = 0; i < n - 1; i++) forward(i, i + 1);
     for (let i = n - 2; i >= 0; i--) backward(i, i + 1);
   }
 

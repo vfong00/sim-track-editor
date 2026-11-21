@@ -41,7 +41,7 @@ export interface TrafficDecision {
  *  - longitudinal: never close on a car ahead in your lane faster than you could brake to its
  *    speed before reaching it (the same-lane gap rule: you can't drive through a car).
  */
-export function trafficControls(me: DriverView, near: Near[], wantDelta: number, vPlan: number, brakeGain = 0.8): TrafficDecision {
+export function trafficControls(me: DriverView, near: Near[], wantDelta: number, vPlan: number, brakeGain = 0.97): TrafficDecision {
   const { st, lanes } = me;
   const lineD = lanes.lineD(st.s);
   let lo = -Infinity, hi = Infinity;
@@ -57,13 +57,16 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   let vTarget = vPlan;
   let following = -1;
   const look = 25 + st.v * 2.5;
-  const b = brakeGain * me.model.mu;
+  // Both cars' real straight-line braking (same model as the integrator); the follower only
+  // counts on a share of its own so it keeps a margin for reaction.
+  const b = brakeGain * me.model.maxBrake(st.v, 0);
   for (const o of near) {
     if (o.gap <= 0 || o.gap > look) continue;
     const overlap = Math.min(Math.abs(o.d - me.d), Math.abs(o.d - targetD)) < 2 * CAR_RADIUS + 0.2;
     if (!overlap) continue;
-    const room = o.gap - 2 * CAR_RADIUS - 1.0 - 0.12 * st.v;
-    const vAllowed = room > 0 ? Math.sqrt(o.v * o.v + 2 * b * room) : Math.max(0, o.v - 2 + room);
+    const bo = me.model.maxBrake(o.v, 0);
+    const room = o.gap - 2 * CAR_RADIUS - 1.0 - 0.03 * st.v;
+    const vAllowed = room > 0 ? Math.sqrt(o.v * o.v * (b / bo) + 2 * b * room) : Math.max(0, o.v - 2 + room);
     if (vAllowed < vTarget) {
       vTarget = vAllowed;
       following = o.j;

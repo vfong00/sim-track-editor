@@ -37,7 +37,7 @@ export interface PhysicsParams {
   dirtyAir: number;
 }
 
-export const DEFAULT_PHYSICS: PhysicsParams = { g: G, gripLevel: 1, drag: true, slipstream: 0.25, dirtyAir: 0.12 };
+export const DEFAULT_PHYSICS: PhysicsParams = { g: G, gripLevel: 1, drag: true, slipstream: 0.25, dirtyAir: 0.06 };
 
 /** Per-tick modifiers from traffic (slipstream, dirty air). Planner uses NO_EFFECTS. */
 export interface Effects {
