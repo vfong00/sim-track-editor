@@ -5,12 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Racing Sim</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #14161a; color: #ddd; font: 13px system-ui, sans-serif; }
-      #bar { position: fixed; top: 8px; left: 8px; display: flex; gap: 8px; align-items: center; z-index: 1; }
+      html, body { margin: 0; height: 100%; background: #14161a; color: #ddd; font: 13px system-ui, sans-serif; overflow: hidden; }
+      #bar { position: fixed; top: 8px; left: 8px; display: flex; gap: 8px; align-items: center; z-index: 2; flex-wrap: wrap; }
       button { background: #2a2f38; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
       button.on { background: #3b6ea8; }
       #info { opacity: .8; }
-      canvas { display: block; width: 100vw; height: 100vh; }
+      #c { display: block; width: 100vw; height: calc(100vh - 150px); }
+      #trace { display: block; width: 100vw; height: 150px; border-top: 1px solid #2a2f38; }
+      .panel { position: fixed; background: rgba(20,22,26,.88); border: 1px solid #2a2f38; border-radius: 6px; padding: 8px 10px; z-index: 1; }
+      #hud { top: 44px; right: 8px; min-width: 190px; font-variant-numeric: tabular-nums; }
+      #hud .big { font-size: 26px; font-weight: 600; }
+      #hud .row { display: flex; justify-content: space-between; gap: 16px; }
+      #hud .lbl { opacity: .6; }
     </style>
   </head>
   <body>
@@ -20,7 +26,9 @@
       <button id="close" hidden>Close loop</button>
       <span id="info"></span>
     </div>
+    <div id="hud" class="panel"></div>
     <canvas id="c"></canvas>
+    <canvas id="trace"></canvas>
     <script type="module" src="/src/view/main.ts"></script>
   </body>
 </html>
