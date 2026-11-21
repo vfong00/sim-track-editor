@@ -6,15 +6,28 @@
     <title>Racing Sim</title>
     <style>
       html, body { margin: 0; height: 100%; background: #14161a; color: #ddd; font: 13px system-ui, sans-serif; overflow: hidden; }
-      #bar { position: fixed; top: 8px; left: 8px; display: flex; gap: 8px; align-items: center; z-index: 2; flex-wrap: wrap; }
-      button { background: #2a2f38; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
-      button.on { background: #3b6ea8; }
-      #info { opacity: .8; }
-      #c { display: block; width: 100vw; height: calc(100vh - 150px); }
-      #trace { display: block; width: 100vw; height: 150px; border-top: 1px solid #2a2f38; }
-      .panel { position: fixed; background: rgba(20,22,26,.88); border: 1px solid #2a2f38; border-radius: 6px; padding: 8px 10px; z-index: 1; }
-      #hud { top: 44px; right: 8px; min-width: 190px; font-variant-numeric: tabular-nums; }
-      #hud .big { font-size: 26px; font-weight: 600; }
+      #bar { position: fixed; top: 8px; left: 8px; right: 8px; display: flex; gap: 6px; align-items: center; z-index: 2; flex-wrap: wrap; }
+      button { background: #2a2f38; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 9px; cursor: pointer; font: inherit; }
+      button.on { background: #3b6ea8; border-color: #4f86c6; }
+      .grp { display: flex; gap: 2px; }
+      .grp button { border-radius: 0; }
+      .grp button:first-child { border-radius: 4px 0 0 4px; }
+      .grp button:last-child { border-radius: 0 4px 4px 0; }
+      #info { opacity: .75; }
+      #c { display: block; width: 100vw; height: calc(100vh - 130px); }
+      #trace { display: block; width: 100vw; height: 130px; border-top: 1px solid #2a2f38; }
+      .panel { position: fixed; background: rgba(20,22,26,.9); border: 1px solid #2a2f38; border-radius: 6px; padding: 6px 8px; z-index: 1; font-variant-numeric: tabular-nums; }
+      #tower { top: 84px; left: 8px; width: 238px; max-height: calc(100vh - 230px); overflow: auto; }
+      #tower .hd { display: flex; justify-content: space-between; font-weight: 600; padding: 2px 2px 6px; border-bottom: 1px solid #2a2f38; margin-bottom: 3px; }
+      .tr { display: grid; grid-template-columns: 22px 6px 1fr 64px; gap: 6px; align-items: center; padding: 2px; border-radius: 3px; cursor: pointer; }
+      .tr:hover { background: #22262d; }
+      .tr.sel { background: #2c3a4e; }
+      .tr .sw { width: 6px; height: 14px; border-radius: 2px; }
+      .tr .gap { text-align: right; opacity: .85; }
+      .tr .p { text-align: right; opacity: .7; }
+      .tr.fin .p::after { content: '🏁'; font-size: 9px; }
+      #hud { top: 48px; right: 8px; min-width: 190px; }
+      #hud .big { font-size: 22px; font-weight: 600; }
       #hud .row { display: flex; justify-content: space-between; gap: 16px; }
       #hud .lbl { opacity: .6; }
     </style>
@@ -24,8 +37,13 @@
       <button id="gen">New random track</button>
       <button id="draw">Draw track</button>
       <button id="close" hidden>Close loop</button>
+      <button id="restart">Restart race</button>
+      <span class="grp" id="speeds"></span>
+      <button id="skip">+30 s</button>
+      <span class="grp"><button id="camAll">Overview</button><button id="camFollow">Follow</button></span>
       <span id="info"></span>
     </div>
+    <div id="tower" class="panel"></div>
     <div id="hud" class="panel"></div>
     <canvas id="c"></canvas>
     <canvas id="trace"></canvas>

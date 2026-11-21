@@ -1,33 +1,41 @@
-import { CarModel, generateTrack, LanePlans, LaneSet, SoloRun, STANDARD_CAR, Track, CAR_LENGTH, CAR_WIDTH, type Vec } from '../core';
+import { CAR_LENGTH, CAR_WIDTH, generateTrack, LaneSet, makeField, makeRng, Race, Track, type Vec } from '../core';
 import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
 import { drawSpeedTrace } from './trace';
 
-const canvas = document.getElementById('c') as HTMLCanvasElement;
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const canvas = $<HTMLCanvasElement>('c');
 const ctx = canvas.getContext('2d')!;
-const traceCanvas = document.getElementById('trace') as HTMLCanvasElement;
+const traceCanvas = $<HTMLCanvasElement>('trace');
 const tctx = traceCanvas.getContext('2d')!;
-const info = document.getElementById('info')!;
-const hud = document.getElementById('hud')!;
-const genBtn = document.getElementById('gen') as HTMLButtonElement;
-const drawBtn = document.getElementById('draw') as HTMLButtonElement;
-const closeBtn = document.getElementById('close') as HTMLButtonElement;
+const info = $('info'), hud = $('hud'), tower = $('tower');
+const drawBtn = $<HTMLButtonElement>('draw'), closeBtn = $<HTMLButtonElement>('close');
 
+const params = new URLSearchParams(location.search);
 const WIDTH = 14;
-const model = new CarModel(STANDARD_CAR);
-let seed = Number(new URLSearchParams(location.search).get('seed') ?? 7);
+const FIELD = Number(params.get('cars') ?? 12);
+const LAPS = Number(params.get('laps') ?? 10);
+let trackSeed = Number(params.get('seed') ?? 7);
+let raceSeed = Number(params.get('race') ?? 1);
 let drawing = false;
 let clicks: Vec[] = [];
+
+const SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16];
+let speed = Number(params.get('speed') ?? 1);
+let paused = false;
+let follow = params.get('cam') !== 'all';
+let followIdx = -1;
 
 interface Session {
   track: Track;
   lanes: LaneSet;
-  plans: LanePlans;
-  run: SoloRun;
-  view: View;
-  /** Wall-clock sim time the viewer is showing. */
+  race: Race;
+  overview: View;
+  cam: View;
+  /** Sim time the viewer is showing (the race is stepped up to this). */
   clock: number;
+  label: string;
 }
-let session: Session | null = null;
+let S: Session | null = null;
 
 function resize() {
   const dpr = devicePixelRatio || 1;
@@ -35,39 +43,88 @@ function resize() {
     c.width = c.clientWidth * dpr;
     c.height = c.clientHeight * dpr;
   }
-  if (session) session.view = fitView(session.track.centerline(), canvas.width, canvas.height, 60 * dpr);
+  if (S) S.overview = fitView(S.track.centerline(), canvas.width, canvas.height, 50 * dpr);
 }
 
-function setTrack(t: Track, label: string) {
-  const lanes = new LaneSet(t);
-  const plans = new LanePlans(lanes, model);
-  session = { track: t, lanes, plans, run: new SoloRun(lanes, plans, model), view: fitView(t.centerline(), canvas.width, canvas.height, 60 * (devicePixelRatio || 1)), clock: 0 };
-  info.textContent = `${label} · ${t.length.toFixed(0)} m · min radius ${t.minRadius().toFixed(0)} m · predicted lap ${fmtTime(plans.lapTime)}`;
-  console.info(`[racing-sim] track ${label}: ${t.length.toFixed(0)} m, solver lap ${plans.lapTime.toFixed(3)} s`);
+function startRace(track: Track, label: string, lanes?: LaneSet) {
+  lanes ??= new LaneSet(track);
+  const race = new Race({ track, lanes, entrants: makeField(FIELD, makeRng(raceSeed)), laps: LAPS, seed: raceSeed });
+  const overview = fitView(track.centerline(), canvas.width, canvas.height, 50 * (devicePixelRatio || 1));
+  S = { track, lanes, race, overview, cam: { ...overview }, clock: 0, label };
+  followIdx = 0;
+  info.textContent = `${label} · ${track.length.toFixed(0)} m · ${FIELD} cars · ${LAPS} laps · race seed ${raceSeed}`;
+  console.info(`[racing-sim] ${label}: ${track.length.toFixed(0)} m, ${FIELD} cars, ${LAPS} laps, race seed ${raceSeed}`);
 }
 
 function generate() {
-  drawing = false;
-  drawBtn.classList.remove('on');
-  closeBtn.hidden = true;
-  setTrack(generateTrack({ seed, width: WIDTH }), `seed ${seed}`);
+  setDrawing(false);
+  startRace(generateTrack({ seed: trackSeed, width: WIDTH }), `track seed ${trackSeed}`);
 }
 
-/** Interpolated car pose at the viewer's clock (between two logged ticks). */
-function carPose(s: Session): { p: Vec; heading: number; v: number; sPos: number } {
-  const f = s.run.frames;
-  const dt = s.run.dt;
-  const k = Math.max(0, Math.min(f.length - 2, Math.floor(s.clock / dt)));
-  const a = f[k], b = f[k + 1];
-  const u = Math.max(0, Math.min(1, (s.clock - a.t) / dt));
+/** Interpolated pose of car i at the viewer clock, read from the state log. */
+function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos: number; d: number } {
+  const { frames, dt } = s.race;
+  const k = Math.max(0, Math.min(frames.length - 2, Math.floor(s.clock / dt)));
+  const u = Math.max(0, Math.min(1, (s.clock - k * dt) / dt));
+  const a = frames[k], b = frames[k + 1];
   const L = s.track.length;
-  let ds = b.s - a.s;
+  let ds = b[i * 3] - a[i * 3];
   if (ds < -L / 2) ds += L;
-  const sPos = (a.s + ds * u) % L;
-  const d = a.d + (b.d - a.d) * u;
+  if (ds > L / 2) ds -= L;
+  const sPos = (a[i * 3] + ds * u + L) % L;
+  const d = a[i * 3 + 1] + (b[i * 3 + 1] - a[i * 3 + 1]) * u;
   const p = s.track.toXY(sPos, d);
-  const q = s.track.toXY(sPos + 1, s.lanes.dAt(sPos + 1, 0) + (d - s.lanes.dAt(sPos, 0)));
-  return { p, heading: Math.atan2(q.y - p.y, q.x - p.x), v: a.v + (b.v - a.v) * u, sPos };
+  // Heading from the logged motion (falls back to the track direction when nearly stopped).
+  const k0 = Math.max(0, k - 8);
+  const q = s.track.toXY(frames[k0][i * 3], frames[k0][i * 3 + 1]);
+  const moved = Math.hypot(p.x - q.x, p.y - q.y);
+  const tng = s.track.tangentAt(sPos);
+  const heading = moved > 0.5 ? Math.atan2(p.y - q.y, p.x - q.x) : Math.atan2(tng.y, tng.x);
+  return { p, heading, v: a[i * 3 + 2] + (b[i * 3 + 2] - a[i * 3 + 2]) * u, sPos, d };
+}
+
+function gapText(r: Race, i: number, leader: number): string {
+  if (i === leader) return r.cars[i].finished ? 'Winner' : 'Leader';
+  const c = r.cars[i], l = r.cars[leader];
+  const lapsDown = (l.finished ? l.finishLaps : l.crossings) - (c.finished ? c.finishLaps : c.crossings);
+  const g = r.gapTo(i, leader);
+  if (lapsDown >= 1 && (!isFinite(g) || g > 0)) {
+    // Lapped only if the leader is a whole lap ahead in distance, not just across the line.
+    const lDist = l.finished ? l.finishLaps * r.track.length : l.st.dist;
+    if (lDist - c.st.dist >= r.track.length) return `+${Math.floor((lDist - c.st.dist) / r.track.length)} lap`;
+  }
+  return isFinite(g) ? `+${g.toFixed(3)}` : '';
+}
+
+let towerKey = '';
+function renderTower(s: Session, order: number[]) {
+  const r = s.race;
+  const lap = Math.min(r.laps, r.leaderLap);
+  const rows = order.map((i, p) => {
+    const c = r.cars[i];
+    return `<div class="tr${i === followIdx ? ' sel' : ''}${c.finished ? ' fin' : ''}" data-i="${i}">
+      <span class="p">${p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
+      <span>${c.entrant.driver.name}</span><span class="gap">${gapText(r, i, order[0])}</span></div>`;
+  }).join('');
+  const html = `<div class="hd"><span>${r.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span><span>${fmtTime(s.clock)}</span></div>${rows}`;
+  if (html !== towerKey) {
+    tower.innerHTML = html;
+    towerKey = html;
+  }
+}
+
+function renderHud(s: Session, i: number, v: number, pos: number) {
+  const c = s.race.cars[i];
+  const laps = c.lapTimes;
+  const cur = c.finished ? NaN : isFinite(c.lastCross) ? s.clock - c.lastCross : NaN;
+  hud.innerHTML = `
+    <div class="row"><span style="color:${c.entrant.color};font-weight:600">${c.entrant.driver.name}</span><span>P${pos}</span></div>
+    <div class="big">${(v * 3.6).toFixed(0)} km/h</div>
+    <div class="row"><span class="lbl">This lap</span><span>${fmtTime(cur)}</span></div>
+    <div class="row"><span class="lbl">Last lap</span><span>${laps.length ? fmtTime(laps[laps.length - 1]) : '–'}</span></div>
+    <div class="row"><span class="lbl">Best lap</span><span>${laps.length ? fmtTime(Math.min(...laps)) : '–'}</span></div>
+    <div class="row"><span class="lbl">Solver lap</span><span>${fmtTime(c.plans.lapTime)}</span></div>
+    <div class="row"><span class="lbl">Pace</span><span>${(c.entrant.driver.pace * 100).toFixed(1)}%</span></div>`;
 }
 
 let last = performance.now();
@@ -83,49 +140,112 @@ function frame(now: number) {
       ctx.arc(p.x * devicePixelRatio, p.y * devicePixelRatio, 4, 0, 7);
       ctx.fill();
     }
-  } else if (session) {
-    const s = session;
-    s.clock += elapsed;
-    while (s.run.time < s.clock + s.run.dt) s.run.step();
-    drawTrack(ctx, s.track, s.view, s.lanes.line);
-    const pose = carPose(s);
-    drawCar(ctx, s.view, pose.p, pose.heading, '#ff5a36', CAR_LENGTH, CAR_WIDTH);
-    const laps = s.run.laps;
-    const best = laps.length ? Math.min(...laps) : NaN;
-    const lapNow = Math.max(0, s.clock - laps.reduce((x, y) => x + y, 0));
-    hud.innerHTML = `
-      <div class="big">${fmtTime(lapNow)}</div>
-      <div class="row"><span class="lbl">Lap</span><span>${laps.length + 1}</span></div>
-      <div class="row"><span class="lbl">Speed</span><span>${(pose.v * 3.6).toFixed(0)} km/h</span></div>
-      <div class="row"><span class="lbl">Last lap</span><span>${laps.length ? fmtTime(laps[laps.length - 1]) : '–'}</span></div>
-      <div class="row"><span class="lbl">Best lap</span><span>${fmtTime(best)}</span></div>
-      <div class="row"><span class="lbl">Solver lap</span><span>${fmtTime(s.plans.lapTime)}</span></div>`;
-    drawSpeedTrace(tctx, traceCanvas.width, traceCanvas.height, s, pose.sPos);
+  } else if (S) {
+    const s = S;
+    const r = s.race;
+    if (!paused) s.clock += elapsed * speed;
+    advanceTo(s, s.clock);
+    const n = r.cars.length;
+    const poses = Array.from({ length: n }, (_, i) => pose(s, i));
+    const k = Math.min(r.orders.length - 1, Math.floor(s.clock / r.dt));
+    const order = [...r.orders[k]];
+
+    // Camera: overview, or follow a car at ~4 px/m with smoothing.
+    const dpr = devicePixelRatio || 1;
+    const a = Math.min(1, elapsed * 5);
+    if (follow && followIdx >= 0) {
+      // Stay centred on the car at any playback speed; only the zoom eases in.
+      const p = poses[followIdx].p;
+      const sc = s.cam.scale + (5 * dpr - s.cam.scale) * a;
+      s.cam = { scale: sc, ox: canvas.width / 2 - p.x * sc, oy: canvas.height / 2 + p.y * sc };
+    } else {
+      const t = s.overview;
+      s.cam = { scale: s.cam.scale + (t.scale - s.cam.scale) * a, ox: s.cam.ox + (t.ox - s.cam.ox) * a, oy: s.cam.oy + (t.oy - s.cam.oy) * a };
+    }
+
+    drawTrack(ctx, s.track, s.cam, s.lanes.line);
+    for (let p = n - 1; p >= 0; p--) {
+      const i = order[p];
+      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx);
+    }
+    renderTower(s, order);
+    if (followIdx >= 0) {
+      const fp = poses[followIdx];
+      renderHud(s, followIdx, fp.v, order.indexOf(followIdx) + 1);
+      const c = r.cars[followIdx];
+      const actual: { s: number; v: number }[] = [];
+      const from = isFinite(c.lastCross) && c.lastCross <= s.clock ? Math.ceil(c.lastCross / r.dt) : 0;
+      for (let kk = from; kk <= k; kk += 3) actual.push({ s: (r.frames[kk][followIdx * 3] - (from ? 0 : 0)), v: r.frames[kk][followIdx * 3 + 2] });
+      // Before the first crossing the car is on the grid behind the line: skip those points.
+      const lap = from ? actual : actual.filter((p) => p.s < s.track.length / 2);
+      drawSpeedTrace(tctx, traceCanvas.width, traceCanvas.height, c.plans.profiles[s.lanes.zero].v, s.track.length, lap, fp.sPos, c.entrant.color);
+    }
   }
   requestAnimationFrame(frame);
 }
 
-genBtn.onclick = () => { seed = Math.floor(Math.random() * 1e6); generate(); };
-drawBtn.onclick = () => {
-  drawing = !drawing;
-  drawBtn.classList.toggle('on', drawing);
-  closeBtn.hidden = !drawing;
-  clicks = [];
-  info.textContent = drawing ? 'Click points around the loop, then "Close loop"' : '';
-};
-closeBtn.onclick = () => {
-  if (clicks.length < 3) { info.textContent = 'Need at least 3 points'; return; }
-  const world = clicks.map((p) => ({ x: (p.x - innerWidth / 2) * 2, y: (innerHeight / 2 - p.y) * 2 }));
-  drawing = false;
-  drawBtn.classList.remove('on');
-  closeBtn.hidden = true;
-  setTrack(Track.fromControlPoints(world, WIDTH), 'drawn');
-};
-canvas.addEventListener('click', (e) => {
-  if (drawing) clicks.push({ x: e.clientX, y: e.clientY });
-});
-addEventListener('resize', resize);
+/** Step the race until it has reached time t (or finished). */
+function advanceTo(s: Session, t: number) {
+  const r = s.race;
+  while (r.t < t + r.dt && !(r.finished && r.t > t)) {
+    if (r.finished) {
+      s.clock = Math.min(s.clock, r.t);
+      break;
+    }
+    r.step();
+  }
+}
 
+function setDrawing(on: boolean) {
+  drawing = on;
+  drawBtn.classList.toggle('on', on);
+  closeBtn.hidden = !on;
+  clicks = [];
+  if (on) info.textContent = 'Click points around the loop, then "Close loop"';
+}
+
+function buildControls() {
+  const box = $('speeds');
+  box.innerHTML = '<button data-v="0">⏸</button>' + SPEEDS.map((v) => `<button data-v="${v}">${v}x</button>`).join('');
+  const sync = () => box.querySelectorAll('button').forEach((b) => {
+    const v = Number(b.dataset.v);
+    b.classList.toggle('on', v === 0 ? paused : !paused && v === speed);
+  });
+  box.onclick = (e) => {
+    const b = (e.target as HTMLElement).closest('button');
+    if (!b) return;
+    const v = Number(b.dataset.v);
+    if (v === 0) paused = !paused;
+    else { speed = v; paused = false; }
+    sync();
+  };
+  sync();
+  const syncCam = () => { $('camAll').classList.toggle('on', !follow); $('camFollow').classList.toggle('on', follow); };
+  $('camAll').onclick = () => { follow = false; syncCam(); };
+  $('camFollow').onclick = () => { follow = true; syncCam(); };
+  syncCam();
+  $('skip').onclick = () => { if (S) S.clock += 30; };
+  $('restart').onclick = () => { if (S) { raceSeed++; startRace(S.track, S.label, S.lanes); } };
+  $('gen').onclick = () => { trackSeed = Math.floor(Math.random() * 1e6); generate(); };
+  drawBtn.onclick = () => setDrawing(!drawing);
+  closeBtn.onclick = () => {
+    if (clicks.length < 3) { info.textContent = 'Need at least 3 points'; return; }
+    const world = clicks.map((p) => ({ x: (p.x - innerWidth / 2) * 2, y: (innerHeight / 2 - p.y) * 2 }));
+    setDrawing(false);
+    startRace(Track.fromControlPoints(world, WIDTH), 'drawn track');
+  };
+  canvas.addEventListener('click', (e) => { if (drawing) clicks.push({ x: e.clientX, y: e.clientY }); });
+  tower.addEventListener('click', (e) => {
+    const row = (e.target as HTMLElement).closest('.tr') as HTMLElement | null;
+    if (!row) return;
+    followIdx = Number(row.dataset.i);
+    follow = true;
+    syncCam();
+  });
+  addEventListener('resize', resize);
+}
+
+buildControls();
 resize();
 generate();
 requestAnimationFrame(frame);

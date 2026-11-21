@@ -10,3 +10,7 @@ export * from './physics/profile';
 export * from './race/lanes';
 export * from './race/car';
 export * from './race/lap';
+export * from './race/race';
+export * from './race/collide';
+export * from './agents/driver';
+export * from './agents/controller';
