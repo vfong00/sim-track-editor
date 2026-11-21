@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "Random field",
+  "description": "Twelve drivers with ratings spread around the average, in equal cars, over 10 laps.",
+  "seed": 1,
+  "track": { "type": "generated", "seed": 7, "width": 14 },
+  "race": { "laps": 10, "gridOrder": "random" },
+  "cars": [ { "id": "standard" } ],
+  "field": { "count": 12, "car": "standard", "spread": 1 }
+}

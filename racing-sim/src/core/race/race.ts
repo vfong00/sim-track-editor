@@ -1,7 +1,7 @@
 import { type DriverSpec, type Entrant } from '../agents/driver';
 import { avoidSlowCar, trafficControls, type Near } from '../agents/controller';
 import { type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
-import { CarModel, DEFAULT_PHYSICS, type PhysicsParams } from '../physics/model';
+import { CarModel, type CarSpec, DEFAULT_PHYSICS, type PhysicsParams } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
 import type { Track } from '../track/track';
@@ -27,9 +27,24 @@ export interface RaceOptions {
    * measure them without incidents mixed in.
    */
   incidents?: boolean;
+  /**
+   * Phase 6: multiplies every driver's incidentScale (1 = as tuned; 0 = no driver-caused spins
+   * or crashes from slides and hits, though cars still slide and run off).
+   */
+  incidentRate?: number;
+  /** Phase 6: scripted mid-race events (scenario `events`), applied in list order when due. */
+  events?: ScriptedEvent[];
 }
 
-export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'lap' | 'finish';
+/**
+ * A scripted mid-race event. It fires when the leader starts lap `lap` (lap 1 = at the start):
+ * a track grip change (rain, drying), or a car spinning or retiring (car = entrant index).
+ */
+export type ScriptedEvent =
+  | { lap: number; type: 'grip'; value: number; note?: string }
+  | { lap: number; type: 'spin' | 'retire'; car: number; note?: string };
+
+export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'grip' | 'lap' | 'finish';
 
 export interface RaceEvent {
   t: number;
@@ -88,7 +103,10 @@ export const INCIDENTS = {
   causeWindow: 6,
 };
 
-/** Risk-taking (Phase 6 will expose it directly): the mean of aggression and bravery. */
+/**
+ * Risk-taking: the mean of aggression and bravery. Phase 6 scenarios set both from one `risk`
+ * rating (see `driverFromRatings`), so for those drivers riskTaking equals that rating.
+ */
 export const riskTaking = (d: DriverSpec) => (d.aggression + d.bravery) / 2;
 const scaleRaw = (d: DriverSpec) => (1.5 - d.consistency) * (0.5 + riskTaking(d));
 /**
@@ -178,6 +196,23 @@ export const FRAME_STRIDE = 5;
 const planCache = new WeakMap<LaneSet, Map<string, LanePlans>>();
 
 /**
+ * Car model and lane plans for a car spec driven at `pace` under `physics`, cached per lane set.
+ * The key covers every input (rule 5): the spec, the full physics and the pace; the lane set
+ * (track and racing line) is the WeakMap key. Shared by races and by scenario grid ordering.
+ */
+export function lanePlansFor(lanes: LaneSet, spec: CarSpec, pace: number, physics: Partial<PhysicsParams> = {}): { model: CarModel; plans: LanePlans } {
+  let cache = planCache.get(lanes);
+  if (!cache) planCache.set(lanes, (cache = new Map()));
+  const model = new CarModel(spec, physics);
+  const p = model.physics;
+  const key = JSON.stringify([spec, p, pace]);
+  let plans = cache.get(key);
+  if (!plans) cache.set(key, (plans = new LanePlans(lanes, model, { grip: pace, drag: 1 },
+    { grip: pace, drag: 1 - p.slipstream }, { grip: pace * (1 - p.dirtyAir), drag: 1 })));
+  return { model, plans };
+}
+
+/**
  * The race loop. Pure and deterministic: the same options give the same `frames` and
  * `events`. Viewers read `frames` / `orders` / `events` and never touch car state (rule 4).
  */
@@ -194,7 +229,8 @@ export class Race {
   readonly rng: Rng;
   readonly corners: Corner[];
   readonly nextCorner: Int32Array;
-  readonly physics: PhysicsParams;
+  /** Current physics (a scripted grip change replaces gripLevel mid-race). */
+  physics: PhysicsParams;
   t = 0;
   tick = 0;
   leaderFinished = false;
@@ -206,6 +242,8 @@ export class Race {
   private trainSamples = 0;
   private trainHits = 0;
   private stuckTime = 0;
+  /** Next scripted event (index into opts.events) still to fire. */
+  private nextScripted = 0;
 
   constructor(readonly opts: RaceOptions) {
     const { track, entrants } = opts;
@@ -216,9 +254,6 @@ export class Race {
     this.physics = { ...DEFAULT_PHYSICS, ...opts.physics };
     this.corners = findCorners(this.lanes.line);
     this.nextCorner = nextCornerTable(track.n, this.corners);
-    let cache = planCache.get(this.lanes);
-    if (!cache) planCache.set(this.lanes, (cache = new Map()));
-    this.planCache = cache;
     this.cars = entrants.map((e, idx) => {
       const { model, plans } = this.plansFor(e, 0);
       // Staggered two-wide grid behind the line.
@@ -241,17 +276,10 @@ export class Race {
     this.emit('start', [], 'Lights out');
   }
 
-  private readonly planCache: Map<string, LanePlans>;
-
   /** Car model and lane plans for an entrant with `damage` grip loss (shared across races on the lanes). */
   private plansFor(e: Entrant, damage: number): { model: CarModel; plans: LanePlans } {
     const spec = damage > 0 ? { ...e.car, grip: e.car.grip * (1 - damage) } : e.car;
-    const model = new CarModel(spec, this.opts.physics);
-    const key = JSON.stringify([spec, model.physics, e.driver.pace]);
-    let plans = this.planCache.get(key);
-    if (!plans) this.planCache.set(key, (plans = new LanePlans(this.lanes, model, { grip: e.driver.pace, drag: 1 },
-      { grip: e.driver.pace, drag: 1 - this.physics.slipstream }, { grip: e.driver.pace * (1 - this.physics.dirtyAir), drag: 1 })));
-    return { model, plans };
+    return lanePlansFor(this.lanes, spec, e.driver.pace, this.physics);
   }
 
   get track(): Track {
@@ -314,8 +342,38 @@ export class Race {
   /** Race-craft views of the cars (same objects every tick; `d` refreshed before use). */
   private views: CraftCar[] = [];
 
+  /**
+   * Change the track grip level now (weather). Every car gets a model and lane plans for the new
+   * grip (keeping its damage), so drivers re-plan their braking and corner speeds from here on.
+   */
+  setGrip(level: number, note?: string): void {
+    this.physics = { ...this.physics, gripLevel: level };
+    for (const c of this.cars) {
+      const { model, plans } = this.plansFor(c.entrant, c.damageLevel);
+      c.model = model;
+      c.plans = plans;
+      const v = this.views[c.idx];
+      if (v) { v.model = model; v.plans = plans; }
+    }
+    this.emit('grip', [], `${note ? note[0].toUpperCase() + note.slice(1) + ': ' : ''}track grip ${(level * 100).toFixed(0)}%`);
+  }
+
+  /** Fire the scripted events that are due (the leader has started their lap). */
+  private scripted(): void {
+    const evs = this.opts.events;
+    if (!evs) return;
+    const lap = this.leaderLap;
+    while (this.nextScripted < evs.length && evs[this.nextScripted].lap <= lap) {
+      const e = evs[this.nextScripted++];
+      if (e.type === 'grip') this.setGrip(e.value, e.note);
+      else if (e.type === 'spin') this.spin(e.car);
+      else this.retire(e.car);
+    }
+  }
+
   step(): void {
     const dt = this.dt;
+    this.scripted();
     if (this.views.length !== this.cars.length) {
       this.views = this.cars.map((x) => ({ idx: x.idx, st: x.st, d: x.d, model: x.model, plans: x.plans, driver: x.entrant.driver, craft: x.craft, rng: x.rng }));
     }
@@ -418,6 +476,11 @@ export class Race {
     if (c.status === 'run' && !c.finished) this.startSpin(c, -1);
   }
 
+  /** A car's incident scale, times the race's incidentRate. */
+  private scaleOf(c: RaceCar): number {
+    return incidentScale(c.entrant.driver) * (this.opts.incidentRate ?? 1);
+  }
+
   /** Lasting grip loss from an impact of `speed` m/s; the driver re-plans for the damaged car. */
   private addDamage(c: RaceCar, speed: number): void {
     const I = INCIDENTS;
@@ -440,7 +503,7 @@ export class Race {
       const c = this.cars[k];
       if (!this.canCrash(c)) continue;
       this.addDamage(c, hit.closing);
-      const scale = incidentScale(c.entrant.driver);
+      const scale = this.scaleOf(c);
       const pCrash = Math.min(1, clamp01((hit.closing - I.contactCrash) / I.contactCrashSpan) * scale);
       const pSpin = Math.min(1, clamp01((hit.closing - I.contactSpin) / I.contactSpinSpan) * hit.angle * scale);
       const u = c.rng.next();
@@ -464,13 +527,13 @@ export class Race {
         }
         // A steadier, more careful driver holds a bigger slide before it goes (threshold) and
         // catches more of those that do (rate).
-        const scale = incidentScale(c.entrant.driver);
+        const scale = this.scaleOf(c);
         const rate = I.spinRate * Math.max(0, excess - I.spinFrom / scale) * scale;
         if (rate > 0 && c.st.v > 10 && c.rng.next() < rate * dt) this.startSpin(c, this.causeOf(c));
       }
       if (c.st.wall > 0 && this.canCrash(c)) {
         const cause = c.offEvent >= 0 ? c.offEvent : this.causeOf(c);
-        const p = Math.min(1, clamp01((c.st.wall - I.wallCrash) / I.wallCrashSpan) * incidentScale(c.entrant.driver));
+        const p = Math.min(1, clamp01((c.st.wall - I.wallCrash) / I.wallCrashSpan) * this.scaleOf(c));
         this.addDamage(c, c.st.wall);
         if (c.rng.next() < p) this.startCrash(c, cause);
       }

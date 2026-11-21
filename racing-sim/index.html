@@ -48,6 +48,36 @@
       .ev.off .tx, .ev.rejoin .tx { color: #a9c79a; }
       .ev.spin .tx { color: #ffb347; }
       .ev.crash .tx, .ev.retire .tx { color: #ff6b6b; font-weight: 600; }
+      #tower .grip { color: #7cc8ff; font-weight: 600; }
+      .ev.grip .tx { color: #7cc8ff; font-weight: 600; }
+      #editor { top: 44px; right: 8px; width: 400px; max-height: calc(100vh - 60px); overflow: auto; z-index: 3; padding: 8px 10px; }
+      #editor[hidden] { display: none; }
+      #editor section { border-top: 1px solid #2a2f38; padding: 6px 0; }
+      #editor h4 { margin: 2px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
+      #editor h4 em, #editor .row em { font-style: normal; opacity: .55; text-transform: none; letter-spacing: 0; font-weight: 400; }
+      #editor .row { display: grid; grid-template-columns: 110px 1fr auto; gap: 6px; align-items: center; margin: 3px 0; }
+      #editor input, #editor select, #editor textarea { background: #1c2027; color: #ddd; border: 1px solid #3a404b; border-radius: 3px; padding: 3px 5px; font: inherit; min-width: 0; box-sizing: border-box; }
+      #editor .row input[type=text], #editor .row input[type=number], #editor .row select, #editor .row textarea { width: 100%; }
+      #editor input[type=checkbox] { justify-self: start; }
+      #editor table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+      #editor th { font-weight: 400; opacity: .55; text-align: left; font-size: 11px; }
+      #editor td { padding: 1px 2px 1px 0; }
+      #editor td input, #editor td select { width: 100%; padding: 2px 3px; }
+      #editor td input[type=color] { width: 22px; height: 22px; padding: 0; border: 0; background: none; }
+      #editor .x { padding: 1px 5px; }
+      #editor .bad { border-color: #ff6b6b; background: #3a1f22; }
+      #editor .note { opacity: .7; margin: 4px 0; }
+      #editor #ed-json { width: 100%; font: 11px ui-monospace, monospace; }
+      #editor .ed-top { display: flex; gap: 4px; margin-bottom: 6px; }
+      #editor .ed-top select { flex: 1; }
+      .ed-msg { min-height: 0; margin-bottom: 4px; }
+      .ed-msg.ok { color: #9fd18b; }
+      .ed-msg.err { color: #ff6b6b; }
+      .ed-errors { color: #ff9a8f; }
+      .ed-errors div { margin: 2px 0; }
+      .ed-run { position: sticky; bottom: -8px; background: rgba(20,22,26,.97); padding: 6px 0 2px; }
+      button.primary { background: #2f7a46; border-color: #3d9a5a; width: 100%; padding: 6px; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
     </style>
   </head>
   <body>
@@ -55,7 +85,9 @@
       <button id="gen">New random track</button>
       <button id="draw">Draw track</button>
       <button id="close" hidden>Close loop</button>
-      <button id="restart">Restart race</button>
+      <button id="restart" title="Same scenario, same seed: an identical race">Replay</button>
+      <button id="reseed" title="Same scenario, next seed">New seed</button>
+      <button id="edit">Scenario</button>
       <span class="grp" id="speeds"></span>
       <button id="skip">+30 s</button>
       <span class="grp"><button id="camAll">Overview</button><button id="camFollow">Follow</button></span>
@@ -64,6 +96,7 @@
     <div id="tower" class="panel"></div>
     <div id="hud" class="panel"></div>
     <div id="feed" class="panel"></div>
+    <div id="editor" class="panel" hidden></div>
     <canvas id="c"></canvas>
     <canvas id="trace"></canvas>
     <script type="module" src="/src/view/main.ts"></script>

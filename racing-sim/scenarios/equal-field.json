@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "Twelve equal cars",
+  "description": "Identical cars and average drivers: any passing comes from the race itself (slipstream, mistakes, incidents).",
+  "seed": 1,
+  "track": { "type": "generated", "seed": 3 },
+  "race": { "laps": 5 },
+  "cars": [ { "id": "standard" } ],
+  "field": { "count": 12, "car": "standard", "spread": 0 }
+}

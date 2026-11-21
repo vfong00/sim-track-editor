@@ -1,4 +1,9 @@
-import { CAR_LENGTH, CAR_WIDTH, FRAME_STRIDE as F, generateTrack, LaneSet, makeField, makeRng, Race, STATUS, Track, type Vec } from '../core';
+/// <reference types="vite/client" />
+import {
+  buildTrack, CAR_LENGTH, CAR_WIDTH, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, LaneSet, parseScenario, Race,
+  type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
+} from '../core';
+import { ScenarioEditor } from '../editor/scenario-editor';
 import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
 import { drawSpeedTrace } from './trace';
 
@@ -12,10 +17,6 @@ const drawBtn = $<HTMLButtonElement>('draw'), closeBtn = $<HTMLButtonElement>('c
 
 const params = new URLSearchParams(location.search);
 const WIDTH = 14;
-const FIELD = Number(params.get('cars') ?? 12);
-const LAPS = Number(params.get('laps') ?? 10);
-let trackSeed = Number(params.get('seed') ?? 7);
-let raceSeed = Number(params.get('race') ?? 1);
 let drawing = false;
 let clicks: Vec[] = [];
 
@@ -29,6 +30,7 @@ interface Session {
   track: Track;
   lanes: LaneSet;
   race: Race;
+  scenario: Scenario;
   overview: View;
   cam: View;
   /** Sim time the viewer is showing (the race is stepped up to this). */
@@ -46,21 +48,138 @@ function resize() {
   if (S) S.overview = fitView(S.track.centerline(), canvas.width, canvas.height, 50 * dpr);
 }
 
-function startRace(track: Track, label: string, lanes?: LaneSet) {
-  lanes ??= new LaneSet(track);
-  const race = new Race({ track, lanes, entrants: makeField(FIELD, makeRng(raceSeed)), laps: LAPS, seed: raceSeed });
-  const overview = fitView(track.centerline(), canvas.width, canvas.height, 50 * (devicePixelRatio || 1));
-  S = { track, lanes, race, overview, cam: { ...overview }, clock: 0, label };
-  feedKey = '';
-  followIdx = 0;
-  info.textContent = `${label} · ${track.length.toFixed(0)} m · ${FIELD} cars · ${LAPS} laps · race seed ${raceSeed}`;
-  console.info(`[racing-sim] ${label}: ${track.length.toFixed(0)} m, ${FIELD} cars, ${LAPS} laps, race seed ${raceSeed}`);
+// ---- scenarios (Phase 6) -------------------------------------------------------------------
+
+/** Example scenarios from racing-sim/scenarios/, by file name. */
+const EXAMPLES: Record<string, Scenario> = Object.fromEntries(
+  Object.entries(import.meta.glob('../../scenarios/*.json', { eager: true, import: 'default' }))
+    .map(([path, s]) => [path.replace(/^.*\/|\.json$/g, ''), s as Scenario]));
+
+/** The page's old URL parameters (?seed, ?race, ?cars, ?laps) as a scenario. */
+function urlScenario(): Scenario {
+  return {
+    version: 1,
+    name: 'Random field',
+    seed: Number(params.get('race') ?? 1),
+    track: { type: 'generated', seed: Number(params.get('seed') ?? 7), width: WIDTH },
+    race: { laps: Number(params.get('laps') ?? 10) },
+    cars: [{ id: 'standard' }],
+    field: { count: Number(params.get('cars') ?? 12), car: 'standard' },
+  };
 }
 
-function generate() {
-  setDrawing(false);
-  startRace(generateTrack({ seed: trackSeed, width: WIDTH }), `track seed ${trackSeed}`);
+/** Built tracks and lane sets by trackKey (rule 5: the key covers every track input). */
+const trackCache = new Map<string, { track: Track; lanes: LaneSet }>();
+
+async function decodePng(dataUrl: string): Promise<ImageData> {
+  const bmp = await createImageBitmap(await (await fetch(dataUrl)).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  const c = new OffscreenCanvas(bmp.width, bmp.height);
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, bmp.width, bmp.height);
+  g.drawImage(bmp, 0, 0);
+  return g.getImageData(0, 0, bmp.width, bmp.height);
 }
+
+async function trackFor(spec: Scenario['track']): Promise<{ track: Track; lanes: LaneSet }> {
+  const key = trackKey(spec);
+  let hit = trackCache.get(key);
+  if (!hit) {
+    const track = buildTrack(spec, spec.type === 'png' ? await decodePng(spec.image) : undefined);
+    hit = { track, lanes: new LaneSet(track) };
+    trackCache.set(key, hit);
+    if (trackCache.size > 6) trackCache.delete(trackCache.keys().next().value!);
+  }
+  return hit;
+}
+
+/** The scenario the address bar's #s= link holds (cleared once another scenario runs). */
+let sharedJson = '';
+
+/** Validate, build and start a scenario. Returns false (and shows why) if it can't run. */
+async function runScenario(s: Scenario): Promise<boolean> {
+  if (location.hash && JSON.stringify(s) !== sharedJson) history.replaceState(null, '', location.pathname + location.search);
+  const res = parseScenario(s);
+  if (!res.ok) { showErrors(res.errors.map(formatError)); return false; }
+  setDrawing(false);
+  info.textContent = `Building ${s.name}…`;
+  try {
+    const { track, lanes } = await trackFor(s.track);
+    const race = new Race(scenarioRaceOptions(s, track, lanes));
+    const overview = fitView(track.centerline(), canvas.width, canvas.height, 50 * (devicePixelRatio || 1));
+    S = { track, lanes, race, scenario: structuredClone(s), overview, cam: { ...overview }, clock: 0, label: s.name };
+  } catch (e) {
+    showErrors(e instanceof ScenarioBuildError ? e.errors.map(formatError) : [(e as Error).message]);
+    return false;
+  }
+  feedKey = '';
+  towerKey = '';
+  followIdx = 0;
+  editor.set(s);
+  const n = S.race.cars.length;
+  info.textContent = `${s.name} · ${S.track.length.toFixed(0)} m · ${n} cars · ${s.race.laps} laps · seed ${s.seed}`;
+  console.info(`[racing-sim] scenario "${s.name}": ${S.track.length.toFixed(0)} m, ${n} cars, ${s.race.laps} laps, seed ${s.seed}`);
+  return true;
+}
+
+function showErrors(errs: string[]) {
+  info.textContent = `Scenario not run: ${errs[0]}${errs.length > 1 ? ` (+${errs.length - 1} more)` : ''}`;
+  console.warn('[racing-sim] scenario errors:\n' + errs.join('\n'));
+  editorBox.hidden = false;
+}
+
+/** Run a modified copy of the current scenario. */
+function rerun(change: (s: Scenario) => void) {
+  const s = structuredClone(S?.scenario ?? editor.draft);
+  change(s);
+  void runScenario(s);
+}
+
+function download(name: string, text: string) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function pickFile(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = accept;
+    inp.onchange = () => resolve(inp.files?.[0] ?? null);
+    inp.oncancel = () => resolve(null);
+    inp.click();
+  });
+}
+
+const editorBox = $('editor');
+const editor = new ScenarioEditor(editorBox, {
+  examples: EXAMPLES,
+  run: (s) => void runScenario(s),
+  async pickPng() {
+    const f = await pickFile('image/png');
+    if (!f) return null;
+    return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.readAsDataURL(f); });
+  },
+  async share(s) {
+    const url = `${location.origin}${location.pathname}${location.search}#${await encodeScenario(s)}`;
+    history.replaceState(null, '', url);
+    sharedJson = JSON.stringify(s);
+    const copied = await navigator.clipboard?.writeText(url).then(() => true, () => false);
+    return `Share link (${(url.length / 1000).toFixed(1)} kB) is in the address bar${copied ? ' and copied' : ''}`;
+  },
+  save(s) {
+    download(`${s.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'scenario'}.json`, JSON.stringify(s, null, 2) + '\n');
+  },
+  async open() {
+    const f = await pickFile('application/json,.json');
+    if (!f) return null;
+    const text = await f.text();
+    try { return JSON.parse(text); } catch { return text; }
+  },
+}, urlScenario());
 
 /** Interpolated pose of car i at the viewer clock, read from the state log. */
 function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos: number; d: number; status: number } {
@@ -117,7 +236,9 @@ function renderTower(s: Session, order: number[], status: number[]) {
       <span class="p">${out ? '' : p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
       <span>${c.entrant.driver.name}${tag}</span><span class="gap">${out ? 'DNF' : gapText(r, i, order[0])}</span></div>`;
   }).join('');
-  const html = `<div class="hd"><span>${r.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span><span>${fmtTime(s.clock)}</span></div>${rows}`;
+  const grip = r.physics.gripLevel;
+  const wx = grip === 1 ? '' : `<span class="grip" title="Track grip">${grip < 1 ? 'Wet' : 'Grip'} ${(grip * 100).toFixed(0)}%</span>`;
+  const html = `<div class="hd"><span>${r.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}<span>${fmtTime(s.clock)}</span></div>${rows}`;
   if (html !== towerKey) {
     tower.innerHTML = html;
     towerKey = html;
@@ -138,7 +259,7 @@ function craftTag(mode: string, finished: boolean): string {
   return `<span class="tag ${mode}">${mode === 'attack' ? 'ATK' : 'DEF'}</span>`;
 }
 
-const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire']);
+const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'grip']);
 const FEED_MAX = 40;
 let feedKey = '';
 /**
@@ -274,14 +395,17 @@ function buildControls() {
   $('camFollow').onclick = () => { follow = true; syncCam(); };
   syncCam();
   $('skip').onclick = () => { if (S) S.clock += 30; };
-  $('restart').onclick = () => { if (S) { raceSeed++; startRace(S.track, S.label, S.lanes); } };
-  $('gen').onclick = () => { trackSeed = Math.floor(Math.random() * 1e6); generate(); };
+  // Replay: the same scenario and seed (an identical race). New seed: the same scenario rerolled.
+  $('restart').onclick = () => rerun(() => {});
+  $('reseed').onclick = () => rerun((s) => { s.seed = (s.seed + 1) >>> 0; });
+  $('gen').onclick = () => rerun((s) => { s.track = { type: 'generated', seed: Math.floor(Math.random() * 1e6), width: s.track.width ?? WIDTH }; });
+  $('edit').onclick = () => { editorBox.hidden = !editorBox.hidden; $('edit').classList.toggle('on', !editorBox.hidden); };
   drawBtn.onclick = () => setDrawing(!drawing);
   closeBtn.onclick = () => {
     if (clicks.length < 3) { info.textContent = 'Need at least 3 points'; return; }
-    const world = clicks.map((p) => ({ x: (p.x - innerWidth / 2) * 2, y: (innerHeight / 2 - p.y) * 2 }));
+    const world = clicks.map((p): [number, number] => [Math.round((p.x - innerWidth / 2) * 20) / 10, Math.round((innerHeight / 2 - p.y) * 20) / 10]);
     setDrawing(false);
-    startRace(Track.fromControlPoints(world, WIDTH), 'drawn track');
+    rerun((s) => { s.track = { type: 'drawn', points: world, width: s.track.width ?? WIDTH }; s.events = s.events?.filter((e) => e.lap <= s.race.laps); });
   };
   canvas.addEventListener('click', (e) => { if (drawing) clicks.push({ x: e.clientX, y: e.clientY }); });
   tower.addEventListener('click', (e) => {
@@ -301,7 +425,20 @@ function buildControls() {
   addEventListener('resize', resize);
 }
 
+/** First scenario: a shared link (#s=...), an example (?scenario=name), else the URL parameters. */
+async function initial(): Promise<Scenario> {
+  if (location.hash.startsWith('#s=')) {
+    const res = await decodeScenario(location.hash);
+    if (res.ok) { sharedJson = JSON.stringify(res.scenario); return res.scenario; }
+    showErrors(res.errors.map(formatError));
+  }
+  const ex = params.get('scenario');
+  if (ex && EXAMPLES[ex]) return EXAMPLES[ex];
+  if (ex) console.warn(`[racing-sim] no example scenario "${ex}" (have: ${Object.keys(EXAMPLES).join(', ')})`);
+  return urlScenario();
+}
+
 buildControls();
 resize();
-generate();
+void initial().then(async (s) => { if (!(await runScenario(s))) editor.set(s); });
 requestAnimationFrame(frame);

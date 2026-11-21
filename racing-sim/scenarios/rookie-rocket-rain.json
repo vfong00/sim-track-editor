@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "Rookie with a rocket",
+  "description": "Nine equal cars and drivers, and one rookie in a much faster car starting from the back (reverse grid). Rain from lap 4 cuts grip to 80%.",
+  "seed": 42,
+  "track": { "type": "generated", "seed": 7, "width": 14, "complexity": 0.6 },
+  "race": { "laps": 6, "start": "grid", "gridOrder": "reverse-rating" },
+  "physics": { "slipstream": 0.25, "dirtyAir": 0.06 },
+  "cars": [
+    { "id": "rocket", "topSpeed": 95, "accel": 14, "grip": 1.12, "brake": 1.1 },
+    { "id": "standard", "topSpeed": 85, "accel": 11, "grip": 1.0, "brake": 1.0 }
+  ],
+  "drivers": [
+    { "name": "Rookie", "car": "rocket", "speed": 0.3, "consistency": 0.65, "risk": 0.9, "color": "#ff006e" }
+  ],
+  "field": { "count": 9, "car": "standard", "spread": 0 },
+  "events": [ { "lap": 4, "type": "grip", "value": 0.8, "note": "rain" } ]
+}

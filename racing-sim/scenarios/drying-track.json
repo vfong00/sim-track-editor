@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "Drying track",
+  "description": "Starts damp (75% grip), drying to 85% on lap 3 and fully dry on lap 5. Incidents are twice as likely as usual; grid in rating order.",
+  "seed": 9,
+  "track": { "type": "generated", "seed": 11, "width": 13, "complexity": 0.8 },
+  "race": { "laps": 6, "gridOrder": "rating", "incidentRate": 2 },
+  "physics": { "gripLevel": 0.75 },
+  "cars": [ { "id": "standard" }, { "id": "grippy", "grip": 1.05, "topSpeed": 82 } ],
+  "drivers": [
+    { "name": "Kaur", "car": "grippy", "speed": 0.8, "consistency": 0.95, "risk": 0.3 },
+    { "name": "Rossi", "car": "standard", "speed": 0.9, "consistency": 0.7, "risk": 0.9 },
+    { "name": "Lee", "car": "standard", "speed": 0.7, "consistency": 0.9, "risk": 0.5 },
+    { "name": "Brandt", "car": "grippy", "speed": 0.5, "consistency": 0.8, "risk": 0.7 },
+    { "name": "Sato", "car": "standard", "speed": 0.6, "consistency": 0.85, "risk": 0.4,
+      "advanced": { "racecraft": 0.95 } },
+    { "name": "Novak", "car": "standard", "speed": 0.4, "consistency": 0.75, "risk": 0.6 }
+  ],
+  "events": [
+    { "lap": 3, "type": "grip", "value": 0.85, "note": "drying" },
+    { "lap": 5, "type": "grip", "value": 1.0, "note": "dry line" }
+  ]
+}

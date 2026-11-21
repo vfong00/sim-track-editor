@@ -72,7 +72,15 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   for (const o of near) {
     const hazard = o.v < slow;
     if (o.gap <= 0 || o.gap > (hazard ? 40 + 4 * st.v : look)) continue;
-    const overlap = Math.min(Math.abs(o.d - me.d), Math.abs(o.d - targetD)) < HIT_W + 0.2;
+    // A hazard is judged where I'll be when I reach it (my lane and my target lane at its s): the
+    // racing line can sweep across the road on the way, so a wreck beside the line further on
+    // is in my path even when it's far to the side of me now.
+    let dist = Math.min(Math.abs(o.d - me.d), Math.abs(o.d - targetD));
+    if (hazard) {
+      const at = st.s + o.gap;
+      dist = Math.min(dist, Math.abs(o.d - lanes.dOf(at, st.delta)), Math.abs(o.d - lanes.dOf(at, deltaTarget)));
+    }
+    const overlap = dist < HIT_W + 0.2;
     if (!overlap) continue;
     const bo = me.model.maxBrake(o.v, 0);
     const room = o.gap - HIT_LEN - 1.0 - 0.03 * st.v;
@@ -102,18 +110,22 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
  */
 export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): { delta: number; hazard: number } {
   const { st, lanes } = me;
-  const lineD = lanes.lineD(st.s);
   const lim = lanes.lim;
   const look = 30 + st.v * 3;
   let haz: Near | null = null;
   for (const o of near) {
     if (o.gap <= -HIT_LEN || o.gap > look) continue;
     if (o.v > Math.max(6, 0.5 * st.v)) continue;
-    if (Math.abs(o.dd) > SIDE_GAP + 1) continue;
+    // In my way now, or where my lane (or the one I want) will be when I get there.
+    const at = st.s + Math.max(0, o.gap);
+    const dd = Math.min(Math.abs(o.dd), Math.abs(o.d - lanes.dOf(at, st.delta)), Math.abs(o.d - lanes.dOf(at, wantDelta)));
+    if (dd > SIDE_GAP + 1) continue;
     if (!haz || o.gap < haz.gap) haz = o;
   }
   if (!haz) return { delta: wantDelta, hazard: -1 };
-  const want = lineD + wantDelta;
+  // Offsets are relative to the racing line at the hazard (where the clearance matters).
+  const lineAt = lanes.lineD(st.s + Math.max(0, haz.gap));
+  const want = lineAt + wantDelta;
   let best = NaN;
   for (const side of [1, -1]) {
     const d = haz.d + side * (SIDE_GAP + 0.4);
@@ -125,5 +137,5 @@ export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): {
     if (Number.isNaN(best) || Math.abs(d - want) < Math.abs(best - want)) best = d;
   }
   if (Number.isNaN(best)) return { delta: wantDelta, hazard: haz.j };
-  return { delta: best - lineD, hazard: haz.j };
+  return { delta: best - lineAt, hazard: haz.j };
 }

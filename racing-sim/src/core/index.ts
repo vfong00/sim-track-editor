@@ -16,3 +16,6 @@ export * from './agents/driver';
 export * from './agents/controller';
 export * from './track/corners';
 export * from './agents/racecraft';
+export * from './scenario/schema';
+export * from './scenario/build';
+export * from './scenario/share';

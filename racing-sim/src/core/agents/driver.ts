@@ -63,3 +63,39 @@ export function identicalField(n: number, driver: Omit<DriverSpec, 'name'> = AVE
     driver: { ...driver, name: NAMES[i % NAMES.length] },
   }));
 }
+
+/**
+ * The simple driver ratings scenarios expose (Phase 6), each in [0, 1]:
+ * - speed → pace, linearly from PACE_MIN (0) to PACE_MAX (1); 0.5 is the average driver's 0.98.
+ * - consistency → consistency, as is.
+ * - risk → aggression and bravery, both set to it (so riskTaking(d) = risk).
+ * - racecraft comes from experience-like skill: the mean of speed and consistency (a quick,
+ *   steady driver is also good wheel to wheel). Average ratings give 0.675 (AVERAGE_DRIVER: 0.6).
+ * Any internal rating can still be set directly (`advanced` in a scenario); those win.
+ */
+export interface SimpleRatings {
+  speed: number;
+  consistency: number;
+  risk: number;
+}
+
+export const PACE_MIN = 0.96;
+export const PACE_MAX = 1.0;
+export const AVERAGE_RATINGS: SimpleRatings = { speed: 0.5, consistency: AVERAGE_DRIVER.consistency, risk: 0.5 };
+
+export const paceFromSpeed = (speed: number) => PACE_MIN + (PACE_MAX - PACE_MIN) * speed;
+
+export function driverFromRatings(name: string, r: SimpleRatings, advanced: Partial<Omit<DriverSpec, 'name'>> = {}): DriverSpec {
+  return {
+    name,
+    pace: paceFromSpeed(r.speed),
+    consistency: r.consistency,
+    aggression: r.risk,
+    racecraft: (r.speed + r.consistency) / 2,
+    bravery: r.risk,
+    ...advanced,
+  };
+}
+
+export const DRIVER_NAMES = NAMES;
+export const DRIVER_COLORS = COLORS;
