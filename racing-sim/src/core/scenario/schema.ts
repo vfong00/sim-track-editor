@@ -68,7 +68,9 @@ export interface FieldEntry {
 
 export type EventEntry =
   | { lap: number; type: 'grip'; value: number; note?: string }
-  | { lap: number; type: 'spin' | 'retire'; driver: string; note?: string };
+  | { lap: number; type: 'spin' | 'retire'; driver: string; note?: string }
+  /** The safety car comes out when the leader starts `lap`, for `laps` laps. */
+  | { lap: number; type: 'safety-car'; laps: number; note?: string };
 
 export interface Scenario {
   version?: number;
@@ -87,6 +89,8 @@ export interface Scenario {
     incidents?: boolean;
     /** Multiplies every driver's incident odds (default 1). */
     incidentRate?: number;
+    /** 'auto': the safety car comes out when a car stops for good on or beside the road. Default 'off'. */
+    safetyCar?: 'off' | 'auto';
   };
   physics?: { gripLevel?: number; slipstream?: number; dirtyAir?: number };
   cars: CarEntry[];
@@ -243,6 +247,7 @@ export const RANGES = {
   dirtyAir: [0, 0.5],
   incidentRate: [0, 5],
   fieldCount: [1, MAX_CARS],
+  safetyCarLaps: [1, 10],
 } as const;
 
 const SEED: [number, number] = [0, 2 ** 32 - 1];
@@ -299,13 +304,14 @@ export function validateScenario(x: unknown): ScenarioError[] {
   validateTrack(v, 'track', x.track);
 
   let laps = Infinity;
-  if (object(v, 'race', x.race, ['laps'], ['start', 'gridOrder', 'incidents', 'incidentRate'])) {
+  if (object(v, 'race', x.race, ['laps'], ['start', 'gridOrder', 'incidents', 'incidentRate', 'safetyCar'])) {
     const r = x.race;
     if (num(v, 'race.laps', r.laps, RANGES.laps[0], RANGES.laps[1], { int: true })) laps = r.laps as number;
     oneOf(v, 'race.start', r.start, ['grid'], true);
     oneOf(v, 'race.gridOrder', r.gridOrder, ['as-listed', 'rating', 'reverse-rating', 'random'], true);
     bool(v, 'race.incidents', r.incidents);
     num(v, 'race.incidentRate', r.incidentRate, RANGES.incidentRate[0], RANGES.incidentRate[1], { optional: true });
+    oneOf(v, 'race.safetyCar', r.safetyCar, ['off', 'auto'], true);
   }
 
   if (x.physics !== undefined && object(v, 'physics', x.physics, [], ['gripLevel', 'slipstream', 'dirtyAir'])) {
@@ -369,13 +375,16 @@ export function validateScenario(x: unknown): ScenarioError[] {
     (x.events as unknown[]).forEach((e, i) => {
       const p = `events[${i}]`;
       if (!isObj(e)) return err(v, p, `must be an object (got ${kind(e)})`);
-      if (!oneOf(v, `${p}.type`, e.type, ['grip', 'spin', 'retire'])) {
+      if (!oneOf(v, `${p}.type`, e.type, ['grip', 'spin', 'retire', 'safety-car'])) {
         if (e.type === undefined) err(v, `${p}.type`, 'is required');
         return;
       }
       if (e.type === 'grip') {
         if (!object(v, p, e, ['lap', 'type', 'value'], ['note'])) return;
         num(v, `${p}.value`, e.value, RANGES.gripLevel[0], RANGES.gripLevel[1]);
+      } else if (e.type === 'safety-car') {
+        if (!object(v, p, e, ['lap', 'type', 'laps'], ['note'])) return;
+        num(v, `${p}.laps`, e.laps, RANGES.safetyCarLaps[0], RANGES.safetyCarLaps[1], { int: true });
       } else {
         if (!object(v, p, e, ['lap', 'type', 'driver'], ['note'])) return;
         if (str(v, `${p}.driver`, e.driver, { max: 40 }) && !names.has(e.driver as string)) {

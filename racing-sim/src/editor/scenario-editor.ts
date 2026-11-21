@@ -93,8 +93,10 @@ export class ScenarioEditor {
     const names = (s.drivers ?? []).map((d): [string, string] => [d.name, d.name]);
     const events = (s.events ?? []).map((e, i) => `<tr>
       <td>${this.num(['events', i, 'lap'], e.lap, [1, s.race.laps], '1')}</td>
-      <td>${this.select(['events', i, 'type'], e.type, [['grip', 'Grip'], ['spin', 'Spin'], ['retire', 'Retire']], true)}</td>
-      <td>${e.type === 'grip' ? this.num(['events', i, 'value'], e.value, RANGES.gripLevel, '0.05') : this.select(['events', i, 'driver'], e.driver, names)}</td>
+      <td>${this.select(['events', i, 'type'], e.type, [['grip', 'Grip'], ['spin', 'Spin'], ['retire', 'Retire'], ['safety-car', 'Safety car']], true)}</td>
+      <td>${e.type === 'grip' ? this.num(['events', i, 'value'], e.value, RANGES.gripLevel, '0.05')
+        : e.type === 'safety-car' ? this.num(['events', i, 'laps'], e.laps, RANGES.safetyCarLaps, '1', 'laps')
+        : this.select(['events', i, 'driver'], e.driver, names)}</td>
       <td>${this.text(['events', i, 'note'], e.note, 'note')}</td>
       <td><button class="x" data-act="del" data-path="events.${i}" title="Remove">✕</button></td></tr>`).join('');
 
@@ -117,6 +119,7 @@ export class ScenarioEditor {
         ${this.row('Grid', this.select(['race', 'gridOrder'], s.race.gridOrder ?? 'as-listed', [['as-listed', 'As listed'], ['rating', 'Quickest on pole'], ['reverse-rating', 'Reverse (slowest on pole)'], ['random', 'Random (seeded)']]))}
         ${this.row('Incidents', `<input type="checkbox" data-path="race.incidents" data-kind="bool"${s.race.incidents === false ? '' : ' checked'}>`, 'off: road edge is a wall')}
         ${this.row('Incident rate', this.num(['race', 'incidentRate'], s.race.incidentRate, RANGES.incidentRate, '0.1', '1'), '× odds')}
+        ${this.row('Safety car', this.select(['race', 'safetyCar'], s.race.safetyCar ?? 'off', [['off', 'Only when scripted'], ['auto', 'Also when a car stops on track']]))}
       </section>
       <section><h4>Track</h4>${track}</section>
       <section><h4>Physics</h4>
@@ -137,7 +140,7 @@ export class ScenarioEditor {
       <section><h4>Mid-race events <em>when the leader starts the lap</em></h4>
         <table><tr><th>lap</th><th>type</th><th>value</th><th>note</th><th></th></tr>${events}</table>
         <button data-act="add-event">+ Event</button>
-        <div class="note">Safety car: not yet (deferred).</div>
+        <div class="note">Grip: track grip from then on (1 = dry). Safety car: value = laps it stays out.</div>
       </section>
       <section><h4>JSON</h4>
         <textarea id="ed-json" rows="10" spellcheck="false"></textarea>
@@ -213,6 +216,7 @@ export class ScenarioEditor {
       const i = Number(path[1]);
       const old = this.draft.events![i];
       this.draft.events![i] = v === 'grip' ? { lap: old.lap, type: 'grip', value: 0.8, note: old.note }
+        : v === 'safety-car' ? { lap: old.lap, type: 'safety-car', laps: 2, note: old.note }
         : { lap: old.lap, type: v as 'spin' | 'retire', driver: this.draft.drivers?.[0]?.name ?? '', note: old.note };
       return;
     }

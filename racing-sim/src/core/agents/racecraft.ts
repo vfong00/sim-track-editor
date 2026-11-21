@@ -44,6 +44,8 @@ export interface CraftContext {
   corners: Corner[];
   nextCorner: Int32Array;
   physics: PhysicsParams;
+  /** Safety car (Phase 6): no attacking or defending. */
+  neutral?: boolean;
 }
 
 export interface CraftCar {
@@ -158,7 +160,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
 
   // --- A slow or stopped car ahead: steer round it, no racing until past.
   const avoid = avoidSlowCar(view, near, 0);
-  if (avoid.hazard >= 0 || off > 0.5) cr.mode = 'line';
+  if (avoid.hazard >= 0 || off > 0.5 || ctx.neutral) cr.mode = 'line';
 
   // --- Who is directly in front (roughly in line) and who is close behind.
   let front: Near | null = null, behind: Near | null = null;
@@ -177,7 +179,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   }
 
   // --- Attack: decide (a few times a second) whether to have a go at the car in front.
-  if (cr.mode === 'line' && avoid.hazard < 0 && off === 0 && front && ctx.t >= cr.nextThink) {
+  if (cr.mode === 'line' && !ctx.neutral && avoid.hazard < 0 && off === 0 && front && ctx.t >= cr.nextThink) {
     cr.nextThink = ctx.t + 0.5;
     const target = cars[front.j];
     const faster = target.plans.lapTime - plans.lapTime; // s per lap the attacker is quicker
@@ -228,7 +230,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   }
 
   // --- Defend: one move to the inside of the next corner when someone is close behind.
-  if (cr.mode === 'line' && avoid.hazard < 0 && off === 0 && behind && corner && cr.defendedCorner !== ci && toCorner < 220 && toCorner > 40) {
+  if (cr.mode === 'line' && !ctx.neutral && avoid.hazard < 0 && off === 0 && behind && corner && cr.defendedCorner !== ci && toCorner < 220 && toCorner > 40) {
     const threat = cars[behind.j];
     const attacking = threat.craft.mode === 'attack' && threat.craft.other === me.idx;
     if ((attacking || behind.v > st.v + 1.5) && behind.gap > -15 && me.rng.next() < drv.racecraft * 0.6) {

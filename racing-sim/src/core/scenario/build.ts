@@ -139,8 +139,10 @@ export function scenarioRaceOptions(s: Scenario, track: Track, lanes?: LaneSet):
   const entrants = scenarioEntrants(s, lanes);
   const index = new Map(entrants.map((e, i) => [e.driver.name, i]));
   // Stable by lap, so same-lap events fire in the order written.
-  const events: ScriptedEvent[] = stableSort(s.events ?? [], (a, b) => a.lap - b.lap).map((e) =>
-    e.type === 'grip' ? { lap: e.lap, type: 'grip', value: e.value, note: e.note } : { lap: e.lap, type: e.type, car: index.get(e.driver)!, note: e.note });
+  const events: ScriptedEvent[] = stableSort(s.events ?? [], (a, b) => a.lap - b.lap).map((e): ScriptedEvent =>
+    e.type === 'grip' ? { lap: e.lap, type: 'grip', value: e.value, note: e.note }
+      : e.type === 'safety-car' ? { lap: e.lap, type: 'safety-car', laps: e.laps, note: e.note }
+      : { lap: e.lap, type: e.type, car: index.get(e.driver)!, note: e.note });
   return {
     track,
     lanes,
@@ -150,6 +152,7 @@ export function scenarioRaceOptions(s: Scenario, track: Track, lanes?: LaneSet):
     physics: { ...s.physics },
     incidents: s.race.incidents ?? true,
     incidentRate: s.race.incidentRate ?? 1,
+    safetyCar: s.race.safetyCar ?? 'off',
     events,
   };
 }

@@ -49,7 +49,7 @@ describe('Phase 6: example scenarios', () => {
     const all = files.map(read);
     expect(files.length).toBeGreaterThanOrEqual(5);
     expect(new Set(all.map((s) => s.track.type))).toEqual(new Set(['generated', 'drawn', 'png']));
-    expect(new Set(all.flatMap((s) => (s.events ?? []).map((e) => e.type)))).toEqual(new Set(['grip', 'spin', 'retire']));
+    expect(new Set(all.flatMap((s) => (s.events ?? []).map((e) => e.type)))).toEqual(new Set(['grip', 'spin', 'retire', 'safety-car']));
   });
 
   it.each(files)('%s validates and runs to completion', (f) => {
@@ -66,7 +66,9 @@ describe('Phase 6: example scenarios', () => {
     // Every scripted event happened, on the lap it was set for.
     for (const e of s.events ?? []) {
       const logged = r.events.find((x) => x.type === e.type &&
-        (e.type === 'grip' ? x.text.endsWith(`grip ${(e.value * 100).toFixed(0)}%`) : r.name(x.cars[0]) === e.driver));
+        (e.type === 'grip' ? x.text.endsWith(`grip ${(e.value * 100).toFixed(0)}%`)
+          : e.type === 'safety-car' ? x.text.startsWith('Safety car:') && x.lap === e.lap
+          : r.name(x.cars[0]) === e.driver));
       expect(logged, `${e.type} on lap ${e.lap}`).toBeDefined();
       expect(logged!.lap).toBe(e.lap);
     }
@@ -102,7 +104,10 @@ describe('Phase 6: invalid files fail with clear errors', () => {
     ['event for an unknown driver', (s) => { s.events = [{ lap: 1, type: 'spin', driver: 'Leee' }]; return s; }, ['events[0].driver: no listed driver named "Leee" (did you mean "Lee"?)']],
     ['event after the last lap', (s) => { s.events = [{ lap: 5, type: 'grip', value: 0.8 }]; return s; }, ['events[0].lap: is after the last lap (2)']],
     ['event without its value', (s) => { s.events = [{ lap: 1, type: 'grip' }]; return s; }, ['events[0].value: is required']],
-    ['safety car (not supported yet)', (s) => { s.events = [{ lap: 1, type: 'safety-car' }]; return s; }, ['events[0].type: must be one of "grip", "spin", "retire" (got string "safety-car")']],
+    ['safety car without laps', (s) => { s.events = [{ lap: 1, type: 'safety-car' }]; return s; }, ['events[0].laps: is required']],
+    ['safety car for too long', (s) => { s.events = [{ lap: 1, type: 'safety-car', laps: 12 }]; return s; }, ['events[0].laps: must be between 1 and 10 (got 12)']],
+    ['unknown event type', (s) => { s.events = [{ lap: 1, type: 'red-flag' }]; return s; }, ['events[0].type: must be one of "grip", "spin", "retire", "safety-car" (got string "red-flag")']],
+    ['bad safety car option', (s) => { s.race.safetyCar = 'yes'; return s; }, ['race.safetyCar: must be one of "off", "auto" (got string "yes")']],
     ['newer version', (s) => { s.version = 2; return s; }, ['version: 2 is newer than this sim understands (1)']],
   ];
   it.each(cases)('%s', (_, mutate, expected) => {

@@ -22,6 +22,7 @@
       .tr { display: grid; grid-template-columns: 22px 6px 1fr 64px; gap: 6px; align-items: center; padding: 2px; border-radius: 3px; cursor: pointer; }
       .tr:hover { background: #22262d; }
       .tr.sel { background: #2c3a4e; }
+      .tr.bt { background: #242c37; box-shadow: inset 2px 0 #4f86c6; }
       .tr .sw { width: 6px; height: 14px; border-radius: 2px; }
       .tr .gap { text-align: right; opacity: .85; }
       .tr .p { text-align: right; opacity: .7; }
@@ -49,6 +50,8 @@
       .ev.spin .tx { color: #ffb347; }
       .ev.crash .tx, .ev.retire .tx { color: #ff6b6b; font-weight: 600; }
       #tower .grip { color: #7cc8ff; font-weight: 600; }
+      #tower .scb { background: #ffb000; color: #1a1400; font-weight: 700; text-align: center; border-radius: 3px; padding: 2px; margin: 0 0 4px; letter-spacing: .05em; }
+      .ev.safety-car .tx { color: #ffb000; font-weight: 600; }
       .ev.grip .tx { color: #7cc8ff; font-weight: 600; }
       #editor { top: 44px; right: 8px; width: 400px; max-height: calc(100vh - 60px); overflow: auto; z-index: 3; padding: 8px 10px; }
       #editor[hidden] { display: none; }
@@ -90,7 +93,8 @@
       <button id="edit">Scenario</button>
       <span class="grp" id="speeds"></span>
       <button id="skip">+30 s</button>
-      <span class="grp"><button id="camAll">Overview</button><button id="camFollow">Follow</button></span>
+      <span class="grp"><button id="camAll" title="Whole track (o); wheel to zoom, drag to pan">Overview</button><button id="camFollow" title="Follow the selected car (f)">Follow</button><button id="camBattle" title="Frame the selected car and the cars racing it (b)">Battle</button></span>
+      <span class="grp"><button id="zoomOut" title="Zoom out (−)">−</button><button id="zoomIn" title="Zoom in (+)">+</button></span>
       <span id="info"></span>
     </div>
     <div id="tower" class="panel"></div>

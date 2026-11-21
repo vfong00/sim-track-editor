@@ -1,13 +1,13 @@
 import { type DriverSpec, type Entrant } from '../agents/driver';
 import { avoidSlowCar, trafficControls, type Near } from '../agents/controller';
 import { type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
-import { CarModel, type CarSpec, DEFAULT_PHYSICS, type PhysicsParams } from '../physics/model';
+import { CarModel, type CarSpec, DEFAULT_PHYSICS, type PhysicsParams, STANDARD_CAR } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
 import type { Track } from '../track/track';
 import { type CarState, type Controls, newCarState, stepCar } from './car';
 import { type Contact, resolveCollisions } from './collide';
-import { HIT_LEN, isOffRoad, LanePlans, LaneSet } from './lanes';
+import { CAR_WIDTH, HIT_LEN, isOffRoad, LanePlans, LaneSet } from './lanes';
 import { DT } from './lap';
 
 export interface RaceOptions {
@@ -34,6 +34,11 @@ export interface RaceOptions {
   incidentRate?: number;
   /** Phase 6: scripted mid-race events (scenario `events`), applied in list order when due. */
   events?: ScriptedEvent[];
+  /**
+   * 'auto': deploy the safety car (for SAFETY_CAR.autoLaps laps) when a car comes to rest out of
+   * the race on or beside the road. 'off' (default): only scripted deployments.
+   */
+  safetyCar?: 'off' | 'auto';
 }
 
 /**
@@ -42,9 +47,10 @@ export interface RaceOptions {
  */
 export type ScriptedEvent =
   | { lap: number; type: 'grip'; value: number; note?: string }
-  | { lap: number; type: 'spin' | 'retire'; car: number; note?: string };
+  | { lap: number; type: 'spin' | 'retire'; car: number; note?: string }
+  | { lap: number; type: 'safety-car'; laps: number; note?: string };
 
-export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'grip' | 'lap' | 'finish';
+export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'grip' | 'safety-car' | 'lap' | 'finish';
 
 export interface RaceEvent {
   t: number;
@@ -101,6 +107,8 @@ export const INCIDENTS = {
   damageStep: 0.005,
   /** A cause is only blamed for an incident within this many seconds. */
   causeWindow: 6,
+  /** A running car at a standstill this long is beached (e.g. against a wreck in the run-off) and retires. */
+  stuckAfter: 30,
 };
 
 /**
@@ -164,6 +172,8 @@ export interface RaceCar {
   /** Lasting grip loss from contact (share), and the level the current plans were made for. */
   damage: number;
   damageLevel: number;
+  /** Since when a running car has been at a standstill (NaN = moving). */
+  stillSince: number;
 }
 
 export interface RaceStats {
@@ -244,6 +254,12 @@ export class Race {
   private stuckTime = 0;
   /** Next scripted event (index into opts.events) still to fire. */
   private nextScripted = 0;
+  /** The safety car while deployed (out or just pulled in), else null. */
+  sc: SafetyCarState | null = null;
+  /** Safety car position (track s) for each frame; NaN when it isn't on track. */
+  readonly scLog: number[] = [];
+  /** Plans the safety car's speed comes from (a standard car on the current grip). */
+  private scPlans: LanePlans | null = null;
 
   constructor(readonly opts: RaceOptions) {
     const { track, entrants } = opts;
@@ -268,7 +284,7 @@ export class Race {
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
         status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
-        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0,
+        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN,
       };
     });
     for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
@@ -328,7 +344,7 @@ export class Race {
       c.following = dec.following;
       return dec.ctl;
     }
-    const ctx: CraftContext = { t: this.t, dt: this.dt, lanes: this.lanes, corners: this.corners, nextCorner: this.nextCorner, physics: this.physics };
+    const ctx: CraftContext = { t: this.t, dt: this.dt, lanes: this.lanes, corners: this.corners, nextCorner: this.nextCorner, physics: this.physics, neutral: this.sc !== null };
     const dec = raceCraft(this.views[i], near, this.views, ctx);
     c.following = dec.following;
     c.wake = dec.ctl.effects && (dec.ctl.effects.drag < 1 || dec.ctl.effects.grip < 1) ? 1 : -1;
@@ -348,6 +364,7 @@ export class Race {
    */
   setGrip(level: number, note?: string): void {
     this.physics = { ...this.physics, gripLevel: level };
+    this.scPlans = null;
     for (const c of this.cars) {
       const { model, plans } = this.plansFor(c.entrant, c.damageLevel);
       c.model = model;
@@ -356,6 +373,75 @@ export class Race {
       if (v) { v.model = model; v.plans = plans; }
     }
     this.emit('grip', [], `${note ? note[0].toUpperCase() + note.slice(1) + ': ' : ''}track grip ${(level * 100).toFixed(0)}%`);
+  }
+
+  /**
+   * Deploy the safety car for `laps` laps (racing resumes when the leader starts lap
+   * leaderLap + laps). Ignored while one is already deployed or once the leader has finished.
+   */
+  deploySafetyCar(laps: number, why?: string, cause?: number): void {
+    if (this.sc || this.leaderFinished) return;
+    const lead = this.order().find((i) => !this.cars[i].dnf && !this.cars[i].finished);
+    if (lead === undefined) return;
+    const c = this.cars[lead];
+    const dist = Math.max(c.st.dist, 0) + SAFETY_CAR.enterAhead;
+    const event = this.emit('safety-car', [], `Safety car${why ? `: ${why}` : ''}`, cause);
+    this.sc = { phase: 'out', dist, v: this.scSpeed(dist), endLap: this.leaderLap + laps, event };
+  }
+
+  /** Safety car target speed at race distance `dist`. */
+  private scSpeed(dist: number): number {
+    this.scPlans ??= lanePlansFor(this.lanes, STANDARD_CAR, 1, this.physics).plans;
+    const L = this.track.length;
+    return SAFETY_CAR.pace * this.scPlans.speed(((dist % L) + L) % L, 0);
+  }
+
+  /** Move the safety car one tick; pull it in on its last lap; green flag at the line. */
+  private moveSafetyCar(): void {
+    const sc = this.sc;
+    if (!sc) return;
+    const L = this.track.length;
+    if (sc.phase === 'out') {
+      const s = ((sc.dist % L) + L) % L;
+      sc.v = this.scSpeed(sc.dist);
+      sc.dist += (sc.v * this.dt) / this.lanes.stretch(s, 0);
+      const lastLap = Math.min(sc.endLap - 1, this.laps);
+      const s2 = ((sc.dist % L) + L) % L;
+      if (this.leaderLap >= lastLap && s2 > L - SAFETY_CAR.pitIn) {
+        sc.phase = 'in';
+        this.emit('safety-car', [], sc.endLap > this.laps ? 'Safety car in: the race finishes under yellow' : 'Safety car in this lap');
+      }
+    } else if (this.leaderLap >= sc.endLap || this.leaderFinished) {
+      this.sc = null;
+      if (!this.leaderFinished) this.emit('safety-car', [], 'Green flag: racing resumes');
+    }
+  }
+
+  /**
+   * Speed limit for car c behind the safety car: close up to the queue gap behind the car (or
+   * safety car) in front on the road, never braking harder than SAFETY_CAR.brake for it.
+   */
+  private queueSpeed(c: RaceCar): number {
+    const SC = SAFETY_CAR;
+    const L = this.track.length;
+    const sc = this.sc!;
+    let gap = Infinity, vAhead = 0, want = SC.gap;
+    if (sc.phase === 'out') {
+      gap = (((sc.dist - c.st.s) % L) + L) % L;
+      vAhead = sc.v;
+      want = SC.scGap;
+    }
+    // Only cars in the queue: running on the road. A stopped, crawling or off-road car is a
+    // hazard to drive round (the avoidance rules), not a car to queue behind.
+    for (const o of this.cars) {
+      if (o === c || o.dnf || o.finished || o.status !== 'run' || o.offEvent >= 0 || o.st.v < 5) continue;
+      const g = (((o.st.s - c.st.s) % L) + L) % L;
+      if (g > 0 && g < gap) { gap = g; vAhead = o.st.v; want = SC.gap; }
+    }
+    const env = c.plans.envelope(c.st.s, c.st.delta);
+    const catchUp = sc.phase === 'out' ? SC.catchUp * env : env;
+    const v = gap >= want ? Math.sqrt(vAhead * vAhead + 2 * SC.brake * (gap - want)) : Math.max(0, vAhead + SC.close * (gap - want));
+    return Math.min(catchUp, v);
   }
 
   /** Fire the scripted events that are due (the leader has started their lap). */
@@ -367,6 +453,7 @@ export class Race {
       const e = evs[this.nextScripted++];
       if (e.type === 'grip') this.setGrip(e.value, e.note);
       else if (e.type === 'spin') this.spin(e.car);
+      else if (e.type === 'safety-car') this.deploySafetyCar(e.laps, e.note);
       else this.retire(e.car);
     }
   }
@@ -386,11 +473,14 @@ export class Race {
         const edge = (c.d >= 0 ? 1 : -1) * (this.lanes.lim - 0.3);
         return { vTarget: Math.max(0, c.st.v - 4 * this.dt), deltaTarget: edge - this.lanes.lineD(c.st.s) };
       }
-      return this.controls(i, this.neighbours(i));
+      const ctl = this.controls(i, this.neighbours(i));
+      if (this.sc && !c.finished) ctl.vTarget = Math.min(ctl.vTarget, this.queueSpeed(c));
+      return ctl;
     });
     const prev = this.cars.map((c) => c.st.dist);
     const edgeWall = this.opts.incidents === false;
     this.cars.forEach((c, i) => { if (c.status !== 'out') stepCar(c.st, ctls[i], c.model, this.lanes, dt, edgeWall); });
+    this.moveSafetyCar();
     this.t += dt;
     this.tick++;
     for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
@@ -460,14 +550,16 @@ export class Race {
    * Retire car i on the spot (a mechanical failure; Phase 6 scenarios and the checks use it): it
    * stops dead where it is and stays there as an obstacle, like a crashed car.
    */
-  retire(i: number): void {
+  retire(i: number, stuck = false): void {
     const c = this.cars[i];
     if (c.dnf || c.finished) return;
     c.status = 'retiring';
     c.dnf = true;
     c.craft.mistake = null;
     c.craft.mode = 'line';
-    this.emit('retire', [i], `${this.name(i)} retires at ${this.cornerName(c.st.s)}`);
+    const where = this.cornerName(c.st.s);
+    this.emit('retire', [i], stuck ? `${this.name(i)} is stuck at ${where} and retires` : `${this.name(i)} retires at ${where}`,
+      stuck && c.offEvent >= 0 ? c.offEvent : undefined);
   }
 
   /** Spin car i now (a scenario hook, e.g. oil on the track; the checks use it). */
@@ -563,7 +655,7 @@ export class Race {
         if (c.st.v < 0.3) {
           c.st.v = 0;
           c.st.vDelta = 0;
-          if (c.status === 'crash') { c.status = 'out'; c.fixed = true; }
+          if (c.status === 'crash') { c.status = 'out'; c.fixed = true; this.autoSafetyCar(c); }
           else { c.status = 'stopped'; c.restartAt = this.t + 1.5 + 1.5 * c.rng.next(); }
         }
       } else if (c.status === 'retiring' && c.st.v < 0.3) {
@@ -571,6 +663,13 @@ export class Race {
         c.st.vDelta = 0;
         c.status = 'out';
         c.fixed = true;
+        this.autoSafetyCar(c);
+      } else if (c.status === 'run' && !c.finished && this.t > c.startDelay + 5) {
+        // Beached: no way past (e.g. nose against a wreck at the barrier). Retire rather than
+        // sit there for ever (the race could never finish).
+        if (c.st.v > 0.5) c.stillSince = NaN;
+        else if (Number.isNaN(c.stillSince)) c.stillSince = this.t;
+        else if (this.t - c.stillSince > I.stuckAfter) this.retire(i, true);
       } else if (c.status === 'stopped') {
         // Turning the car round, then waiting for a gap in the traffic.
         const turn = 1.5 * dt;
@@ -578,6 +677,20 @@ export class Race {
         if (this.t >= c.restartAt && c.yaw === 0 && (this.clearBehind(c) || this.t > c.restartAt + 15)) c.status = 'run';
       }
     }
+  }
+
+  /**
+   * Automatic safety car (option 'auto'): a car out of the race at rest on the road or touching
+   * it (not deep in the run-off) brings it out.
+   */
+  private autoSafetyCar(c: RaceCar): void {
+    if (this.opts.safetyCar !== 'auto' || Math.abs(c.d) > this.track.width / 2 + CAR_WIDTH) return;
+    let why = -1;
+    for (let k = this.events.length - 1; k >= 0; k--) {
+      const e = this.events[k];
+      if ((e.type === 'crash' || e.type === 'retire') && e.cars[0] === c.idx) { why = k; break; }
+    }
+    this.deploySafetyCar(SAFETY_CAR.autoLaps, `${this.name(c.idx)} stopped at ${this.cornerName(c.st.s)}`, why);
   }
 
   /** No running car arriving within ~3 s in the stopped car's part of the road. */
@@ -726,6 +839,7 @@ export class Race {
       f[k + 4] = c.status === 'run' ? (c.offEvent >= 0 ? STATUS.off : STATUS.run) : STATUS[c.status];
     });
     this.frames.push(f);
+    this.scLog.push(this.sc?.phase === 'out' ? ((this.sc.dist % this.track.length) + this.track.length) % this.track.length : NaN);
     const order = this.order();
     this.orders.push(Uint8Array.from(order));
     return order;
@@ -736,6 +850,39 @@ export class Race {
     while (!this.finished && this.t < maxTime) this.step();
     return this;
   }
+}
+
+/**
+ * The safety car. It enters `enterAhead` m in front of the leader and laps at `pace` × a standard
+ * car's planned speed. Nobody attacks or defends; every car closes up to `gap` m behind the car
+ * (or safety car) in front on the road, braking at no more than `brake` m/s² to get there, and
+ * a car further back catches up at up to `catchUp` × its own braking envelope. On its last lap
+ * the safety car pulls in `pitIn` m before the line ("in this lap"); passing stays off until the
+ * leader crosses the line (green flag).
+ */
+export const SAFETY_CAR = {
+  pace: 0.6,
+  enterAhead: 150,
+  gap: 14,
+  scGap: 40,
+  brake: 3,
+  /** Below the queue gap, speed drops by this per metre short (1/s). */
+  close: 0.4,
+  catchUp: 0.85,
+  pitIn: 400,
+  autoLaps: 2,
+};
+
+export interface SafetyCarState {
+  /** 'out': on track; 'in': pulled in, no passing until the leader starts lap `endLap`. */
+  phase: 'out' | 'in';
+  /** Race distance and speed of the safety car (while out). */
+  dist: number;
+  v: number;
+  /** Leader's lap on which racing resumes (at the line). */
+  endLap: number;
+  /** The 'safety-car' event that deployed it. */
+  event: number;
 }
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);

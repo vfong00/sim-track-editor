@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "name": "Safety car",
+  "description": "Twelve drivers over 8 laps. The safety car comes out on lap 3 for two laps and bunches the field up for a restart; it also comes out by itself if a car stops on track.",
+  "seed": 4,
+  "track": { "type": "generated", "seed": 7, "width": 14 },
+  "race": { "laps": 8, "safetyCar": "auto" },
+  "cars": [ { "id": "standard" } ],
+  "field": { "count": 12, "car": "standard", "spread": 1 },
+  "events": [ { "lap": 3, "type": "safety-car", "laps": 2, "note": "debris" } ]
+}

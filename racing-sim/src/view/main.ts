@@ -4,6 +4,7 @@ import {
   type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
 } from '../core';
 import { ScenarioEditor } from '../editor/scenario-editor';
+import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
 import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
 import { drawSpeedTrace } from './trace';
 
@@ -23,7 +24,10 @@ let clicks: Vec[] = [];
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16];
 let speed = Number(params.get('speed') ?? 1);
 let paused = false;
-let follow = params.get('cam') !== 'all';
+const camParam = params.get('cam');
+let camMode: CamMode = camParam === 'all' ? 'all' : camParam === 'battle' ? 'battle' : 'follow';
+/** User zoom on top of the automatic follow and battle framing. */
+const zoom = { follow: 1, battle: 1 };
 let followIdx = -1;
 
 interface Session {
@@ -32,7 +36,11 @@ interface Session {
   race: Race;
   scenario: Scenario;
   overview: View;
+  /** The overview with the user's zoom and pan. */
+  allView: View;
   cam: View;
+  /** Battle cam: framing centre relative to the followed car (eased), in metres. */
+  battleOff: Vec;
   /** Sim time the viewer is showing (the race is stepped up to this). */
   clock: number;
   label: string;
@@ -45,7 +53,7 @@ function resize() {
     c.width = c.clientWidth * dpr;
     c.height = c.clientHeight * dpr;
   }
-  if (S) S.overview = fitView(S.track.centerline(), canvas.width, canvas.height, 50 * dpr);
+  if (S) S.allView = S.overview = fitView(S.track.centerline(), canvas.width, canvas.height, 50 * dpr);
 }
 
 // ---- scenarios (Phase 6) -------------------------------------------------------------------
@@ -107,7 +115,7 @@ async function runScenario(s: Scenario): Promise<boolean> {
     const { track, lanes } = await trackFor(s.track);
     const race = new Race(scenarioRaceOptions(s, track, lanes));
     const overview = fitView(track.centerline(), canvas.width, canvas.height, 50 * (devicePixelRatio || 1));
-    S = { track, lanes, race, scenario: structuredClone(s), overview, cam: { ...overview }, clock: 0, label: s.name };
+    S = { track, lanes, race, scenario: structuredClone(s), overview, allView: overview, cam: { ...overview }, battleOff: { x: 0, y: 0 }, clock: 0, label: s.name };
   } catch (e) {
     showErrors(e instanceof ScenarioBuildError ? e.errors.map(formatError) : [(e as Error).message]);
     return false;
@@ -232,17 +240,30 @@ function renderTower(s: Session, order: number[], status: number[]) {
     const c = r.cars[i];
     const out = status[i] >= STATUS.crash;
     const tag = out ? '' : incidentTag(status[i]) || craftTag(c.craft.mode, c.finished);
-    return `<div class="tr${i === followIdx ? ' sel' : ''}${c.finished ? ' fin' : ''}${out ? ' out' : ''}" data-i="${i}">
+    return `<div class="tr${i === followIdx ? ' sel' : camMode === 'battle' && battle.includes(i) ? ' bt' : ''}${c.finished ? ' fin' : ''}${out ? ' out' : ''}" data-i="${i}">
       <span class="p">${out ? '' : p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
       <span>${c.entrant.driver.name}${tag}</span><span class="gap">${out ? 'DNF' : gapText(r, i, order[0])}</span></div>`;
   }).join('');
   const grip = r.physics.gripLevel;
   const wx = grip === 1 ? '' : `<span class="grip" title="Track grip">${grip < 1 ? 'Wet' : 'Grip'} ${(grip * 100).toFixed(0)}%</span>`;
-  const html = `<div class="hd"><span>${r.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}<span>${fmtTime(s.clock)}</span></div>${rows}`;
+  const sc = scState(r, s.clock);
+  const banner = sc ? `<div class="scb">${sc === 'out' ? 'SAFETY CAR' : 'SAFETY CAR IN THIS LAP'}</div>` : '';
+  const html = `<div class="hd"><span>${r.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}<span>${fmtTime(s.clock)}</span></div>${banner}${rows}`;
   if (html !== towerKey) {
     tower.innerHTML = html;
     towerKey = html;
   }
+}
+
+/** Safety car state at the viewer clock, from the event log: out, in (no passing yet), or none. */
+function scState(r: Race, t: number): 'out' | 'in' | '' {
+  let st: 'out' | 'in' | '' = '';
+  for (const e of r.events) {
+    if (e.t > t) break;
+    if (e.type !== 'safety-car') continue;
+    st = e.text.startsWith('Safety car:') ? 'out' : e.text.startsWith('Safety car in') ? 'in' : '';
+  }
+  return st;
 }
 
 /** Incident marker for the tower: off the road, spinning, stopped. */
@@ -259,7 +280,7 @@ function craftTag(mode: string, finished: boolean): string {
   return `<span class="tag ${mode}">${mode === 'attack' ? 'ATK' : 'DEF'}</span>`;
 }
 
-const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'grip']);
+const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'grip', 'safety-car']);
 const FEED_MAX = 40;
 let feedKey = '';
 /**
@@ -319,23 +340,61 @@ function frame(now: number) {
     const k = Math.min(r.orders.length - 1, Math.floor(s.clock / r.dt));
     const order = [...r.orders[k]];
 
-    // Camera: overview, or follow a car at ~4 px/m with smoothing.
+    // The safety car, from its log (on the racing line).
+    let scPose: { p: Vec; heading: number; sPos: number } | null = null;
+    const scA = r.scLog[k], scB = r.scLog[Math.min(k + 1, r.scLog.length - 1)];
+    if (!Number.isNaN(scA)) {
+      const L = s.track.length;
+      let ds = Number.isNaN(scB) ? 0 : scB - scA;
+      if (ds < -L / 2) ds += L;
+      const u = Math.max(0, Math.min(1, (s.clock - k * r.dt) / r.dt));
+      const sp = (scA + ds * u + L) % L;
+      const tg = s.track.tangentAt(sp);
+      scPose = { p: s.track.toXY(sp, s.lanes.lineD(sp)), heading: Math.atan2(tg.y, tg.x), sPos: sp };
+    }
+
+    // Camera: overview (zoom and pan), follow one car, or frame its battle. Scale eases.
     const dpr = devicePixelRatio || 1;
     const a = Math.min(1, elapsed * 5);
-    if (follow && followIdx >= 0) {
-      // Stay centred on the car at any playback speed; only the zoom eases in.
+    const W = canvas.width, H = canvas.height;
+    if (camMode !== 'all' && followIdx >= 0) {
+      // Stay centred on the car (or its battle) at any playback speed; only the zoom and the
+      // battle framing's offset from the car ease.
       const p = poses[followIdx].p;
-      const sc = s.cam.scale + (5 * dpr - s.cam.scale) * a;
-      s.cam = { scale: sc, ox: canvas.width / 2 - p.x * sc, oy: canvas.height / 2 + p.y * sc };
+      let target = FOLLOW_SCALE * dpr * zoom.follow;
+      let off = { x: 0, y: 0 };
+      if (camMode === 'battle') {
+        battle = battleGroup(poses, followIdx, s.track.length, STATUS.crash);
+        const pts = battle.map((i) => poses[i].p);
+        // The safety car counts as part of the battle for the car right behind it.
+        if (scPose) {
+          const g = (scPose.sPos - poses[followIdx].sPos + s.track.length) % s.track.length;
+          if (g <= BATTLE_NEAR) pts.push(scPose.p);
+        }
+        const f = frameView(pts, W, H, 90 * dpr, BATTLE_MIN * dpr, BATTLE_MAX * dpr);
+        target = f.scale * zoom.battle;
+        off = { x: f.c.x - p.x, y: f.c.y - p.y };
+      }
+      s.battleOff = { x: s.battleOff.x + (off.x - s.battleOff.x) * a, y: s.battleOff.y + (off.y - s.battleOff.y) * a };
+      const sc = s.cam.scale + (target - s.cam.scale) * a;
+      s.cam = centred({ x: p.x + s.battleOff.x, y: p.y + s.battleOff.y }, sc, W, H);
     } else {
-      const t = s.overview;
+      const t = s.allView;
       s.cam = { scale: s.cam.scale + (t.scale - s.cam.scale) * a, ox: s.cam.ox + (t.ox - s.cam.ox) * a, oy: s.cam.oy + (t.oy - s.cam.oy) * a };
     }
 
     drawTrack(ctx, s.track, s.cam, s.lanes.line);
     for (let p = n - 1; p >= 0; p--) {
       const i = order[p];
-      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx, poses[i].status);
+      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx && camMode !== 'all', poses[i].status);
+    }
+    if (scPose) {
+      const { p, heading } = scPose;
+      drawCar(ctx, s.cam, p, heading, '#ffb000', CAR_LENGTH * 1.1, CAR_WIDTH, true, 0);
+      const q = { x: s.cam.ox + p.x * s.cam.scale, y: s.cam.oy - p.y * s.cam.scale };
+      ctx.font = `600 ${11 * dpr}px system-ui`;
+      ctx.fillStyle = '#ffb000';
+      ctx.fillText('SC', q.x + 8 * dpr, q.y - 8 * dpr);
     }
     renderTower(s, order, poses.map((q) => q.status));
     renderFeed(s);
@@ -390,10 +449,46 @@ function buildControls() {
     sync();
   };
   sync();
-  const syncCam = () => { $('camAll').classList.toggle('on', !follow); $('camFollow').classList.toggle('on', follow); };
-  $('camAll').onclick = () => { follow = false; syncCam(); };
-  $('camFollow').onclick = () => { follow = true; syncCam(); };
+  $('camAll').onclick = () => setCam('all');
+  $('camFollow').onclick = () => setCam('follow');
+  $('camBattle').onclick = () => setCam('battle');
+  $('zoomIn').onclick = () => zoomBy(1.25);
+  $('zoomOut').onclick = () => zoomBy(1 / 1.25);
   syncCam();
+  // Wheel: zoom (the overview zooms about the pointer). Drag: pan the overview.
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const dpr = devicePixelRatio || 1;
+    zoomBy(Math.exp(-e.deltaY * 0.0015), e.offsetX * dpr, e.offsetY * dpr);
+  }, { passive: false });
+  let drag: { x: number; y: number } | null = null;
+  canvas.addEventListener('mousedown', (e) => { if (!drawing && camMode === 'all') drag = { x: e.clientX, y: e.clientY }; });
+  addEventListener('mouseup', () => { drag = null; });
+  addEventListener('mousemove', (e) => {
+    if (!drag || !S) return;
+    const dpr = devicePixelRatio || 1;
+    S.allView = { ...S.allView, ox: S.allView.ox + (e.clientX - drag.x) * dpr, oy: S.allView.oy + (e.clientY - drag.y) * dpr };
+    S.cam = { ...S.allView };
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  // Keys (not while typing in the editor): ↑/↓ the car ahead/behind in the running order,
+  // +/− zoom, 0 reset zoom, o/f/b camera, space pause.
+  addEventListener('keydown', (e) => {
+    const el = e.target as HTMLElement;
+    if (el.closest('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key;
+    if (k === 'ArrowUp' || k === 'ArrowLeft') stepFollow(-1);
+    else if (k === 'ArrowDown' || k === 'ArrowRight') stepFollow(1);
+    else if (k === '+' || k === '=') zoomBy(1.25);
+    else if (k === '-' || k === '_') zoomBy(1 / 1.25);
+    else if (k === '0') resetZoom();
+    else if (k === 'o') setCam('all');
+    else if (k === 'f') setCam('follow');
+    else if (k === 'b') setCam('battle');
+    else if (k === ' ') { paused = !paused; sync(); }
+    else return;
+    e.preventDefault();
+  });
   $('skip').onclick = () => { if (S) S.clock += 30; };
   // Replay: the same scenario and seed (an identical race). New seed: the same scenario rerolled.
   $('restart').onclick = () => rerun(() => {});
@@ -411,18 +506,59 @@ function buildControls() {
   tower.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest('.tr') as HTMLElement | null;
     if (!row) return;
-    followIdx = Number(row.dataset.i);
-    follow = true;
-    syncCam();
+    pick(Number(row.dataset.i));
   });
   feed.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest('.ev') as HTMLElement | null;
     if (!row?.dataset.i) return;
-    followIdx = Number(row.dataset.i);
-    follow = true;
-    syncCam();
+    pick(Number(row.dataset.i));
   });
   addEventListener('resize', resize);
+}
+
+/** Cars in the current battle-cam frame (for the tower). */
+let battle: number[] = [];
+
+function syncCam() {
+  $('camAll').classList.toggle('on', camMode === 'all');
+  $('camFollow').classList.toggle('on', camMode === 'follow');
+  $('camBattle').classList.toggle('on', camMode === 'battle');
+}
+
+function setCam(m: CamMode) {
+  camMode = m;
+  syncCam();
+}
+
+/** Follow car i (from the overview, switch to following it). */
+function pick(i: number) {
+  followIdx = i;
+  if (camMode === 'all') setCam('follow');
+}
+
+/** Follow the next car behind (+1) or ahead (−1) in the running order, skipping cars out of the race. */
+function stepFollow(dir: number) {
+  if (!S) return;
+  const r = S.race;
+  const k = Math.min(r.orders.length - 1, Math.floor(S.clock / r.dt));
+  const order = [...r.orders[k]].filter((i) => !r.cars[i].dnf || i === followIdx);
+  const at = Math.max(0, order.indexOf(followIdx));
+  pick(order[Math.max(0, Math.min(order.length - 1, at + dir))]);
+}
+
+/** Zoom the current camera by f (about screen point mx, my in the overview). */
+function zoomBy(f: number, mx = canvas.width / 2, my = canvas.height / 2) {
+  if (camMode === 'all') {
+    if (!S) return;
+    const z = S.allView.scale * f / S.overview.scale;
+    if (z < 0.5 || z > 40) return;
+    S.allView = zoomAt(S.allView, f, mx, my);
+  } else zoom[camMode] = clampZoom(zoom[camMode] * f);
+}
+
+function resetZoom() {
+  zoom.follow = zoom.battle = 1;
+  if (S) S.allView = S.overview;
 }
 
 /** First scenario: a shared link (#s=...), an example (?scenario=name), else the URL parameters. */
