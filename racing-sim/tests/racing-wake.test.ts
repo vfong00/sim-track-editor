@@ -3,11 +3,14 @@ import type { PhysicsParams } from '../src/core';
 import { mean, paceGapRace } from './racing-helpers';
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+const GAPS = [0.03, 0.045, 0.06];
 /**
- * Mean seconds the faster car spends stuck within 1 s behind the slower one. A 3% pace gap: big
- * enough to want past, small enough that the wake decides whether it can (at 6% it always can).
+ * Seconds a faster car spends stuck within 1 s behind a slower one, averaged over seeds and summed
+ * over a spread of pace gaps: at a small gap the wake decides whether it ever gets by, at a large
+ * one only how quickly. A single gap can sit where one effect barely matters.
  */
-const stuck = (physics: Partial<PhysicsParams>) => mean(SEEDS.map((seed) => paceGapRace(0.03, seed, physics).run().stats().stuckTime));
+const stuck = (physics: Partial<PhysicsParams>) =>
+  GAPS.reduce((sum, gap) => sum + mean(SEEDS.map((seed) => paceGapRace(gap, seed, physics).run().stats().stuckTime)), 0);
 
 describe('Phase 4: slipstream and dirty air', () => {
   const base = stuck({});

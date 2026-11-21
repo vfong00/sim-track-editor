@@ -205,8 +205,10 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       const committed = o.gap < ALONGSIDE + 6;
       if (!committed && !room(cr.side) && room(-cr.side) && !busy(-cr.side)) cr.side = -cr.side;
       wantDelta = clamp(o.d + cr.side * (SIDE_GAP + 0.3), -lim, lim) - lineD;
-      // Brave: brake later while fighting for the corner (not a higher cornering speed).
-      if (Math.abs(o.gap) < 12) brave = 1 + 0.05 * drv.bravery;
+      // Brave: brake later while fighting for the corner (not a higher cornering speed). The
+      // planned braking leaves a margin (BRAKE_USE ≈ 3% of speed); an average driver uses about
+      // two thirds of it, the bravest a little more than all of it (and may overshoot).
+      if (Math.abs(o.gap) < 12) brave = 1 + 0.04 * drv.bravery;
     }
   }
 

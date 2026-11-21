@@ -98,6 +98,12 @@ export class LaneSet {
   }
 }
 
+/**
+ * Share of the maximum braking drivers plan with. The rest is a safety margin: braking bumps,
+ * misjudged grip, and room for a brave driver to brake later without overshooting.
+ */
+export const BRAKE_USE = 0.94;
+
 /** Speed plans for one car (or car + driver) on every lane. */
 export class LanePlans {
   readonly profiles: SpeedProfile[];
@@ -111,10 +117,10 @@ export class LanePlans {
    */
   constructor(readonly lanes: LaneSet, readonly model: CarModel, effects?: Effects, tow?: Effects, dirty?: Effects) {
     this.profiles = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects }));
-    this.envelopes = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects, forward: false }).v);
+    this.envelopes = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects, forward: false, brakeUse: BRAKE_USE }).v);
     this.speeds = this.profiles.map((p) => p.v);
     const inv = (v: Float64Array) => v.map((x) => 1 / Math.max(x * x, 1e-6));
-    const env = (fx?: Effects) => (fx ? lanes.paths.map((p) => inv(solveSpeedProfile(p, model, { effects: fx, forward: false }).v)) : this.invSq);
+    const env = (fx?: Effects) => (fx ? lanes.paths.map((p) => inv(solveSpeedProfile(p, model, { effects: fx, forward: false, brakeUse: BRAKE_USE }).v)) : this.invSq);
     this.invSq = this.envelopes.map(inv);
     this.towInvSq = env(tow);
     this.dirtyInvSq = env(dirty);

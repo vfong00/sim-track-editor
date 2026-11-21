@@ -32,6 +32,8 @@ export interface ProfileOptions {
    * helps them accelerate (slipstream) actually makes them faster.
    */
   forward?: boolean;
+  /** Share of the car's maximum braking the backward pass may use (default 1). */
+  brakeUse?: number;
 }
 
 /**
@@ -44,6 +46,7 @@ export interface ProfileOptions {
 export function solveSpeedProfile(path: PathLike, model: CarModel, opts: ProfileOptions = {}): SpeedProfile {
   const { n, segLen: L, kappa: k, closed } = path;
   const f = opts.effects ?? NO_EFFECTS;
+  const brakeUse = opts.brakeUse ?? 1;
   const v = new Float64Array(n);
   for (let i = 0; i < n; i++) v[i] = Math.min(model.cornerSpeed(k[i], f), opts.cap ? opts.cap[i] : Infinity);
 
@@ -58,7 +61,7 @@ export function solveSpeedProfile(path: PathLike, model: CarModel, opts: Profile
     let est = Math.min(v[i], v[j]);
     let vi = v[i];
     for (let it = 0; it < 3; it++) {
-      const b = model.maxBrake(est, est * est * Math.abs(k[i]), f);
+      const b = model.maxBrake(est, est * est * Math.abs(k[i]), f) * brakeUse;
       vi = Math.sqrt(v[j] * v[j] + 2 * b * L[i]);
       est = Math.min(v[i], vi);
     }
