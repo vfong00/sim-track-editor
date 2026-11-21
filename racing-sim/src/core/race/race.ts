@@ -174,6 +174,8 @@ export interface RaceCar {
   damageLevel: number;
   /** Since when a running car has been at a standstill (NaN = moving). */
   stillSince: number;
+  /** Time of each start/finish line crossing (index 0 = the start line at the start). */
+  crossTimes: number[];
 }
 
 export interface RaceStats {
@@ -199,6 +201,9 @@ const TRAIN_EVERY = 30;
 /** Checkpoint spacing for time gaps, and the race distance of checkpoint 0. */
 const CP = 10;
 const CP_BASE = -400;
+
+/** Race-craft mode codes in `modeLog`. */
+export const MODE = { line: 0, attack: 1, defend: 2 } as const;
 
 /** Frame layout in the state log: per car [s, d, v, yaw, status code (STATUS)]. */
 export const FRAME_STRIDE = 5;
@@ -258,6 +263,12 @@ export class Race {
   sc: SafetyCarState | null = null;
   /** Safety car position (track s) for each frame; NaN when it isn't on track. */
   readonly scLog: number[] = [];
+  /** Race-craft mode of every car for each frame (MODE codes), for viewers. */
+  readonly modeLog: Uint8Array[] = [];
+  /** Track grip changes (the first entry is the start). */
+  readonly gripLog: { t: number; level: number }[] = [];
+  /** Damage changes: the grip-loss level a car's plans were made for, from time t. */
+  readonly damageLog: { t: number; car: number; level: number }[] = [];
   /** Plans the safety car's speed comes from (a standard car on the current grip). */
   private scPlans: LanePlans | null = null;
 
@@ -268,6 +279,7 @@ export class Race {
     this.lanes = opts.lanes ?? new LaneSet(track);
     this.rng = makeRng(opts.seed);
     this.physics = { ...DEFAULT_PHYSICS, ...opts.physics };
+    this.gripLog.push({ t: 0, level: this.physics.gripLevel });
     this.corners = findCorners(this.lanes.line);
     this.nextCorner = nextCornerTable(track.n, this.corners);
     this.cars = entrants.map((e, idx) => {
@@ -284,7 +296,7 @@ export class Race {
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
         status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
-        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN,
+        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN, crossTimes: [],
       };
     });
     for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
@@ -365,6 +377,7 @@ export class Race {
   setGrip(level: number, note?: string): void {
     this.physics = { ...this.physics, gripLevel: level };
     this.scPlans = null;
+    this.gripLog.push({ t: this.t, level });
     for (const c of this.cars) {
       const { model, plans } = this.plansFor(c.entrant, c.damageLevel);
       c.model = model;
@@ -581,6 +594,7 @@ export class Race {
     const level = Math.floor(c.damage / I.damageStep + 1e-9) * I.damageStep;
     if (level <= c.damageLevel) return;
     c.damageLevel = level;
+    this.damageLog.push({ t: this.t, car: c.idx, level });
     const { model, plans } = this.plansFor(c.entrant, level);
     c.model = model;
     c.plans = plans;
@@ -796,6 +810,7 @@ export class Race {
       }
       c.crossings = k;
       c.lastCross = tc;
+      c.crossTimes.push(tc);
     }
   }
 
@@ -814,6 +829,11 @@ export class Race {
     }
     // Finished cars before running cars at the same distance; then by finish time.
     return idx.sort((a, b) => key[b] - key[a] || ft[a] - ft[b] || a - b);
+  }
+
+  /** Race distance of checkpoint k (see `RaceCar.cp`). */
+  cpDist(k: number): number {
+    return CP_BASE + k * CP;
   }
 
   /** Time gap (s) of car i behind car j at car i's current race distance. */
@@ -839,6 +859,7 @@ export class Race {
       f[k + 4] = c.status === 'run' ? (c.offEvent >= 0 ? STATUS.off : STATUS.run) : STATUS[c.status];
     });
     this.frames.push(f);
+    this.modeLog.push(Uint8Array.from(this.cars, (c) => MODE[c.craft.mode]));
     this.scLog.push(this.sc?.phase === 'out' ? ((this.sc.dist % this.track.length) + this.track.length) % this.track.length : NaN);
     const order = this.order();
     this.orders.push(Uint8Array.from(order));

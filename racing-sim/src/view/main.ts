@@ -5,7 +5,9 @@ import {
 } from '../core';
 import { ScenarioEditor } from '../editor/scenario-editor';
 import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
+import { RaceAt } from './at';
 import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
+import { drawTimeline, timelineDuration } from './timeline';
 import { drawSpeedTrace } from './trace';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -13,6 +15,8 @@ const canvas = $<HTMLCanvasElement>('c');
 const ctx = canvas.getContext('2d')!;
 const traceCanvas = $<HTMLCanvasElement>('trace');
 const tctx = traceCanvas.getContext('2d')!;
+const tlCanvas = $<HTMLCanvasElement>('tl');
+const tlctx = tlCanvas.getContext('2d')!;
 const info = $('info'), hud = $('hud'), tower = $('tower'), feed = $('feed');
 const drawBtn = $<HTMLButtonElement>('draw'), closeBtn = $<HTMLButtonElement>('close');
 
@@ -41,15 +45,23 @@ interface Session {
   cam: View;
   /** Battle cam: framing centre relative to the followed car (eased), in metres. */
   battleOff: Vec;
-  /** Sim time the viewer is showing (the race is stepped up to this). */
+  /** Sim time the viewer is showing (the race is computed up to at least this, often further). */
   clock: number;
+  /** Furthest time watched so far: the timeline only marks events up to here (no spoilers). */
+  watched: number;
   label: string;
 }
 let S: Session | null = null;
 
+/** Panels sit below the toolbar, however many lines it wraps to. */
+const barObserver = new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--bar', `${$('bar').getBoundingClientRect().bottom}px`);
+});
+barObserver.observe($('bar'));
+
 function resize() {
   const dpr = devicePixelRatio || 1;
-  for (const c of [canvas, traceCanvas]) {
+  for (const c of [canvas, traceCanvas, tlCanvas]) {
     c.width = c.clientWidth * dpr;
     c.height = c.clientHeight * dpr;
   }
@@ -115,7 +127,7 @@ async function runScenario(s: Scenario): Promise<boolean> {
     const { track, lanes } = await trackFor(s.track);
     const race = new Race(scenarioRaceOptions(s, track, lanes));
     const overview = fitView(track.centerline(), canvas.width, canvas.height, 50 * (devicePixelRatio || 1));
-    S = { track, lanes, race, scenario: structuredClone(s), overview, allView: overview, cam: { ...overview }, battleOff: { x: 0, y: 0 }, clock: 0, label: s.name };
+    S = { track, lanes, race, scenario: structuredClone(s), overview, allView: overview, cam: { ...overview }, battleOff: { x: 0, y: 0 }, clock: 0, watched: 0, label: s.name };
   } catch (e) {
     showErrors(e instanceof ScenarioBuildError ? e.errors.map(formatError) : [(e as Error).message]);
     return false;
@@ -219,36 +231,40 @@ function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos
   return { p, heading, v: a[o + 2] + (b[o + 2] - a[o + 2]) * u, sPos, d, status };
 }
 
-function gapText(r: Race, i: number, leader: number): string {
-  if (i === leader) return r.cars[i].finished ? 'Winner' : 'Leader';
-  const c = r.cars[i], l = r.cars[leader];
-  const lapsDown = (l.finished ? l.finishLaps : l.crossings) - (c.finished ? c.finishLaps : c.crossings);
-  const g = r.gapTo(i, leader);
-  if (lapsDown >= 1 && (!isFinite(g) || g > 0)) {
-    // Lapped only if the leader is a whole lap ahead in distance, not just across the line.
-    const lDist = l.finished ? l.finishLaps * r.track.length : l.st.dist;
-    if (lDist - c.st.dist >= r.track.length) return `+${Math.floor((lDist - c.st.dist) / r.track.length)} lap`;
-  }
+/** Race distance at the viewer clock (a finished car: its finishing distance). */
+function distAt(at: RaceAt, i: number): number {
+  const c = at.r.cars[i];
+  return at.finished(i) ? c.finishLaps * at.r.track.length : at.dist(i);
+}
+
+function gapText(at: RaceAt, i: number, leader: number): string {
+  if (i === leader) return at.finished(i) ? 'Winner' : 'Leader';
+  // Lapped only if the leader is a whole lap ahead in distance, not just across the line.
+  const L = at.r.track.length;
+  const down = distAt(at, leader) - distAt(at, i);
+  if (down >= L) return `+${Math.floor(down / L)} lap`;
+  const g = at.gap(i, leader);
   return isFinite(g) ? `+${g.toFixed(3)}` : '';
 }
 
 let towerKey = '';
-function renderTower(s: Session, order: number[], status: number[]) {
+function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) {
   const r = s.race;
-  const lap = Math.min(r.laps, r.leaderLap);
+  const lap = at.leaderLap;
   const rows = order.map((i, p) => {
     const c = r.cars[i];
     const out = status[i] >= STATUS.crash;
-    const tag = out ? '' : incidentTag(status[i]) || craftTag(c.craft.mode, c.finished);
-    return `<div class="tr${i === followIdx ? ' sel' : camMode === 'battle' && battle.includes(i) ? ' bt' : ''}${c.finished ? ' fin' : ''}${out ? ' out' : ''}" data-i="${i}">
+    const fin = at.finished(i);
+    const tag = out ? '' : incidentTag(status[i]) || craftTag(at.mode(i), fin);
+    return `<div class="tr${i === followIdx ? ' sel' : camMode === 'battle' && battle.includes(i) ? ' bt' : ''}${fin ? ' fin' : ''}${out ? ' out' : ''}" data-i="${i}">
       <span class="p">${out ? '' : p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
-      <span>${c.entrant.driver.name}${tag}</span><span class="gap">${out ? 'DNF' : gapText(r, i, order[0])}</span></div>`;
+      <span>${c.entrant.driver.name}${tag}</span><span class="gap">${out ? 'DNF' : gapText(at, i, order[0])}</span></div>`;
   }).join('');
-  const grip = r.physics.gripLevel;
+  const grip = at.gripLevel;
   const wx = grip === 1 ? '' : `<span class="grip" title="Track grip">${grip < 1 ? 'Wet' : 'Grip'} ${(grip * 100).toFixed(0)}%</span>`;
   const sc = scState(r, s.clock);
   const banner = sc ? `<div class="scb">${sc === 'out' ? 'SAFETY CAR' : 'SAFETY CAR IN THIS LAP'}</div>` : '';
-  const html = `<div class="hd"><span>${r.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}<span>${fmtTime(s.clock)}</span></div>${banner}${rows}`;
+  const html = `<div class="hd"><span>${at.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}<span>${fmtTime(s.clock)}</span></div>${banner}${rows}`;
   if (html !== towerKey) {
     tower.innerHTML = html;
     towerKey = html;
@@ -296,25 +312,27 @@ function renderFeed(s: Session) {
   if (key === feedKey) return;
   feedKey = key;
   const rows = evs.slice(-FEED_MAX).reverse().map((e) =>
-    `<div class="ev ${e.type}" data-i="${e.cars[0]}"><span class="tm">L${e.lap} ${fmtTime(e.t)}</span><span class="tx">${e.text}</span></div>`).join('');
+    `<div class="ev ${e.type}" data-i="${e.cars[0] ?? ''}" data-t="${e.t}" title="Click: watch this moment"><span class="tm">L${e.lap} ${fmtTime(e.t)}</span><span class="tx">${e.text}</span></div>`).join('');
   const dnf = evs.filter((e) => e.type === 'crash' || e.type === 'retire').length;
   feed.innerHTML = `<div class="hd">Race events · ${evs.filter((e) => e.type === 'pass').length} passes${dnf ? ` · ${dnf} DNF` : ''}</div>${rows || '<div class="ev"><span></span><span class="tm">Nothing yet</span></div>'}`;
 }
 
-function renderHud(s: Session, i: number, v: number, pos: number) {
+function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
   const c = s.race.cars[i];
-  const laps = c.lapTimes;
-  const cur = c.finished ? NaN : isFinite(c.lastCross) ? s.clock - c.lastCross : NaN;
+  const laps = at.lapTimes(i);
+  const last = at.lastCross(i);
+  const cur = at.finished(i) ? NaN : isFinite(last) ? s.clock - last : NaN;
+  const damage = at.damage(i);
   hud.innerHTML = `
     <div class="row"><span style="color:${c.entrant.color};font-weight:600">${c.entrant.driver.name}</span><span>P${pos}</span></div>
     <div class="big">${(v * 3.6).toFixed(0)} km/h</div>
     <div class="row"><span class="lbl">This lap</span><span>${fmtTime(cur)}</span></div>
     <div class="row"><span class="lbl">Last lap</span><span>${laps.length ? fmtTime(laps[laps.length - 1]) : '–'}</span></div>
     <div class="row"><span class="lbl">Best lap</span><span>${laps.length ? fmtTime(Math.min(...laps)) : '–'}</span></div>
-    <div class="row"><span class="lbl">Solver lap</span><span>${fmtTime(c.plans.lapTime)}</span></div>
+    <div class="row"><span class="lbl">Solver lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>
     <div class="row"><span class="lbl">Pace</span><span>${(c.entrant.driver.pace * 100).toFixed(1)}%</span></div>
-    ${c.damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(c.damage * 100).toFixed(1)}% grip</span></div>` : ''}
-    ${c.dnf ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
+    ${damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(damage * 100).toFixed(1)}% grip</span></div>` : ''}
+    ${at.out(i) ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
 }
 
 let last = performance.now();
@@ -333,8 +351,11 @@ function frame(now: number) {
   } else if (S) {
     const s = S;
     const r = s.race;
-    if (!paused) s.clock += elapsed * speed;
+    if (!paused && !seeking) s.clock += elapsed * speed;
     advanceTo(s, s.clock);
+    computeAhead(s);
+    s.watched = Math.max(s.watched, s.clock);
+    const at = new RaceAt(r, s.clock);
     const n = r.cars.length;
     const poses = Array.from({ length: n }, (_, i) => pose(s, i));
     const k = Math.min(r.orders.length - 1, Math.floor(s.clock / r.dt));
@@ -388,6 +409,7 @@ function frame(now: number) {
       const i = order[p];
       drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx && camMode !== 'all', poses[i].status);
     }
+    if (showNames) drawLabels(s, poses, order, dpr);
     if (scPose) {
       const { p, heading } = scPose;
       drawCar(ctx, s.cam, p, heading, '#ffb000', CAR_LENGTH * 1.1, CAR_WIDTH, true, 0);
@@ -396,27 +418,72 @@ function frame(now: number) {
       ctx.fillStyle = '#ffb000';
       ctx.fillText('SC', q.x + 8 * dpr, q.y - 8 * dpr);
     }
-    renderTower(s, order, poses.map((q) => q.status));
+    renderTower(s, at, order, poses.map((q) => q.status));
     renderFeed(s);
     if (followIdx >= 0) {
       const fp = poses[followIdx];
-      renderHud(s, followIdx, fp.v, order.indexOf(followIdx) + 1);
+      renderHud(s, at, followIdx, fp.v, order.indexOf(followIdx) + 1);
       const c = r.cars[followIdx];
       const actual: { s: number; v: number }[] = [];
-      const from = isFinite(c.lastCross) && c.lastCross <= s.clock ? Math.ceil(c.lastCross / r.dt) : 0;
+      const lastX = at.lastCross(followIdx);
+      const from = isFinite(lastX) ? Math.ceil(lastX / r.dt) : 0;
       for (let kk = from; kk <= k; kk += 3) actual.push({ s: r.frames[kk][followIdx * F], v: r.frames[kk][followIdx * F + 2] });
       // Before the first crossing the car is on the grid behind the line: skip those points.
       const lap = from ? actual : actual.filter((p) => p.s < s.track.length / 2);
-      drawSpeedTrace(tctx, traceCanvas.width, traceCanvas.height, c.plans.profiles[s.lanes.zero].v, s.track.length, lap, fp.sPos, c.entrant.color);
+      drawSpeedTrace(tctx, traceCanvas.width, traceCanvas.height, at.plans(followIdx).profiles[s.lanes.zero].v, s.track.length, lap, fp.sPos, c.entrant.color);
     }
+    drawTimeline(tlctx, tlCanvas.width, tlCanvas.height, r, s.clock, s.watched, devicePixelRatio || 1);
   }
   requestAnimationFrame(frame);
+}
+
+/**
+ * Compute the race ahead of the viewer in the background (a few ms per frame), so the timeline
+ * can be scrubbed forward. The race is deterministic, so computing early changes nothing.
+ */
+function computeAhead(s: Session) {
+  const r = s.race;
+  const t0 = performance.now();
+  while (!r.finished && r.t < MAX_RACE_TIME && performance.now() - t0 < 6) r.step();
+}
+const MAX_RACE_TIME = 3600;
+
+/**
+ * Name tags over the cars: "P3 Lee". All cars once zoomed in enough to tell them apart, else
+ * only the followed one; a tag that would overlap one already drawn is skipped (leaders first).
+ */
+function drawLabels(s: Session, poses: { p: Vec; status: number }[], order: number[], dpr: number) {
+  const all = s.cam.scale >= 1.2 * dpr;
+  const ids = order.filter((i) => poses[i].status < STATUS.crash && (all || (i === followIdx && camMode !== 'all')));
+  if (followIdx >= 0 && ids.includes(followIdx)) ids.splice(ids.indexOf(followIdx), 1), ids.unshift(followIdx);
+  ctx.font = `600 ${11 * dpr}px system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
+  const placed: [number, number, number, number][] = [];
+  const h = 16 * dpr;
+  for (const i of ids) {
+    const c = s.race.cars[i];
+    const pos = order.indexOf(i) + 1;
+    const text = `P${pos} ${c.entrant.driver.name}`;
+    const w = ctx.measureText(text).width + 12 * dpr;
+    const q = { x: s.cam.ox + poses[i].p.x * s.cam.scale, y: s.cam.oy - poses[i].p.y * s.cam.scale };
+    const x = q.x + 9 * dpr, y = q.y - 9 * dpr - h;
+    if (x > canvas.width || y > canvas.height || x + w < 0 || y + h < 0) continue;
+    if (placed.some(([a, b, cw, ch]) => x < a + cw && a < x + w && y < b + ch && b < y + h)) continue;
+    placed.push([x, y, w, h]);
+    ctx.fillStyle = i === followIdx ? 'rgba(44,58,78,.92)' : 'rgba(20,22,26,.8)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = c.entrant.color;
+    ctx.fillRect(x, y, 3 * dpr, h);
+    ctx.fillStyle = '#e8e8e8';
+    ctx.fillText(text, x + 7 * dpr, y + h / 2 + 0.5);
+  }
+  ctx.textBaseline = 'alphabetic';
 }
 
 /** Step the race until it has reached time t (or finished). */
 function advanceTo(s: Session, t: number) {
   const r = s.race;
-  while (r.t < t + r.dt && !(r.finished && r.t > t)) {
+  while (r.t < t + r.dt && !(r.finished && r.t > t) && r.t < MAX_RACE_TIME) {
     if (r.finished) {
       s.clock = Math.min(s.clock, r.t);
       break;
@@ -472,13 +539,18 @@ function buildControls() {
     drag = { x: e.clientX, y: e.clientY };
   });
   // Keys (not while typing in the editor): ↑/↓ the car ahead/behind in the running order,
-  // +/− zoom, 0 reset zoom, o/f/b camera, space pause.
+  // ←/→ back/forward 5 s (with shift 30 s), Home to the start, +/− zoom, 0 reset zoom,
+  // o/f/b camera, n names, space pause.
   addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
     if (el.closest('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
-    if (k === 'ArrowUp' || k === 'ArrowLeft') stepFollow(-1);
-    else if (k === 'ArrowDown' || k === 'ArrowRight') stepFollow(1);
+    if (k === 'ArrowUp') stepFollow(-1);
+    else if (k === 'ArrowDown') stepFollow(1);
+    else if (k === 'ArrowLeft') seek((S?.clock ?? 0) - (e.shiftKey ? 30 : 5));
+    else if (k === 'ArrowRight') seek((S?.clock ?? 0) + (e.shiftKey ? 30 : 5));
+    else if (k === 'Home') seek(0);
+    else if (k === 'n') toggleNames();
     else if (k === '+' || k === '=') zoomBy(1.25);
     else if (k === '-' || k === '_') zoomBy(1 / 1.25);
     else if (k === '0') resetZoom();
@@ -490,8 +562,20 @@ function buildControls() {
     e.preventDefault();
   });
   $('skip').onclick = () => { if (S) S.clock += 30; };
-  // Replay: the same scenario and seed (an identical race). New seed: the same scenario rerolled.
-  $('restart').onclick = () => rerun(() => {});
+  $('names').onclick = () => toggleNames();
+  $('names').classList.toggle('on', showNames);
+  // Replay: back to the start of the same race (same scenario and seed: identical by design).
+  $('restart').onclick = () => seek(0);
+  // Timeline: click or drag to seek.
+  const seekAt = (e: PointerEvent) => {
+    if (!S) return;
+    const rect = tlCanvas.getBoundingClientRect();
+    seek(((e.clientX - rect.left) / rect.width) * timelineDuration(S.race));
+  };
+  tlCanvas.addEventListener('pointerdown', (e) => { seeking = true; tlCanvas.setPointerCapture(e.pointerId); seekAt(e); });
+  tlCanvas.addEventListener('pointermove', (e) => { if (seeking) seekAt(e); });
+  tlCanvas.addEventListener('pointerup', () => { seeking = false; });
+  tlCanvas.addEventListener('pointercancel', () => { seeking = false; });
   $('reseed').onclick = () => rerun((s) => { s.seed = (s.seed + 1) >>> 0; });
   $('gen').onclick = () => rerun((s) => { s.track = { type: 'generated', seed: Math.floor(Math.random() * 1e6), width: s.track.width ?? WIDTH }; });
   $('edit').onclick = () => { editorBox.hidden = !editorBox.hidden; $('edit').classList.toggle('on', !editorBox.hidden); };
@@ -510,10 +594,29 @@ function buildControls() {
   });
   feed.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest('.ev') as HTMLElement | null;
-    if (!row?.dataset.i) return;
-    pick(Number(row.dataset.i));
+    if (!row?.dataset.t) return;
+    // Watch it again: a few seconds before it happened, following the car involved.
+    if (row.dataset.i) pick(Number(row.dataset.i));
+    seek(Number(row.dataset.t) - 4);
   });
   addEventListener('resize', resize);
+}
+
+/** Dragging on the timeline (the clock is held while seeking). */
+let seeking = false;
+let showNames = params.get('names') !== '0';
+
+function toggleNames() {
+  showNames = !showNames;
+  $('names').classList.toggle('on', showNames);
+}
+
+/** Jump the viewer to time t, within what has been computed (computing more if needed is left to the background). */
+function seek(t: number) {
+  if (!S) return;
+  const r = S.race;
+  S.clock = Math.max(0, Math.min(t, r.t));
+  feedKey = '';
 }
 
 /** Cars in the current battle-cam frame (for the tower). */
@@ -541,9 +644,10 @@ function stepFollow(dir: number) {
   if (!S) return;
   const r = S.race;
   const k = Math.min(r.orders.length - 1, Math.floor(S.clock / r.dt));
-  const order = [...r.orders[k]].filter((i) => !r.cars[i].dnf || i === followIdx);
-  const at = Math.max(0, order.indexOf(followIdx));
-  pick(order[Math.max(0, Math.min(order.length - 1, at + dir))]);
+  const now = new RaceAt(r, S.clock);
+  const order = [...r.orders[k]].filter((i) => !now.out(i) || i === followIdx);
+  const pos = Math.max(0, order.indexOf(followIdx));
+  pick(order[Math.max(0, Math.min(order.length - 1, pos + dir))]);
 }
 
 /** Zoom the current camera by f (about screen point mx, my in the overview). */

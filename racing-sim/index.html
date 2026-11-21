@@ -14,10 +14,11 @@
       .grp button:first-child { border-radius: 4px 0 0 4px; }
       .grp button:last-child { border-radius: 0 4px 4px 0; }
       #info { opacity: .75; }
-      #c { display: block; width: 100vw; height: calc(100vh - 130px); }
+      #c { display: block; width: 100vw; height: calc(100vh - 158px); }
+      #tl { display: block; width: 100vw; height: 28px; border-top: 1px solid #2a2f38; cursor: pointer; touch-action: none; }
       #trace { display: block; width: 100vw; height: 130px; border-top: 1px solid #2a2f38; }
       .panel { position: fixed; background: rgba(20,22,26,.9); border: 1px solid #2a2f38; border-radius: 6px; padding: 6px 8px; z-index: 1; font-variant-numeric: tabular-nums; }
-      #tower { top: 84px; left: 8px; width: 238px; max-height: calc(100vh - 230px); overflow: auto; }
+      #tower { top: calc(var(--bar, 36px) + 12px); left: 8px; width: 238px; max-height: calc(100vh - var(--bar, 36px) - 200px); overflow: auto; }
       #tower .hd { display: flex; justify-content: space-between; font-weight: 600; padding: 2px 2px 6px; border-bottom: 1px solid #2a2f38; margin-bottom: 3px; }
       .tr { display: grid; grid-template-columns: 22px 6px 1fr 64px; gap: 6px; align-items: center; padding: 2px; border-radius: 3px; cursor: pointer; }
       .tr:hover { background: #22262d; }
@@ -27,11 +28,11 @@
       .tr .gap { text-align: right; opacity: .85; }
       .tr .p { text-align: right; opacity: .7; }
       .tr.fin .p::after { content: '🏁'; font-size: 9px; }
-      #hud { top: 48px; right: 8px; min-width: 190px; }
+      #hud { top: calc(var(--bar, 36px) + 12px); right: 8px; min-width: 190px; }
       #hud .big { font-size: 22px; font-weight: 600; }
       #hud .row { display: flex; justify-content: space-between; gap: 16px; }
       #hud .lbl { opacity: .6; }
-      #feed { right: 8px; bottom: 140px; width: 340px; max-height: 210px; overflow: auto; }
+      #feed { right: 8px; bottom: 168px; width: 340px; max-height: 210px; overflow: auto; }
       #feed .hd { font-weight: 600; padding: 2px 2px 5px; border-bottom: 1px solid #2a2f38; margin-bottom: 3px; }
       .ev { display: grid; grid-template-columns: 64px 1fr; gap: 6px; padding: 2px; border-radius: 3px; cursor: pointer; }
       .ev:hover { background: #22262d; }
@@ -53,7 +54,7 @@
       #tower .scb { background: #ffb000; color: #1a1400; font-weight: 700; text-align: center; border-radius: 3px; padding: 2px; margin: 0 0 4px; letter-spacing: .05em; }
       .ev.safety-car .tx { color: #ffb000; font-weight: 600; }
       .ev.grip .tx { color: #7cc8ff; font-weight: 600; }
-      #editor { top: 44px; right: 8px; width: 400px; max-height: calc(100vh - 60px); overflow: auto; z-index: 3; padding: 8px 10px; }
+      #editor { top: calc(var(--bar, 36px) + 8px); right: 8px; width: 400px; max-height: calc(100vh - var(--bar, 36px) - 24px); overflow: auto; z-index: 3; padding: 8px 10px; }
       #editor[hidden] { display: none; }
       #editor section { border-top: 1px solid #2a2f38; padding: 6px 0; }
       #editor h4 { margin: 2px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
@@ -88,11 +89,12 @@
       <button id="gen">New random track</button>
       <button id="draw">Draw track</button>
       <button id="close" hidden>Close loop</button>
-      <button id="restart" title="Same scenario, same seed: an identical race">Replay</button>
+      <button id="restart" title="Back to the start of this race (same seed: identical)">Replay</button>
       <button id="reseed" title="Same scenario, next seed">New seed</button>
       <button id="edit">Scenario</button>
       <span class="grp" id="speeds"></span>
       <button id="skip">+30 s</button>
+      <button id="names" title="Driver names over the cars (n)">Names</button>
       <span class="grp"><button id="camAll" title="Whole track (o); wheel to zoom, drag to pan">Overview</button><button id="camFollow" title="Follow the selected car (f)">Follow</button><button id="camBattle" title="Frame the selected car and the cars racing it (b)">Battle</button></span>
       <span class="grp"><button id="zoomOut" title="Zoom out (−)">−</button><button id="zoomIn" title="Zoom in (+)">+</button></span>
       <span id="info"></span>
@@ -102,6 +104,7 @@
     <div id="feed" class="panel"></div>
     <div id="editor" class="panel" hidden></div>
     <canvas id="c"></canvas>
+    <canvas id="tl" title="Timeline: click or drag to rewind or skip ahead (← → keys)"></canvas>
     <canvas id="trace"></canvas>
     <script type="module" src="/src/view/main.ts"></script>
   </body>
