@@ -1,4 +1,4 @@
-import type { Track, TrackPath, Vec } from '../core';
+import { RUNOFF, STATUS, type Track, type TrackPath, type Vec } from '../core';
 
 export interface View {
   scale: number;
@@ -30,11 +30,21 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
   const Y = (y: number) => v.oy - y * v.scale;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  const loop = () => {
+    ctx.beginPath();
+    for (let i = 0; i <= t.n; i++) ctx[i ? 'lineTo' : 'moveTo'](X(t.xs[i % t.n]), Y(t.ys[i % t.n]));
+    ctx.stroke();
+  };
+  // Run-off (grass and gravel) with the barrier along its far side, under the road.
+  ctx.strokeStyle = '#8a8f99';
+  ctx.lineWidth = (t.width + 2 * RUNOFF + 0.8) * v.scale;
+  loop();
+  ctx.strokeStyle = '#1d2a1f';
+  ctx.lineWidth = (t.width + 2 * RUNOFF) * v.scale;
+  loop();
   ctx.strokeStyle = '#2b2f37';
   ctx.lineWidth = t.width * v.scale;
-  ctx.beginPath();
-  for (let i = 0; i <= t.n; i++) ctx[i ? 'lineTo' : 'moveTo'](X(t.xs[i % t.n]), Y(t.ys[i % t.n]));
-  ctx.stroke();
+  loop();
   // Curvature colouring as kerb-like edge strips.
   ctx.lineWidth = Math.max(1, 0.8 * v.scale);
   for (const side of [1, -1] as const) {
@@ -66,7 +76,7 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
 }
 
 /** Car as an oriented rectangle (world size), at least a few pixels so it stays visible. */
-export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading: number, color: string, len: number, wid: number, outline = false): void {
+export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading: number, color: string, len: number, wid: number, outline = false, status = 0): void {
   const q = toScreen(v, p);
   const L = Math.max(len * v.scale, 7), W = Math.max(wid * v.scale, 3.5);
   ctx.save();
@@ -81,11 +91,34 @@ export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading:
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
+  const out = status === STATUS.crash || status === STATUS.out;
+  if (status === STATUS.spin || status === STATUS.stopped) {
+    // Spun or stopped: a hazard ring.
+    ctx.strokeStyle = '#ffd23f';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(L * 0.9, 10), 0, 7);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
   ctx.rotate(-heading);
+  ctx.globalAlpha = out ? 0.55 : 1;
   ctx.fillStyle = color;
   ctx.fillRect(-L / 2, -W / 2, L, W);
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.fillRect(L / 2 - L * 0.22, -W / 2, L * 0.22, W);
+  ctx.globalAlpha = 1;
+  if (out) {
+    // Retired: a red cross over the car.
+    ctx.strokeStyle = '#ff4d4d';
+    ctx.lineWidth = 2;
+    const r = Math.max(L, 8) * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(-r, -r); ctx.lineTo(r, r);
+    ctx.moveTo(-r, r); ctx.lineTo(r, -r);
+    ctx.stroke();
+  }
   if (outline) {
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1.5;

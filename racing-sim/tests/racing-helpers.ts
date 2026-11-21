@@ -5,10 +5,10 @@ export const track7 = generateTrack({ seed: 7 });
 export const lanes7 = new LaneSet(track7);
 
 /** Two identical cars; the second (starting behind) has a driver `gap` faster in pace. */
-export function paceGapRace(gap: number, seed: number, physics?: Partial<PhysicsParams>, laps = 6): Race {
+export function paceGapRace(gap: number, seed: number, physics?: Partial<PhysicsParams>, laps = 6, incidents = true): Race {
   const e = identicalField(2, { ...AVERAGE_DRIVER, pace: 1 - gap });
   e[1].driver = { ...e[1].driver, pace: 1 };
-  return new Race({ track: track7, lanes: lanes7, entrants: e, laps, seed, physics });
+  return new Race({ track: track7, lanes: lanes7, entrants: e, laps, seed, physics, incidents });
 }
 
 /** Passes after the opening lap (lap-1 shuffles come from the start, not race craft). */

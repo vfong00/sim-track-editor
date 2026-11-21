@@ -10,8 +10,23 @@ export const CAR_WIDTH = 1.8;
 export const HIT_LEN = CAR_LENGTH;
 export const HIT_W = CAR_WIDTH + 0.2;
 
-/** Hard sideways limit for the car's centre so the body stays on the road. */
+/** Sideways limit for the car's centre with the whole body on the road (drivers aim within it). */
 export const dHard = (track: Track) => track.width / 2 - CAR_WIDTH / 2;
+
+/**
+ * Run-off (Phase 5): a strip of grass and gravel this wide beyond each road edge, with a barrier
+ * at its far side. Fully off the road a car has RUNOFF_GRIP of its grip and up to RUNOFF_DRAG of
+ * extra rolling resistance (m/s², at 15 m/s and above); partly off, a share of each by how much of the car is off.
+ */
+export const RUNOFF = 10;
+export const RUNOFF_GRIP = 0.5;
+export const RUNOFF_DRAG = 6;
+/** Furthest the car's centre can go: its side touching the barrier. */
+export const dWall = (track: Track) => track.width / 2 + RUNOFF - CAR_WIDTH / 2;
+/** Share of the car's width beyond the road edge at lateral position d (1 = all four wheels off). */
+export const offShare = (track: Track, d: number) => clamp((Math.abs(d) - dHard(track)) / CAR_WIDTH, 0, 1);
+/** Off the road: the car's centre is past the edge (two wheels or more on the grass). */
+export const isOffRoad = (track: Track, d: number) => Math.abs(d) > track.width / 2;
 
 /**
  * Lanes: copies of the racing line shifted sideways by `offset` metres (clamped to the road).
@@ -24,11 +39,14 @@ export class LaneSet {
   readonly offsets: number[];
   readonly paths: TrackPath[];
   readonly lim: number;
+  /** Barrier limit for the car's centre. */
+  readonly wall: number;
   readonly step = 1;
 
   constructor(readonly track: Track, line?: TrackPath) {
     this.line = line ?? racingLine(track);
     this.lim = dHard(track);
+    this.wall = dWall(track);
     const k = Math.ceil((2 * this.lim) / this.step);
     this.offsets = [];
     this.paths = [];
@@ -64,6 +82,11 @@ export class LaneSet {
   /** Racing-line lateral position at s. */
   lineD(s: number): number {
     return interpNode(this.line.d, s / this.track.ds);
+  }
+
+  /** Lateral position for offset δ at s (not clamped: the car may be in the run-off). */
+  dOf(s: number, delta: number): number {
+    return this.lineD(s) + delta;
   }
 
   /** Lateral position for offset δ at s (clamped to the road, like the lanes). */

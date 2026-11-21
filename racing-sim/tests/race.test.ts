@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dHard, HIT_LEN, HIT_W, generateTrack, LaneSet, makeField, makeRng, Race } from '../src/core';
+import { FRAME_STRIDE as F, HIT_LEN, HIT_W, generateTrack, LaneSet, makeField, makeRng, Race } from '../src/core';
+import { unloggedOffTicks } from './incident-helpers';
 
 const track = generateTrack({ seed: 7 });
 const lanes = new LaneSet(track);
@@ -11,19 +12,20 @@ describe('a field of cars', () => {
   const L = track.length;
   const N = r.cars.length;
 
-  it('finishes, and nobody overlaps or leaves the road on any tick', () => {
+  // Phase 5: the road edge is no longer a wall. "No car leaves the track" became "no car leaves
+  // the road without a logged incident" (an open 'off' event on every tick it is off).
+  it('finishes, nobody overlaps, and no car leaves the road without a logged incident', () => {
     expect(r.finished).toBe(true);
-    const lim = dHard(track) + 1e-6;
+    expect(unloggedOffTicks(r)).toEqual([]);
     // Overlap of the two footprints: positive on both axes means the cars intersect.
     let worst = -Infinity;
     for (const f of r.frames) {
       for (let i = 0; i < N; i++) {
-        expect(Math.abs(f[i * 3 + 1])).toBeLessThanOrEqual(lim);
         for (let j = i + 1; j < N; j++) {
-          let ds = f[j * 3] - f[i * 3];
+          let ds = f[j * F] - f[i * F];
           if (ds > L / 2) ds -= L;
           if (ds < -L / 2) ds += L;
-          const dd = f[j * 3 + 1] - f[i * 3 + 1];
+          const dd = f[j * F + 1] - f[i * F + 1];
           worst = Math.max(worst, Math.min(HIT_LEN - Math.abs(ds), HIT_W - Math.abs(dd)));
         }
       }
@@ -38,8 +40,11 @@ describe('a field of cars', () => {
       q.step();
       const o = [...q.orders[q.orders.length - 1]];
       expect([...o].sort((a, b) => a - b)).toEqual([...Array(12).keys()]);
-      const running = o.filter((i) => !q.cars[i].finished);
+      const running = o.filter((i) => !q.cars[i].finished && !q.cars[i].dnf);
       const finished = o.filter((i) => q.cars[i].finished);
+      // Retired cars are classified last.
+      const out = o.filter((i) => q.cars[i].dnf);
+      expect(o.slice(o.length - out.length)).toEqual(out);
       // Running cars ordered by distance covered; finished cars by laps, then finish time.
       for (let p = 1; p < running.length; p++) expect(q.cars[running[p - 1]].st.dist).toBeGreaterThanOrEqual(q.cars[running[p]].st.dist);
       for (let p = 1; p < finished.length; p++) {
@@ -63,6 +68,7 @@ describe('a field of cars', () => {
     const winner = r.cars[r.orders[r.orders.length - 1][0]];
     expect(winner.finishLaps).toBe(3);
     for (const c of r.cars) {
+      if (c.dnf) continue;
       expect(c.finished).toBe(true);
       expect(c.lapTimes.length).toBe(c.finishLaps);
       const first = c.finishTime - c.lapTimes.reduce((a, b) => a + b, 0); // when it crossed the start line

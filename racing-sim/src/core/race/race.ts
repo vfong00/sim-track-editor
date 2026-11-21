@@ -1,13 +1,13 @@
-import { type Entrant } from '../agents/driver';
-import { trafficControls, type Near } from '../agents/controller';
+import { type DriverSpec, type Entrant } from '../agents/driver';
+import { avoidSlowCar, trafficControls, type Near } from '../agents/controller';
 import { type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
 import { CarModel, DEFAULT_PHYSICS, type PhysicsParams } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
 import type { Track } from '../track/track';
-import { type CarState, newCarState, stepCar } from './car';
-import { resolveCollisions } from './collide';
-import { HIT_LEN, LanePlans, LaneSet } from './lanes';
+import { type CarState, type Controls, newCarState, stepCar } from './car';
+import { type Contact, resolveCollisions } from './collide';
+import { HIT_LEN, isOffRoad, LanePlans, LaneSet } from './lanes';
 import { DT } from './lap';
 
 export interface RaceOptions {
@@ -21,9 +21,15 @@ export interface RaceOptions {
   lanes?: LaneSet;
   /** 'race' (default): full Phase 4 race craft. 'traffic': Phase 3 queueing rules only. */
   ai?: 'race' | 'traffic';
+  /**
+   * Phase 5 incidents (default on). Off: the road edge is a wall again and there are no offs,
+   * spins, crashes or damage, so checks of the racing rules alone (Phase 4's wake checks) can
+   * measure them without incidents mixed in.
+   */
+  incidents?: boolean;
 }
 
-export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'lap' | 'finish';
+export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'lap' | 'finish';
 
 export interface RaceEvent {
   t: number;
@@ -32,7 +38,64 @@ export interface RaceEvent {
   /** Leader's lap when it happened. */
   lap: number;
   text: string;
+  /**
+   * Index (into `events`) of what led to this one: an off, spin or crash points at the slide,
+   * mistake, contact or off that caused it; a rejoin points at its off.
+   */
+  cause?: number;
 }
+
+/**
+ * Where a car is in an incident (Phase 5): running (on or off the road), spinning (no control,
+ * sliding to a stop), stopped after a spin (waiting to rejoin), crashing (sliding to a stop,
+ * out of the race), retiring (a mechanical failure: coasting to a stop at the side) or out
+ * (retired, stays where it stopped).
+ */
+export type CarStatus = 'run' | 'spin' | 'stopped' | 'crash' | 'retiring' | 'out';
+
+/** Status codes in the state log. */
+export const STATUS = { run: 0, off: 1, spin: 2, stopped: 3, crash: 4, retiring: 4, out: 5 } as const;
+
+/**
+ * Incident model (Phase 5). Odds come from the physics: how far over the grip limit a car is,
+ * how hard it hits another car or the barrier. They are scaled by the driver's `incidentScale`
+ * (consistency and risk-taking), 1 for an average driver. Every roll uses the car's own rng.
+ */
+export const INCIDENTS = {
+  /** A slide this far over the limit (excess cornering / grip) is logged as a moment. */
+  slideLog: 0.1,
+  /**
+   * Spins: sliding beyond spinFrom over the limit (for an average driver; divided by the
+   * driver's incidentScale) spins the car at spinRate per second per unit beyond.
+   */
+  spinFrom: 0.35,
+  spinRate: 3,
+  /** Contact: spin odds rise from contactSpin m/s of closing speed over contactSpinSpan (times how off-centre). */
+  contactSpin: 3,
+  contactSpinSpan: 6,
+  /** Contact: crash odds rise from contactCrash m/s over contactCrashSpan. */
+  contactCrash: 10,
+  contactCrashSpan: 10,
+  /** Barrier: crash odds rise from wallCrash m/s of sideways impact over wallCrashSpan. */
+  wallCrash: 6,
+  wallCrashSpan: 8,
+  /** Damage: share of grip lost per m/s of impact above damageFrom, capped; in steps for the plans. */
+  damageFrom: 2,
+  damagePer: 0.004,
+  damageMax: 0.05,
+  damageStep: 0.005,
+  /** A cause is only blamed for an incident within this many seconds. */
+  causeWindow: 6,
+};
+
+/** Risk-taking (Phase 6 will expose it directly): the mean of aggression and bravery. */
+export const riskTaking = (d: DriverSpec) => (d.aggression + d.bravery) / 2;
+const scaleRaw = (d: DriverSpec) => (1.5 - d.consistency) * (0.5 + riskTaking(d));
+/**
+ * How incident-prone a driver is once in trouble (1 = average): rises with risk-taking (keeps
+ * pushing through a moment instead of backing off), falls with consistency (catches it).
+ */
+export const incidentScale = (d: DriverSpec) => scaleRaw(d) / 0.65;
 
 export interface RaceCar {
   idx: number;
@@ -57,12 +120,42 @@ export interface RaceCar {
   craft: Craft;
   /** Who gave this car a tow / dirty air this tick (-1 = clean air). */
   wake: number;
+  status: CarStatus;
+  /** Out of the race (crashing or retired). */
+  dnf: boolean;
+  /** Retired: an immovable obstacle for the others. */
+  fixed: boolean;
+  /** Heading relative to the road while spinning or stopped (rad, cosmetic), and its rate. */
+  yaw: number;
+  yawRate: number;
+  /** Speed when the spin or crash started (the rotation slows with the car). */
+  vSpin: number;
+  restartAt: number;
+  /** Index of the open 'off' event while off the road, else -1. */
+  offEvent: number;
+  /** Most recent slide, mistake or contact event for this car (-1 = none). */
+  cause: number;
+  lastSlideLog: number;
+  /** Last time the car was over its grip limit. */
+  lastSlideT: number;
+  /** Last touch with another car (any closing speed) and with whom. */
+  lastTouchT: number;
+  lastTouchWith: number;
+  /** When the car's wheels first went over the road edge in the current excursion (NaN = on the road). */
+  edgeT: number;
+  /** Lasting grip loss from contact (share), and the level the current plans were made for. */
+  damage: number;
+  damageLevel: number;
 }
 
 export interface RaceStats {
   passes: number;
   mistakes: number;
   contacts: number;
+  offs: number;
+  spins: number;
+  /** Cars out of the race. */
+  dnfs: number;
   /** Share of sampled (car, time) points where a car ran within 1.0 s of the car ahead (after lap 1). */
   trainShare: number;
   /**
@@ -79,8 +172,8 @@ const TRAIN_EVERY = 30;
 const CP = 10;
 const CP_BASE = -400;
 
-/** Frame layout in the state log: per car [s, d, v]. */
-export const FRAME_STRIDE = 3;
+/** Frame layout in the state log: per car [s, d, v, yaw, status code (STATUS)]. */
+export const FRAME_STRIDE = 5;
 
 const planCache = new WeakMap<LaneSet, Map<string, LanePlans>>();
 
@@ -106,6 +199,8 @@ export class Race {
   tick = 0;
   leaderFinished = false;
   private contactCooldown = new Map<number, number>();
+  /** Last contact event per pair (blamed for incidents from hits inside the cooldown). */
+  private pairEvent = new Map<number, number>();
   /** Pair key → which car was ahead, and since when a swap has held (pass confirmation). */
   private pairAhead = new Map<number, { ahead: number; since: number; confirmed: number }>();
   private trainSamples = 0;
@@ -123,12 +218,9 @@ export class Race {
     this.nextCorner = nextCornerTable(track.n, this.corners);
     let cache = planCache.get(this.lanes);
     if (!cache) planCache.set(this.lanes, (cache = new Map()));
+    this.planCache = cache;
     this.cars = entrants.map((e, idx) => {
-      const model = new CarModel(e.car, opts.physics);
-      const key = JSON.stringify([e.car, model.physics, e.driver.pace]);
-      let plans = cache!.get(key);
-      if (!plans) cache!.set(key, (plans = new LanePlans(this.lanes, model, { grip: e.driver.pace, drag: 1 },
-        { grip: e.driver.pace, drag: 1 - this.physics.slipstream }, { grip: e.driver.pace * (1 - this.physics.dirtyAir), drag: 1 })));
+      const { model, plans } = this.plansFor(e, 0);
       // Staggered two-wide grid behind the line.
       const s0 = -5 - 7 * idx;
       const s = ((s0 % track.length) + track.length) % track.length;
@@ -140,11 +232,26 @@ export class Race {
         startDelay: 0.15 + 0.35 * rng.next(),
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
+        status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
+        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0,
       };
     });
-    for (const c of this.cars) c.d = this.lanes.dAt(c.st.s, c.st.delta);
+    for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
     this.log();
     this.emit('start', [], 'Lights out');
+  }
+
+  private readonly planCache: Map<string, LanePlans>;
+
+  /** Car model and lane plans for an entrant with `damage` grip loss (shared across races on the lanes). */
+  private plansFor(e: Entrant, damage: number): { model: CarModel; plans: LanePlans } {
+    const spec = damage > 0 ? { ...e.car, grip: e.car.grip * (1 - damage) } : e.car;
+    const model = new CarModel(spec, this.opts.physics);
+    const key = JSON.stringify([spec, model.physics, e.driver.pace]);
+    let plans = this.planCache.get(key);
+    if (!plans) this.planCache.set(key, (plans = new LanePlans(this.lanes, model, { grip: e.driver.pace, drag: 1 },
+      { grip: e.driver.pace, drag: 1 - this.physics.slipstream }, { grip: e.driver.pace * (1 - this.physics.dirtyAir), drag: 1 })));
+    return { model, plans };
   }
 
   get track(): Track {
@@ -156,11 +263,15 @@ export class Race {
   }
 
   get finished(): boolean {
-    return this.cars.every((c) => c.finished);
+    return this.cars.every((c) => c.finished || c.status === 'out');
   }
 
-  emit(type: RaceEventType, cars: number[], text: string): void {
-    this.events.push({ t: this.t, type, cars, lap: Math.min(this.laps, this.leaderLap), text });
+  /** Log an event; returns its index. */
+  emit(type: RaceEventType, cars: number[], text: string, cause?: number): number {
+    const e: RaceEvent = { t: this.t, type, cars, lap: Math.min(this.laps, this.leaderLap), text };
+    if (cause !== undefined && cause >= 0) e.cause = cause;
+    this.events.push(e);
+    return this.events.length - 1;
   }
 
   /** Every other car relative to car i. */
@@ -184,7 +295,8 @@ export class Race {
     const c = this.cars[i];
     if (this.opts.ai === 'traffic') {
       const ahead = c.st.s + (c.st.v * this.dt) / this.lanes.stretch(c.st.s, c.st.delta);
-      const dec = trafficControls({ st: c.st, d: c.d, model: c.model, plans: c.plans, lanes: this.lanes, dt: this.dt }, near, 0, c.plans.envelope(ahead, c.st.delta));
+      const view = { st: c.st, d: c.d, model: c.model, plans: c.plans, lanes: this.lanes, dt: this.dt };
+      const dec = trafficControls(view, near, avoidSlowCar(view, near, 0).delta, c.plans.envelope(ahead, c.st.delta));
       c.following = dec.following;
       return dec.ctl;
     }
@@ -194,7 +306,7 @@ export class Race {
     c.wake = dec.ctl.effects && (dec.ctl.effects.drag < 1 || dec.ctl.effects.grip < 1) ? 1 : -1;
     if (dec.mistake) {
       const corner = this.corners[dec.mistake.corner]?.name ?? '';
-      this.emit('mistake', [i], dec.mistake.kind === 'lockup' ? `${this.name(i)} locks up into ${corner}` : `${this.name(i)} runs wide at ${corner}`);
+      c.cause = this.emit('mistake', [i], dec.mistake.kind === 'lockup' ? `${this.name(i)} locks up into ${corner}` : `${this.name(i)} runs wide at ${corner}`);
     }
     return dec.ctl;
   }
@@ -208,27 +320,213 @@ export class Race {
       this.views = this.cars.map((x) => ({ idx: x.idx, st: x.st, d: x.d, model: x.model, plans: x.plans, driver: x.entrant.driver, craft: x.craft, rng: x.rng }));
     }
     for (const v of this.views) v.d = this.cars[v.idx].d;
-    const ctls = this.cars.map((c, i) => {
-      if (this.t < c.startDelay) return { vTarget: 0, deltaTarget: c.st.delta };
+    const ctls = this.cars.map((c, i): Controls => {
+      if (this.t < c.startDelay || c.status === 'stopped' || c.status === 'out') return { vTarget: 0, deltaTarget: c.st.delta };
+      if (c.status === 'spin' || c.status === 'crash') return { vTarget: 0, deltaTarget: c.st.delta, free: true };
+      if (c.status === 'retiring') {
+        // Losing power: slow down gently and pull over to the nearer edge of the road.
+        const edge = (c.d >= 0 ? 1 : -1) * (this.lanes.lim - 0.3);
+        return { vTarget: Math.max(0, c.st.v - 4 * this.dt), deltaTarget: edge - this.lanes.lineD(c.st.s) };
+      }
       return this.controls(i, this.neighbours(i));
     });
     const prev = this.cars.map((c) => c.st.dist);
-    this.cars.forEach((c, i) => stepCar(c.st, ctls[i], c.model, this.lanes, dt));
+    const edgeWall = this.opts.incidents === false;
+    this.cars.forEach((c, i) => { if (c.status !== 'out') stepCar(c.st, ctls[i], c.model, this.lanes, dt, edgeWall); });
     this.t += dt;
     this.tick++;
-    for (const c of this.cars) c.d = this.lanes.dAt(c.st.s, c.st.delta);
+    for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
 
-    for (const hit of resolveCollisions(this.cars, this.lanes)) {
+    for (const hit of resolveCollisions(this.cars, this.lanes, edgeWall)) {
       const key = Math.min(hit.a, hit.b) * 1000 + Math.max(hit.a, hit.b);
       if (hit.closing > 1 && (this.contactCooldown.get(key) ?? -Infinity) < this.t - 2) {
-        this.emit('contact', [hit.a, hit.b], `Contact: ${this.name(hit.a)} and ${this.name(hit.b)}`);
+        const ev = this.emit('contact', [hit.a, hit.b], `Contact: ${this.name(hit.a)} and ${this.name(hit.b)}`);
+        this.pairEvent.set(key, ev);
+        this.cars[hit.a].cause = this.cars[hit.b].cause = ev;
       }
       this.contactCooldown.set(key, this.t);
+      const A = this.cars[hit.a], B = this.cars[hit.b];
+      A.lastTouchT = B.lastTouchT = this.t;
+      A.lastTouchWith = hit.b;
+      B.lastTouchWith = hit.a;
+      if (hit.closing > 1 && !edgeWall) this.contactIncidents(hit, this.pairEvent.get(key) ?? -1);
     }
+    if (!edgeWall) this.incidents();
     this.cars.forEach((c, i) => this.timing(c, prev[i]));
     const order = this.log();
     this.detectPasses(order);
     if (this.tick % TRAIN_EVERY === 0) this.sampleTrains();
+  }
+
+  /** The corner nearest to s (by apex), for incident lines. */
+  cornerName(s: number): string {
+    if (!this.corners.length) return 'the track';
+    const L = this.track.length, ds = this.track.ds;
+    let best = this.corners[0], bd = Infinity;
+    for (const c of this.corners) {
+      let g = Math.abs(c.apex * ds - s);
+      g = Math.min(g, L - g);
+      if (g < bd) { bd = g; best = c; }
+    }
+    return best.name;
+  }
+
+  /** The car's most recent slide, mistake or contact event, if recent enough to blame. */
+  private causeOf(c: RaceCar): number {
+    return c.cause >= 0 && this.t - this.events[c.cause].t <= INCIDENTS.causeWindow ? c.cause : -1;
+  }
+
+  private canCrash(c: RaceCar): boolean {
+    return !c.finished && (c.status === 'run' || c.status === 'spin' || c.status === 'stopped');
+  }
+
+  private startSpin(c: RaceCar, cause: number): void {
+    c.status = 'spin';
+    c.vSpin = Math.max(c.st.v, 1);
+    c.yawRate = (c.rng.next() < 0.5 ? -1 : 1) * (2.5 + 2.5 * c.rng.next());
+    c.craft.mistake = null;
+    c.craft.mode = 'line';
+    this.emit('spin', [c.idx], `${this.name(c.idx)} spins at ${this.cornerName(c.st.s)}`, cause);
+  }
+
+  private startCrash(c: RaceCar, cause: number): void {
+    if (c.status !== 'spin') c.yawRate = (c.rng.next() < 0.5 ? -1 : 1) * (2 + 3 * c.rng.next());
+    c.vSpin = Math.max(c.st.v, 1);
+    c.status = 'crash';
+    c.dnf = true;
+    c.craft.mistake = null;
+    this.emit('crash', [c.idx], `${this.name(c.idx)} crashes out at ${this.cornerName(c.st.s)}`, cause);
+  }
+
+  /**
+   * Retire car i on the spot (a mechanical failure; Phase 6 scenarios and the checks use it): it
+   * stops dead where it is and stays there as an obstacle, like a crashed car.
+   */
+  retire(i: number): void {
+    const c = this.cars[i];
+    if (c.dnf || c.finished) return;
+    c.status = 'retiring';
+    c.dnf = true;
+    c.craft.mistake = null;
+    c.craft.mode = 'line';
+    this.emit('retire', [i], `${this.name(i)} retires at ${this.cornerName(c.st.s)}`);
+  }
+
+  /** Spin car i now (a scenario hook, e.g. oil on the track; the checks use it). */
+  spin(i: number): void {
+    const c = this.cars[i];
+    if (c.status === 'run' && !c.finished) this.startSpin(c, -1);
+  }
+
+  /** Lasting grip loss from an impact of `speed` m/s; the driver re-plans for the damaged car. */
+  private addDamage(c: RaceCar, speed: number): void {
+    const I = INCIDENTS;
+    if (speed <= I.damageFrom) return;
+    c.damage = Math.min(I.damageMax, c.damage + I.damagePer * (speed - I.damageFrom));
+    const level = Math.floor(c.damage / I.damageStep + 1e-9) * I.damageStep;
+    if (level <= c.damageLevel) return;
+    c.damageLevel = level;
+    const { model, plans } = this.plansFor(c.entrant, level);
+    c.model = model;
+    c.plans = plans;
+    const v = this.views[c.idx];
+    if (v) { v.model = model; v.plans = plans; }
+  }
+
+  /** Spin and crash odds from a hit (closing speed, how off-centre), and damage. */
+  private contactIncidents(hit: Contact, ev: number): void {
+    const I = INCIDENTS;
+    for (const k of [hit.a, hit.b]) {
+      const c = this.cars[k];
+      if (!this.canCrash(c)) continue;
+      this.addDamage(c, hit.closing);
+      const scale = incidentScale(c.entrant.driver);
+      const pCrash = Math.min(1, clamp01((hit.closing - I.contactCrash) / I.contactCrashSpan) * scale);
+      const pSpin = Math.min(1, clamp01((hit.closing - I.contactSpin) / I.contactSpinSpan) * hit.angle * scale);
+      const u = c.rng.next();
+      if (u < pCrash) this.startCrash(c, ev);
+      else if (c.status === 'run' && c.st.v > 5 && u < pCrash + pSpin) this.startSpin(c, ev);
+    }
+  }
+
+  /** Per-tick incident physics: logged slides, spins, the barrier, offs and rejoins, stopping. */
+  private incidents(): void {
+    const I = INCIDENTS, dt = this.dt;
+    for (const c of this.cars) {
+      if (c.status === 'out') continue;
+      const i = c.idx;
+      const excess = c.st.mu > 0 ? c.st.slide / c.st.mu : 0;
+      if (c.st.slide > 0) c.lastSlideT = this.t;
+      if (c.status === 'run' && !c.finished) {
+        if (excess > I.slideLog && this.t - c.lastSlideLog > 3) {
+          c.lastSlideLog = this.t;
+          c.cause = this.emit('slide', [i], `${this.name(i)} slides wide at ${this.cornerName(c.st.s)}`);
+        }
+        // A steadier, more careful driver holds a bigger slide before it goes (threshold) and
+        // catches more of those that do (rate).
+        const scale = incidentScale(c.entrant.driver);
+        const rate = I.spinRate * Math.max(0, excess - I.spinFrom / scale) * scale;
+        if (rate > 0 && c.st.v > 10 && c.rng.next() < rate * dt) this.startSpin(c, this.causeOf(c));
+      }
+      if (c.st.wall > 0 && this.canCrash(c)) {
+        const cause = c.offEvent >= 0 ? c.offEvent : this.causeOf(c);
+        const p = Math.min(1, clamp01((c.st.wall - I.wallCrash) / I.wallCrashSpan) * incidentScale(c.entrant.driver));
+        this.addDamage(c, c.st.wall);
+        if (c.rng.next() < p) this.startCrash(c, cause);
+      }
+      // Off and back on: off once the centre is past the edge, back on once the whole car is.
+      // What put the wheels over the edge is what the off is blamed on.
+      if (Math.abs(c.d) <= this.lanes.lim) c.edgeT = NaN;
+      else if (Number.isNaN(c.edgeT)) c.edgeT = this.t;
+      if (c.offEvent < 0 && isOffRoad(this.track, c.d)) {
+        let cause = this.causeOf(c);
+        const near = (t: number) => c.edgeT - t < 1;
+        // A smaller slide than a logged moment, or a lean too gentle to log as contact, can still
+        // carry a car off: log it now.
+        if (cause < 0 && near(c.lastTouchT)) {
+          const j = c.lastTouchWith;
+          cause = c.cause = this.emit('contact', [i, j], `Contact: ${this.name(j)} squeezes ${this.name(i)} wide`);
+        } else if (cause < 0 && near(c.lastSlideT)) cause = c.cause = this.emit('slide', [i], `${this.name(i)} slides wide at ${this.cornerName(c.st.s)}`);
+        c.offEvent = this.emit('off', [i], `${this.name(i)} off at ${this.cornerName(c.st.s)}`, cause);
+      } else if (c.offEvent >= 0 && c.status === 'run' && Math.abs(c.d) <= this.lanes.lim) {
+        const where = this.events[c.offEvent].text.replace(/^.* off at /, '');
+        const pos = this.order().indexOf(i) + 1;
+        this.emit('rejoin', [i], `${this.name(i)} off at ${where}, rejoins P${pos}`, c.offEvent);
+        c.offEvent = -1;
+      }
+      // Spinning or crashing: rotating, sliding to a stop.
+      if (c.status === 'spin' || c.status === 'crash') {
+        c.yaw = wrapAngle(c.yaw + c.yawRate * dt * Math.min(1, c.st.v / c.vSpin + 0.15));
+        if (c.st.v < 0.3) {
+          c.st.v = 0;
+          c.st.vDelta = 0;
+          if (c.status === 'crash') { c.status = 'out'; c.fixed = true; }
+          else { c.status = 'stopped'; c.restartAt = this.t + 1.5 + 1.5 * c.rng.next(); }
+        }
+      } else if (c.status === 'retiring' && c.st.v < 0.3) {
+        c.st.v = 0;
+        c.st.vDelta = 0;
+        c.status = 'out';
+        c.fixed = true;
+      } else if (c.status === 'stopped') {
+        // Turning the car round, then waiting for a gap in the traffic.
+        const turn = 1.5 * dt;
+        c.yaw = Math.abs(c.yaw) <= turn ? 0 : c.yaw - Math.sign(c.yaw) * turn;
+        if (this.t >= c.restartAt && c.yaw === 0 && (this.clearBehind(c) || this.t > c.restartAt + 15)) c.status = 'run';
+      }
+    }
+  }
+
+  /** No running car arriving within ~3 s in the stopped car's part of the road. */
+  private clearBehind(me: RaceCar): boolean {
+    const L = this.track.length;
+    for (const o of this.cars) {
+      if (o === me || o.dnf || o.status !== 'run' || o.st.v < 5) continue;
+      let gap = me.st.s - o.st.s;
+      if (gap < 0) gap += L;
+      if (gap > 0 && gap < 200 && gap / o.st.v < 3 && Math.abs(o.d - me.d) < 6) return false;
+    }
+    return true;
   }
 
   /**
@@ -242,7 +540,7 @@ export class Race {
     for (let a = 0; a < n; a++) {
       for (let b = a + 1; b < n; b++) {
         const A = this.cars[a], B = this.cars[b];
-        if (A.finished || B.finished || A.st.dist < 0 || B.st.dist < 0) continue;
+        if (A.finished || B.finished || A.dnf || B.dnf || A.st.dist < 0 || B.st.dist < 0) continue;
         const diff = A.st.dist - B.st.dist;
         if (Math.abs(diff) > L / 2) continue;
         const key = a * 1000 + b;
@@ -262,7 +560,8 @@ export class Race {
           const c = this.corners[this.nextCorner[idx]];
           const toC = c ? ((c.apex * this.track.ds - pc.st.s) % L + L) % L : Infinity;
           const where = !c ? '' : toC < 150 ? ` into ${c.name}` : toC > L - 150 ? ` at ${c.name}` : ' on the straight';
-          const why = this.cars[passed].craft.mistake ? ' after a mistake' : '';
+          const pd = this.cars[passed];
+          const why = pd.status !== 'run' ? ' after a spin' : pd.offEvent >= 0 ? ' after an off' : pd.craft.mistake ? ' after a mistake' : '';
           this.emit('pass', [passer, passed], `P${pos} ${this.name(passer)} passes ${this.name(passed)}${where}${why}`);
         }
       }
@@ -273,6 +572,7 @@ export class Race {
     if (this.leaderLap < 2 || this.leaderFinished) return;
     const order = this.order();
     for (let p = 1; p < order.length; p++) {
+      if (this.cars[order[p]].dnf) break;
       const g = this.gapTo(order[p], order[p - 1]);
       if (!Number.isFinite(g)) continue;
       this.trainSamples++;
@@ -286,6 +586,7 @@ export class Race {
     const count = (t: RaceEventType) => this.events.filter((e) => e.type === t).length;
     return {
       passes: count('pass'), mistakes: count('mistake'), contacts: count('contact'),
+      offs: count('off'), spins: count('spin'), dnfs: this.cars.filter((c) => c.dnf).length,
       trainShare: this.trainSamples ? this.trainHits / this.trainSamples : 0,
       stuckTime: this.stuckTime,
     };
@@ -296,6 +597,7 @@ export class Race {
   }
 
   private timing(c: RaceCar, prevDist: number): void {
+    if (c.dnf) return;
     const L = this.track.length;
     const dist = c.st.dist;
     const at = (x: number) => this.t - this.dt + (this.dt * (x - prevDist)) / (dist - prevDist || 1);
@@ -329,7 +631,8 @@ export class Race {
     const idx: number[] = [];
     for (let i = 0; i < n; i++) {
       const c = this.cars[i];
-      key[i] = c.finished ? c.finishLaps * L : c.st.dist;
+      // Retired cars are classified behind every running car, by distance covered.
+      key[i] = c.finished ? c.finishLaps * L : c.dnf ? c.st.dist - 1e9 : c.st.dist;
       ft[i] = c.finished ? c.finishTime : Infinity;
       idx.push(i);
     }
@@ -352,9 +655,12 @@ export class Race {
   private log(): number[] {
     const f = new Float32Array(this.cars.length * FRAME_STRIDE);
     this.cars.forEach((c, i) => {
-      f[i * 3] = c.st.s;
-      f[i * 3 + 1] = c.d;
-      f[i * 3 + 2] = c.st.v;
+      const k = i * FRAME_STRIDE;
+      f[k] = c.st.s;
+      f[k + 1] = c.d;
+      f[k + 2] = c.st.v;
+      f[k + 3] = c.yaw;
+      f[k + 4] = c.status === 'run' ? (c.offEvent >= 0 ? STATUS.off : STATUS.run) : STATUS[c.status];
     });
     this.frames.push(f);
     const order = this.order();
@@ -368,3 +674,6 @@ export class Race {
     return this;
   }
 }
+
+const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const wrapAngle = (a: number) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));

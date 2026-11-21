@@ -1,4 +1,4 @@
-import { CAR_LENGTH, CAR_WIDTH, generateTrack, LaneSet, makeField, makeRng, Race, Track, type Vec } from '../core';
+import { CAR_LENGTH, CAR_WIDTH, FRAME_STRIDE as F, generateTrack, LaneSet, makeField, makeRng, Race, STATUS, Track, type Vec } from '../core';
 import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
 import { drawSpeedTrace } from './trace';
 
@@ -63,25 +63,33 @@ function generate() {
 }
 
 /** Interpolated pose of car i at the viewer clock, read from the state log. */
-function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos: number; d: number } {
+function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos: number; d: number; status: number } {
   const { frames, dt } = s.race;
   const k = Math.max(0, Math.min(frames.length - 2, Math.floor(s.clock / dt)));
   const u = Math.max(0, Math.min(1, (s.clock - k * dt) / dt));
   const a = frames[k], b = frames[k + 1];
   const L = s.track.length;
-  let ds = b[i * 3] - a[i * 3];
+  const o = i * F;
+  let ds = b[o] - a[o];
   if (ds < -L / 2) ds += L;
   if (ds > L / 2) ds -= L;
-  const sPos = (a[i * 3] + ds * u + L) % L;
-  const d = a[i * 3 + 1] + (b[i * 3 + 1] - a[i * 3 + 1]) * u;
+  const sPos = (a[o] + ds * u + L) % L;
+  const d = a[o + 1] + (b[o + 1] - a[o + 1]) * u;
   const p = s.track.toXY(sPos, d);
-  // Heading from the logged motion (falls back to the track direction when nearly stopped).
-  const k0 = Math.max(0, k - 8);
-  const q = s.track.toXY(frames[k0][i * 3], frames[k0][i * 3 + 1]);
-  const moved = Math.hypot(p.x - q.x, p.y - q.y);
+  const status = a[o + 4];
   const tng = s.track.tangentAt(sPos);
-  const heading = moved > 0.5 ? Math.atan2(p.y - q.y, p.x - q.x) : Math.atan2(tng.y, tng.x);
-  return { p, heading, v: a[i * 3 + 2] + (b[i * 3 + 2] - a[i * 3 + 2]) * u, sPos, d };
+  let heading: number;
+  if (status >= STATUS.spin) {
+    // Spinning, stopped or crashed: the logged yaw relative to the road.
+    heading = Math.atan2(tng.y, tng.x) + a[o + 3];
+  } else {
+    // Heading from the logged motion (falls back to the track direction when nearly stopped).
+    const k0 = Math.max(0, k - 8);
+    const q = s.track.toXY(frames[k0][o], frames[k0][o + 1]);
+    const moved = Math.hypot(p.x - q.x, p.y - q.y);
+    heading = moved > 0.5 ? Math.atan2(p.y - q.y, p.x - q.x) : Math.atan2(tng.y, tng.x);
+  }
+  return { p, heading, v: a[o + 2] + (b[o + 2] - a[o + 2]) * u, sPos, d, status };
 }
 
 function gapText(r: Race, i: number, leader: number): string {
@@ -98,14 +106,16 @@ function gapText(r: Race, i: number, leader: number): string {
 }
 
 let towerKey = '';
-function renderTower(s: Session, order: number[]) {
+function renderTower(s: Session, order: number[], status: number[]) {
   const r = s.race;
   const lap = Math.min(r.laps, r.leaderLap);
   const rows = order.map((i, p) => {
     const c = r.cars[i];
-    return `<div class="tr${i === followIdx ? ' sel' : ''}${c.finished ? ' fin' : ''}" data-i="${i}">
-      <span class="p">${p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
-      <span>${c.entrant.driver.name}${craftTag(c.craft.mode, c.finished)}</span><span class="gap">${gapText(r, i, order[0])}</span></div>`;
+    const out = status[i] >= STATUS.crash;
+    const tag = out ? '' : incidentTag(status[i]) || craftTag(c.craft.mode, c.finished);
+    return `<div class="tr${i === followIdx ? ' sel' : ''}${c.finished ? ' fin' : ''}${out ? ' out' : ''}" data-i="${i}">
+      <span class="p">${out ? '' : p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
+      <span>${c.entrant.driver.name}${tag}</span><span class="gap">${out ? 'DNF' : gapText(r, i, order[0])}</span></div>`;
   }).join('');
   const html = `<div class="hd"><span>${r.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span><span>${fmtTime(s.clock)}</span></div>${rows}`;
   if (html !== towerKey) {
@@ -114,24 +124,39 @@ function renderTower(s: Session, order: number[]) {
   }
 }
 
+/** Incident marker for the tower: off the road, spinning, stopped. */
+function incidentTag(status: number): string {
+  if (status === STATUS.off) return '<span class="tag off">OFF</span>';
+  if (status === STATUS.spin) return '<span class="tag spin">SPIN</span>';
+  if (status === STATUS.stopped) return '<span class="tag spin">STOP</span>';
+  return '';
+}
+
 /** Battle marker for the tower: who is attacking or defending right now. */
 function craftTag(mode: string, finished: boolean): string {
   if (finished || mode === 'line') return '';
   return `<span class="tag ${mode}">${mode === 'attack' ? 'ATK' : 'DEF'}</span>`;
 }
 
-const FEED_TYPES = new Set(['pass', 'mistake', 'contact']);
+const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire']);
 const FEED_MAX = 40;
 let feedKey = '';
-/** Event feed: passes, mistakes and contact up to the viewer clock, newest first. */
+/**
+ * Event feed: passes, mistakes, contact and incidents up to the viewer clock, newest first. An
+ * off is shown until its rejoin line ("off at T5, rejoins P9") replaces it.
+ */
 function renderFeed(s: Session) {
-  const evs = s.race.events.filter((e) => FEED_TYPES.has(e.type) && e.t <= s.clock);
-  const key = `${evs.length}`;
+  const all = s.race.events;
+  const rejoined = new Set<number>();
+  for (const e of all) if (e.type === 'rejoin' && e.t <= s.clock && e.cause !== undefined) rejoined.add(e.cause);
+  const evs = all.filter((e, k) => FEED_TYPES.has(e.type) && e.t <= s.clock && !(e.type === 'off' && rejoined.has(k)));
+  const key = `${evs.length}/${rejoined.size}`;
   if (key === feedKey) return;
   feedKey = key;
   const rows = evs.slice(-FEED_MAX).reverse().map((e) =>
     `<div class="ev ${e.type}" data-i="${e.cars[0]}"><span class="tm">L${e.lap} ${fmtTime(e.t)}</span><span class="tx">${e.text}</span></div>`).join('');
-  feed.innerHTML = `<div class="hd">Race events · ${evs.filter((e) => e.type === 'pass').length} passes</div>${rows || '<div class="ev"><span></span><span class="tm">Nothing yet</span></div>'}`;
+  const dnf = evs.filter((e) => e.type === 'crash' || e.type === 'retire').length;
+  feed.innerHTML = `<div class="hd">Race events · ${evs.filter((e) => e.type === 'pass').length} passes${dnf ? ` · ${dnf} DNF` : ''}</div>${rows || '<div class="ev"><span></span><span class="tm">Nothing yet</span></div>'}`;
 }
 
 function renderHud(s: Session, i: number, v: number, pos: number) {
@@ -145,7 +170,9 @@ function renderHud(s: Session, i: number, v: number, pos: number) {
     <div class="row"><span class="lbl">Last lap</span><span>${laps.length ? fmtTime(laps[laps.length - 1]) : '–'}</span></div>
     <div class="row"><span class="lbl">Best lap</span><span>${laps.length ? fmtTime(Math.min(...laps)) : '–'}</span></div>
     <div class="row"><span class="lbl">Solver lap</span><span>${fmtTime(c.plans.lapTime)}</span></div>
-    <div class="row"><span class="lbl">Pace</span><span>${(c.entrant.driver.pace * 100).toFixed(1)}%</span></div>`;
+    <div class="row"><span class="lbl">Pace</span><span>${(c.entrant.driver.pace * 100).toFixed(1)}%</span></div>
+    ${c.damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(c.damage * 100).toFixed(1)}% grip</span></div>` : ''}
+    ${c.dnf ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
 }
 
 let last = performance.now();
@@ -187,9 +214,9 @@ function frame(now: number) {
     drawTrack(ctx, s.track, s.cam, s.lanes.line);
     for (let p = n - 1; p >= 0; p--) {
       const i = order[p];
-      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx);
+      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx, poses[i].status);
     }
-    renderTower(s, order);
+    renderTower(s, order, poses.map((q) => q.status));
     renderFeed(s);
     if (followIdx >= 0) {
       const fp = poses[followIdx];
@@ -197,7 +224,7 @@ function frame(now: number) {
       const c = r.cars[followIdx];
       const actual: { s: number; v: number }[] = [];
       const from = isFinite(c.lastCross) && c.lastCross <= s.clock ? Math.ceil(c.lastCross / r.dt) : 0;
-      for (let kk = from; kk <= k; kk += 3) actual.push({ s: (r.frames[kk][followIdx * 3] - (from ? 0 : 0)), v: r.frames[kk][followIdx * 3 + 2] });
+      for (let kk = from; kk <= k; kk += 3) actual.push({ s: r.frames[kk][followIdx * F], v: r.frames[kk][followIdx * F + 2] });
       // Before the first crossing the car is on the grid behind the line: skip those points.
       const lap = from ? actual : actual.filter((p) => p.s < s.track.length / 2);
       drawSpeedTrace(tctx, traceCanvas.width, traceCanvas.height, c.plans.profiles[s.lanes.zero].v, s.track.length, lap, fp.sPos, c.entrant.color);

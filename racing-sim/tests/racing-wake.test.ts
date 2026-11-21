@@ -8,9 +8,13 @@ const GAPS = [0.03, 0.045, 0.06];
  * Seconds a faster car spends stuck within 1 s behind a slower one, averaged over seeds and summed
  * over a spread of pace gaps: at a small gap the wake decides whether it ever gets by, at a large
  * one only how quickly. A single gap can sit where one effect barely matters.
+ *
+ * Incidents are off here (Phase 5): these checks measure the wake rules themselves. With
+ * incidents on, a faster car that attacks more also overshoots and spins more, which mixes a
+ * second effect into the stuck time; Phase 5's own checks cover incidents.
  */
 const stuck = (physics: Partial<PhysicsParams>) =>
-  GAPS.reduce((sum, gap) => sum + mean(SEEDS.map((seed) => paceGapRace(gap, seed, physics).run().stats().stuckTime)), 0);
+  GAPS.reduce((sum, gap) => sum + mean(SEEDS.map((seed) => paceGapRace(gap, seed, physics, 6, false).run().stats().stuckTime)), 0);
 
 describe('Phase 4: slipstream and dirty air', () => {
   const base = stuck({});

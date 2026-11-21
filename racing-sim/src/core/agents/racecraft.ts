@@ -1,9 +1,9 @@
 import type { CarState, Controls } from '../race/car';
-import { clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet } from '../race/lanes';
+import { CAR_WIDTH, clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet, offShare, RUNOFF_GRIP } from '../race/lanes';
 import type { CarModel, PhysicsParams } from '../physics/model';
 import type { Rng } from '../rng';
 import type { Corner } from '../track/corners';
-import { ALONGSIDE, type Near, SIDE_GAP, trafficControls } from './controller';
+import { ALONGSIDE, avoidSlowCar, type Near, SIDE_GAP, trafficControls } from './controller';
 import type { DriverSpec } from './driver';
 
 /** Range (m) and lateral window (m) of the wake behind a car. */
@@ -78,7 +78,7 @@ function distTo(lanes: LaneSet, s: number, apex: number): number {
 export function wakeEffects(me: CraftCar, near: Near[], ctx: CraftContext): { grip: number; drag: number; source: number } {
   let best: Near | null = null;
   for (const o of near) {
-    if (o.gap <= HIT_LEN || o.gap > WAKE_RANGE || Math.abs(o.dd) > WAKE_WIDTH) continue;
+    if (o.gap <= HIT_LEN || o.gap > WAKE_RANGE || Math.abs(o.dd) > WAKE_WIDTH || o.v < 10) continue;
     if (!best || o.gap < best.gap) best = o;
   }
   if (!best) return { grip: 1, drag: 1, source: -1 };
@@ -112,8 +112,12 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const ph = ctx.physics;
   const depth = { tow: ph.slipstream > 0 ? (1 - wake.drag) / ph.slipstream : 0, dirty: ph.dirtyAir > 0 ? (1 - wake.grip) / ph.dirtyAir : 0 };
   let vEnv = plans.envelope(ahead, st.delta, depth.tow, depth.dirty);
+  // In the run-off: corner speed ∝ √grip, and the driver's only aim is to get back on the road.
+  const off = offShare(lanes.track, me.d);
+  if (off > 0) vEnv *= Math.sqrt(1 - off * (1 - RUNOFF_GRIP));
   let wantDelta = 0;
   let started: Mistake | null = null;
+  const view = { st, d: me.d, model: me.model, plans, lanes, dt };
 
   // --- Mistakes in progress override everything else.
   if (cr.mistake && ctx.t >= cr.mistake.until) cr.mistake = null;
@@ -141,9 +145,20 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     const ctl: Controls = m.kind === 'lockup'
       ? { vTarget: Math.max(0, st.v - 0.45 * bMax * dt), deltaTarget: st.delta, effects }
       : { vTarget: vEnv * 0.88, deltaTarget: clamp(lineD + outward * lim, -lim, lim) - lineD, effects };
-    const tc = trafficControls({ st, d: me.d, model: me.model, plans, lanes, dt }, near, ctl.deltaTarget, ctl.vTarget, 0.95);
+    const tc = trafficControls(view, near, avoidSlowCar(view, near, ctl.deltaTarget).delta, ctl.vTarget, 0.95);
+    // Running wide goes past the edge by how sloppy the driver is (Phase 5): a consistent one
+    // just uses the kerb, an error-prone one drops wheels on the grass. Only if the traffic
+    // rules left the outside edge free (nobody out there).
+    if (m.kind === 'wide' && outward !== 0 && Math.abs(lineD + tc.ctl.deltaTarget - outward * lim) < 0.05) {
+      const over = 2 * CAR_WIDTH * (1 - drv.consistency);
+      return { ctl: { ...tc.ctl, deltaTarget: outward * (lim + over) - lineD, runWide: true, effects }, following: tc.following, mistake: started };
+    }
     return { ctl: { ...tc.ctl, effects }, following: tc.following, mistake: started };
   }
+
+  // --- A slow or stopped car ahead: steer round it, no racing until past.
+  const avoid = avoidSlowCar(view, near, 0);
+  if (avoid.hazard >= 0 || off > 0.5) cr.mode = 'line';
 
   // --- Who is directly in front (roughly in line) and who is close behind.
   let front: Near | null = null, behind: Near | null = null;
@@ -162,7 +177,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   }
 
   // --- Attack: decide (a few times a second) whether to have a go at the car in front.
-  if (cr.mode === 'line' && front && ctx.t >= cr.nextThink) {
+  if (cr.mode === 'line' && avoid.hazard < 0 && off === 0 && front && ctx.t >= cr.nextThink) {
     cr.nextThink = ctx.t + 0.5;
     const target = cars[front.j];
     const faster = target.plans.lapTime - plans.lapTime; // s per lap the attacker is quicker
@@ -213,7 +228,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   }
 
   // --- Defend: one move to the inside of the next corner when someone is close behind.
-  if (cr.mode === 'line' && behind && corner && cr.defendedCorner !== ci && toCorner < 220 && toCorner > 40) {
+  if (cr.mode === 'line' && avoid.hazard < 0 && off === 0 && behind && corner && cr.defendedCorner !== ci && toCorner < 220 && toCorner > 40) {
     const threat = cars[behind.j];
     const attacking = threat.craft.mode === 'attack' && threat.craft.other === me.idx;
     if ((attacking || behind.v > st.v + 1.5) && behind.gap > -15 && me.rng.next() < drv.racecraft * 0.6) {
@@ -231,13 +246,14 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
 
   // --- Side by side into a corner: whoever is on the inside keeps the inside line.
   if (cr.mode === 'line' && corner && toCorner < 150 && anyAlongside && allOutside) wantDelta = st.delta;
+  if (avoid.hazard >= 0) wantDelta = avoidSlowCar(view, near, wantDelta).delta;
 
   // Only in the braking zone (the envelope asks to slow down) and before the turn-in: the car
   // brakes later and less, but never speeds up from it, and corner speed is unchanged.
   wantDelta = feasibleDelta(me, wantDelta, depth, ahead);
   const braveNow = brave > 1 && vEnv < st.v && toCorner > 30;
   if (braveNow) vEnv = Math.min(st.v, vEnv * brave);
-  const tc = trafficControls({ st, d: me.d, model: me.model, plans, lanes, dt }, near, wantDelta, vEnv);
+  const tc = trafficControls(view, near, wantDelta, vEnv);
   // Moving across the road: respect the speed of the lane we're heading for too, so a car isn't
   // carried onto a tighter line faster than it can take it.
   let vLane = plans.envelope(ahead, tc.ctl.deltaTarget, depth.tow, depth.dirty);
