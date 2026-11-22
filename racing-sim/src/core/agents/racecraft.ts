@@ -12,6 +12,12 @@ export const WAKE_RANGE = 40;
 export const WAKE_TIME = 1.0;
 /** Lateral window (m) of the wake. */
 export const WAKE_WIDTH = 2.4;
+/**
+ * A full tow adds this to the chance of going for a pass at each look. (Letting attacks start
+ * from further back, as a time gap, was tried: F1 DNFs doubled with no more passes, because
+ * moves from 0.3–0.5 s back mostly end in contact.)
+ */
+export const TOW_URGE = 0.4;
 /** An attacker going for the inside heads for the inside edge from this far before the apex (m). */
 export const DIVE_FROM = 150;
 /** Dirty air reaches this far behind a car (m). */
@@ -193,9 +199,9 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     const faster = target.plans.lapTime - plans.lapTime; // s per lap the attacker is quicker
     const closing = st.v - front.v;
     const close = front.gap < 14 + 6 * drv.aggression;
-    // A reason to go: a pace advantage or a run on the car (closing speed). Aggression alone
-    // only rarely starts a move on an equal car.
-    const want = drv.aggression * 0.15 + Math.max(0, faster) * 0.8 + (closing > 1 ? 0.3 : 0);
+    // A reason to go: a pace advantage, a run on the car (closing speed) or a deep tow.
+    // Aggression alone only rarely starts a move on an equal car.
+    const want = drv.aggression * 0.15 + Math.max(0, faster) * 0.8 + (closing > 1 ? 0.3 : 0) + TOW_URGE * depth.tow;
     if (close && toCorner > 60 && me.rng.next() < want) {
       // Prefer the inside of the next corner, else the other side, if there's room.
       const inside = corner ? corner.dir : 1;

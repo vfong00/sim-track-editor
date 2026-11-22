@@ -38,10 +38,12 @@ describe('viewer state at a time, from the logs', () => {
       expect(v.out(i)).toBe(c.dnf && c.status !== 'run');
     });
     // Gaps: the logged gap is the gap at the last checkpoint passed, within a checkpoint of the live one.
+    // Only for cars at racing speed: one crawling back after a spin loses time so fast that its
+    // live gap runs ahead of the last checkpoint by more than that.
     const order = live.order().filter((i) => !live.cars[i].dnf);
     for (let p = 1; p < order.length; p++) {
       const g = v.gap(order[p], order[0]), g0 = live.gapTo(order[p], order[0]);
-      if (Number.isFinite(g0)) expect(Math.abs(g - g0)).toBeLessThan(0.5);
+      if (Number.isFinite(g0) && live.cars[order[p]].st.v > 20) expect(Math.abs(g - g0)).toBeLessThan(0.5);
     }
   });
 });
