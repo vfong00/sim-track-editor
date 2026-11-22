@@ -21,10 +21,11 @@ describe('car presets', () => {
     expect(laps[id].usage).toBeLessThan(1.01);
   });
 
-  it('rank by class: F1 < LMP < GT3 < the road cars (road car and MX-5 Cup trade places by track)', () => {
+  it('rank by class: F1 < LMP < GT3 < sports car and MX-5 Cup (they trade places by track) < civilian car', () => {
     const order = ['f1', 'lmp', 'gt3'].map((id) => laps[id].solver);
     for (let i = 1; i < order.length; i++) expect(order[i]).toBeGreaterThan(order[i - 1]);
     expect(Math.min(laps.road.solver, laps.mx5.solver)).toBeGreaterThan(laps.gt3.solver);
+    expect(laps.civilian.solver).toBeGreaterThan(Math.max(laps.road.solver, laps.mx5.solver));
   });
 
   it('the MX-5 Cup corners faster than the road car (slicks) but is slower on the straights', () => {

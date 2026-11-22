@@ -36,8 +36,9 @@ export const STANDARD_CAR: CarSpec = { id: 'standard', topSpeed: 85, accel: 11, 
  * corners a little tighter than the real track, so F1 grip is on the high side to match its lap.
  */
 export const CAR_PRESETS = {
+  civilian: { label: 'Civilian car (Camry-like sedan)', topSpeed: 56, accel: 3.6, grip: 0.85, brake: 0.95, downforce: 0 },
   mx5: { label: 'MX-5 Cup (race car on slicks)', topSpeed: 60, accel: 5.0, grip: 1.35, brake: 1.0, downforce: 0 },
-  road: { label: 'Road car (sports car)', topSpeed: 83, accel: 8, grip: 1.05, brake: 1.0, downforce: 0 },
+  road: { label: 'Sports car', topSpeed: 83, accel: 8, grip: 1.05, brake: 1.0, downforce: 0 },
   gt3: { label: 'GT3', topSpeed: 79, accel: 8.5, grip: 1.35, brake: 1.05, downforce: 1.7e-4 },
   lmp: { label: 'LMP (prototype)', topSpeed: 92, accel: 10, grip: 1.55, brake: 1.05, downforce: 4.0e-4 },
   f1: { label: 'F1', topSpeed: 96, accel: 14, grip: 2.1, brake: 1.0, downforce: 8.5e-4 },
