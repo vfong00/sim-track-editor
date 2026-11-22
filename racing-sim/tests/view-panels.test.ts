@@ -57,8 +57,8 @@ describe('timing tower modes', () => {
   const at = new RaceAt(race, race.t);
   const order = [...race.orders[at.k]];
 
-  it('cycles gap → interval → last lap → best lap', () => {
-    expect(TOWER_MODES.map(nextMode)).toEqual(['interval', 'last', 'best', 'gap']);
+  it('cycles gap → interval → last lap → best lap → sectors', () => {
+    expect(TOWER_MODES.map(nextMode)).toEqual(['interval', 'last', 'best', 'sectors', 'gap']);
   });
 
   it('gap is to the leader and interval to the car ahead', () => {

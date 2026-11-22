@@ -45,6 +45,11 @@ export interface RaceOptions {
    * drives at the limit (full pace, bravery's late braking in every braking zone).
    */
   session?: 'race' | 'qualifying';
+  /**
+   * Where sectors 1 and 2 end (m from the start line along the centreline); sector 3 ends at the
+   * line. Default: the lap in thirds. Timing only: it changes nothing in the race.
+   */
+  sectors?: [number, number];
 }
 
 /** Qualifying: the flying run-up to the line (m). Within CP_BASE, so the checkpoints cover it. */
@@ -296,9 +301,13 @@ export class Race {
   /** Plans the safety car's speed comes from (a standard car on the current grip). */
   private scPlans: LanePlans | null = null;
 
+  /** Lap distance (m) at the end of each sector: [end of S1, end of S2, lap length]. */
+  readonly sectorEnds: number[];
+
   constructor(readonly opts: RaceOptions) {
     const { track, entrants } = opts;
     this.dt = opts.dt ?? DT;
+    this.sectorEnds = sectorEnds(track.length, opts.sectors);
     this.laps = opts.laps;
     this.lanes = opts.lanes ?? new LaneSet(track);
     this.rng = makeRng(opts.seed);
@@ -913,6 +922,16 @@ export class Race {
     return CP_BASE + k * CP;
   }
 
+  /** When car i reached race distance x (s), from its checkpoints; NaN if it hasn't yet. */
+  timeAt(i: number, x: number): number {
+    const cp = this.cars[i].cp;
+    const u = (x - CP_BASE) / CP;
+    const k = Math.floor(u);
+    if (k >= 0 && k === u && k < cp.length) return cp[k];
+    if (k < 0 || k + 1 >= cp.length) return NaN;
+    return cp[k] + (cp[k + 1] - cp[k]) * (u - k);
+  }
+
   /** Time gap (s) of car i behind car j at car i's current race distance. */
   gapTo(i: number, j: number): number {
     const a = this.cars[i], b = this.cars[j];
@@ -981,6 +1000,11 @@ export interface SafetyCarState {
   endLap: number;
   /** The 'safety-car' event that deployed it. */
   event: number;
+}
+
+/** Sector ends for a lap of length L: the given cut points, or thirds. */
+export function sectorEnds(L: number, sectors?: [number, number]): number[] {
+  return sectors ? [sectors[0], sectors[1], L] : [L / 3, (2 * L) / 3, L];
 }
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);

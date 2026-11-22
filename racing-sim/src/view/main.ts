@@ -10,7 +10,7 @@ import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
 import { drawMinimap } from './minimap';
 import { statRows } from './stats';
 import { drawTimeline, timelineDuration } from './timeline';
-import { nextMode, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
+import { deltaToBest, nextMode, sectorBoard, sectorCell, type SectorCell, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
 import { drawSpeedTrace, pedals, type TracePoint } from './trace';
 import { raceOver, raceSummary, summaryHtml } from './summary';
 import { qualiHtml, qualiSummary } from './quali';
@@ -213,7 +213,7 @@ function watchQuali(i: number) {
   const e = base?.race.opts.entrants[i];
   if (!base || !e?.quali) return;
   const sc = base.scenario;
-  const race = qualifyingRun({ lanes: base.lanes, entrant: e, seed: e.quali.seed, physics: sc.physics, incidents: sc.race.incidents ?? true, incidentRate: sc.race.incidentRate ?? 1 });
+  const race = qualifyingRun({ lanes: base.lanes, entrant: e, seed: e.quali.seed, physics: sc.physics, incidents: sc.race.incidents ?? true, incidentRate: sc.race.incidentRate ?? 1, sectors: sc.track.sectors });
   if (!qualiBack) qualiBack = { session: base, follow: followIdx, cam: camMode };
   S = { ...base, race, clock: 0, watched: 0, label: `Qualifying · ${e.driver.name}`, resultShown: true };
   followIdx = 0;
@@ -350,6 +350,7 @@ function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) 
   const r = s.race;
   const lap = at.leaderLap;
   const fastest = towerMode === 'last' || towerMode === 'best' ? fastestLap(at) : Infinity;
+  const board = towerMode === 'sectors' ? sectorBoard(at) : null;
   const rows = order.map((i, p) => {
     const c = r.cars[i];
     const out = status[i] >= STATUS.crash;
@@ -360,7 +361,8 @@ function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) 
       <span>${c.entrant.driver.name}${tag}</span>${cell(i, p, out)}</div>`;
   }).join('');
   function cell(i: number, p: number, out: boolean): string {
-    if (out && (towerMode === 'gap' || towerMode === 'interval')) return '<span class="gap">DNF</span>';
+    if (out && (towerMode === 'gap' || towerMode === 'interval' || towerMode === 'sectors')) return '<span class="gap">DNF</span>';
+    if (board) return `<span class="gap">${sectorChips(sectorCell(board, i))}</span>`;
     const c = towerCell(at, order, p, towerMode, fastest);
     return `<span class="gap${c.purple ? ' purple' : ''}">${c.text}</span>`;
   }
@@ -373,9 +375,16 @@ function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) 
   const banner = sc ? `<div class="scb">${sc === 'out' ? 'SAFETY CAR' : 'SAFETY CAR IN THIS LAP'}</div>` : '';
   const html = `<div class="hd"><span>${at.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}${modeBtn}</div>${banner}${rows}`;
   if (html !== towerKey) {
+    tower.classList.toggle('sec', towerMode === 'sectors');
     tower.innerHTML = html;
     towerKey = html;
   }
+}
+
+/** The current lap's three sectors as coloured chips, then the latest sector time. */
+function sectorChips(c: SectorCell): string {
+  const chips = c.colors.map((col, k) => `<i class="sc ${col}" title="S${k + 1} ${Number.isFinite(c.times[k]) ? c.times[k].toFixed(3) : '–'}"></i>`).join('');
+  return `<span class="chips">${chips}</span><span class="st ${c.textColor}">${c.text.replace(/^S\d /, '')}</span>`;
 }
 
 /** Safety car state at the viewer clock, from the event log: out, in (no passing yet), or none. */
@@ -433,13 +442,27 @@ function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
   hudLive.innerHTML = `
     <div class="row"><span style="color:${c.entrant.color};font-weight:600">${c.entrant.driver.name}</span><span>P${pos}</span></div>
     <div class="big">${(v * 3.6).toFixed(0)} km/h</div>
-    <div class="row"><span class="lbl">This lap</span><span>${fmtTime(cur)}</span></div>
+    <div class="row"><span class="lbl">This lap</span><span>${fmtTime(cur)}${deltaHtml(deltaToBest(at, i))}</span></div>
+    ${sectorRow(at, i)}
     <div class="row"><span class="lbl">Last lap</span><span>${laps.length ? fmtTime(laps[laps.length - 1]) : '–'}</span></div>
     <div class="row"><span class="lbl">Best lap</span><span>${laps.length ? fmtTime(Math.min(...laps)) : '–'}</span></div>
     ${idealRows(s, at, i)}
     ${damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(damage * 100).toFixed(1)}% grip</span></div>` : ''}
     ${at.out(i) ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
   renderStats(s, i);
+}
+
+/** Time against the car's best lap at this point of the lap: green ahead, red behind. */
+function deltaHtml(d: number): string {
+  if (!Number.isFinite(d)) return '';
+  return ` <span class="dl ${d <= 0 ? 'ahead' : 'behind'}" title="Against their best lap at this point of the lap">${d <= 0 ? '−' : '+'}${Math.abs(d).toFixed(2)}</span>`;
+}
+
+/** The followed car's sectors this lap, coloured as in the tower. */
+function sectorRow(at: RaceAt, i: number): string {
+  const c = sectorCell(sectorBoard(at), i);
+  const cells = c.times.map((t, k) => `<span class="${c.colors[k]}">${Number.isFinite(t) ? t.toFixed(2) : `S${k + 1}`}</span>`).join('');
+  return `<div class="row secs"><span class="lbl">Sectors</span><span class="sv">${cells}</span></div>`;
 }
 
 /**
@@ -542,7 +565,7 @@ function frame(now: number) {
       s.cam = { scale: s.cam.scale + (t.scale - s.cam.scale) * a, ox: s.cam.ox + (t.ox - s.cam.ox) * a, oy: s.cam.oy + (t.oy - s.cam.oy) * a };
     }
 
-    drawTrack(ctx, s.track, s.cam, s.lanes.line);
+    drawTrack(ctx, s.track, s.cam, s.lanes.line, r.sectorEnds.slice(0, 2));
     for (let p = n - 1; p >= 0; p--) {
       const i = order[p];
       drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx && camMode !== 'all', poses[i].status);
@@ -571,7 +594,7 @@ function frame(now: number) {
       if (miniCanvas.width !== mw || miniCanvas.height !== mh) { miniCanvas.width = mw; miniCanvas.height = mh; }
       drawMinimap(mctx, miniCanvas.width, miniCanvas.height, s.track,
         poses.map((q, i) => ({ p: q.p, color: r.cars[i].entrant.color, out: q.status >= STATUS.crash, gone: q.status === STATUS.cleared })),
-        followIdx, scPose?.p ?? null, s.cam, W, H, dpr);
+        followIdx, scPose?.p ?? null, s.cam, W, H, dpr, r.sectorEnds.slice(0, 2));
     }
     renderFeed(s);
     if (followIdx >= 0) {

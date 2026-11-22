@@ -324,8 +324,18 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   purpose), lap-to-lap variation in races (only qualifying has per-corner variation), and a
   formation of cars on track together in qualifying (traffic, tows).
 
-**Next (racing and sim)**
+**Next, in order**
+1. Car art and effects (Watching). M
+2. Batch baseline: `batch --save` writes a scenario's numbers (passes, DNFs, incidents, stuck
+   time, lap-1 contacts) to a baseline file, and later runs print the change against it. Many
+   checks sit near their thresholds, and this makes a tuning change readable at a glance. S
+3. Then one of the bigger sessions: driving styles with corner lines and lap 1 (with car size
+   per preset), marshalling with penalties, or real-map tracks.
+
+**Racing and sim (small)**
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
+- Kerbs: let the racing line use a little kerb at the apex and exit (a per-track kerb width
+  past the road edge, with a small grip cost), as real lines do. S–M
 
 **Real-map tracks (its own session)** M
 - Build tracks from OpenStreetMap geometry instead of traced images: road ways converted to
@@ -340,7 +350,7 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   gentle. Nordschleife (800 px for 20.8 km): laps 5–10% quick, no GP section (the 24h layout
   needs it), no elevation.
 
-**Driving styles (its own session)** L
+**Driving styles, corner lines and lap 1 (its own session)** L
 - Replace the risk and racecraft ratings with styles that bring several behaviours together:
   smooth vs aggressive at the wheel (trail-braking and oversteer moments vs tidy lines),
   divebomber vs defender, fair vs dirty in wheel-to-wheel. Today "risk" sets attacking and
@@ -349,14 +359,48 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Mistake mix to revisit with it: per 12-car, 10-lap race (standard car) there are ~24 logged
   slides (over the limit and caught), ~4 run-wides, ~1 lock-up and ~1.5 spins, half of them
   after contact. Lock-ups are rarer than run-wides, which feels backwards.
+- Three lines per corner, done in the same session (styles pick lines, and racecraft needs the
+  third choice). Today an attacker either dives for the inside edge or sits a car's width off
+  the leader (`racecraft.ts`, the committed move); that outside spot follows the leader, so as
+  the leader sweeps to the apex the outside car is squeezed and lifts, and nobody tries it. We
+  see hard and soft dive-bombs but no switchbacks.
+  - Racing, inside (early apex, slow exit) and outside (wide entry, late apex, better exit) as
+    lane-offset profiles worked out once per corner, not relative to the other car.
+  - The side comes from the corners after this one: the outside of T1 is the inside of T2, so an
+    outside move works into a change of direction. The cutback: when the defender dives, go
+    wide and cross under on the exit.
+  - Room rules: a car with its front wheels level by the apex is owed a car's width; the inside
+    car may not run out to the edge on the exit if a car is there; the middle car of three
+    holds its line. Breaking them is blame (the squeeze rule already blames), and later a
+    penalty.
+  - Styles: some drivers prefer the outside or the cutback, others the dive.
+- Lap 1 logic, in the same session (the worst case for pile-ups: ~4 DNFs with 20 F1 cars at
+  Yas, mostly into T1). Cars keep their grid side down to the first corner instead of funnelling
+  onto the line, so the field arrives two or three wide and uses the room rules. Launch
+  variation (reaction time, wheelspin by consistency) shuffles the grid before T1 instead of
+  in it. Measure with `batch` on the F1 Yas and GT3 Laguna examples: DNFs and lap-1 contacts.
+- Car size per preset, before or with this: every car is 1.8 × 4.0 m (`CAR_WIDTH`,
+  `CAR_LENGTH`). Real: F1 ~2.0 × 5.6 m, LMP and GT3 ~2.0 × 4.7 m, MX-5 ~1.73 × 3.9 m. Changes
+  collisions, the tow range, the gap rule, whether three wide fits (three 2 m cars fit a 14 m
+  road easily) and how thin the cars look. The constants become per-car fields; re-tune with
+  `batch`. M
 
-**Marshalling and flags** M
+**Marshalling, flags and penalties** M
 - Done: marshals clear a car out of the race 40 s after it stops. Still to do: sooner off the
   road than on it, and flags while they work.
 - Local yellow flags at an incident: no passing and a little slower through that stretch,
   double yellow for a car on the road. Blue flags: a lapped car lets the leaders by.
 - Escalation: yellow → virtual safety car (a speed limit, no queue) → safety car → red flag
   (stop, restart from the grid order).
+- Penalties, in the same session (flags without stewards feel half done, and some spins are
+  egregious). Blame is already assigned (contact, the squeeze rule), so stewards have something
+  to judge. Offences: causing a collision, squeezing a car off the road, track limits (time
+  gained off the road), an unsafe rejoin, later ignoring blue flags. Penalties: 5 s or 10 s added
+  at the finish first (a drive-through needs a pit lane). M
+- Stewards' room in the result panel: each incident with who was blamed and the penalty; click
+  one to jump the replay to 5 s before it, following the blamed car. S–M
+- Look at the late-dive spin first (Known soft spots in the handoff): a 6%-faster car spinning
+  after contact instead of passing is a racecraft bug, not something to penalise.
 
 **Long races (shelved: 60 min covers most uses)** M
 - Today the viewer and `Race.run` stop at 3600 s (`MAX_RACE_TIME` in `view/main.ts`), and the
@@ -381,13 +425,32 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Tyre wear and temperature, weather that builds, pit stops, team radio, picking your driver.
 
 **Watching**
-- Sector times in the timing tower: split each lap into three sectors (by distance, or at
-  chosen corners), log each car's sector times from the checkpoints the race already records,
-  and add a tower mode for the current lap's sectors (purple = fastest overall, green = the
-  driver's own best), plus sectors in the qualifying panel. S–M
+- Done: sector times. The track takes `sectors: [m1, m2]` (metres from the start line; default
+  thirds); every class crosses the same lines, and only the colours compare within a class
+  (`classOf`: the car's preset, else its id). Split times come from the checkpoints and line
+  crossings (`sectorTimes` in `core/race/sectors.ts`), so the race is unchanged and the
+  sectors add up to the lap exactly. Tower mode Sectors: chips for the current lap (purple =
+  fastest in class, green = own best, yellow = slower, grey = not run) and the latest split.
+  Follow panel: this lap's sectors and the delta to the car's best lap (`deltaToBest`). The
+  qualifying and result panels show each driver's best sectors and the ideal lap they add up
+  to. Sector lines on the map and minimap. Default lines on the four real tracks are still
+  thirds; set real ones once corners have names.
 - Done: throttle and brake on the speed trace (Inputs, `i`). Worked out from the logged speed
   and the car model (`pedals` in `view/trace.ts`), clean air assumed.
-- Car art or liveries. S–M
+- Car art and effects (bumped up: after sectors). M
+  - Shape by class, top down: open-wheel (exposed wheels, wings), prototype, GT, small sports
+    car. Drawn from the car's size (see car size per preset).
+  - Seeded liveries: team colours plus a pattern (stripe, halves, chevron, tail fade) picked
+    from the team name; the number on the nose or roof. S
+  - Effects that carry information: brake glow in braking zones, tyre smoke on slides and
+    lock-ups, sparks on contact, skid marks that stay on the track (they show where people
+    lock up). The viewer can place these from the log's events and the pedal estimate. S–M
+  - Drift angle: draw a sliding car at an angle. The log has yaw only for spins (cosmetic), so
+    the race would also record a slip angle while a car slides or runs over its limit. S
+- Auto-director camera: follow the closest live battle (cars within ~1 s for a while), cut to
+  an incident as it happens and back. A camera mode next to Follow. M
+- Corner names: an optional `corners` list on the track (name, metres along), shown on the map
+  and used in event text ("contact at Copse") and the stewards' room. S
 - Phone and tablet layout. M
 - Lap and gap charts: not needed; the timing tower covers it.
 

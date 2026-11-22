@@ -15,12 +15,19 @@ export const SCENARIO_VERSION = 1;
 
 export type GridOrder = 'as-listed' | 'qualifying' | 'rating' | 'reverse-rating' | 'random';
 
-export type TrackSpec =
+/** The track's shape: everything the built track (and its cache key) depends on. */
+export type TrackShape =
   | { type: 'generated'; seed: number; width?: number; complexity?: number }
   /** Control points of a closed spline, in metres. */
   | { type: 'drawn'; points: [number, number][]; width?: number }
   /** A PNG data URL of a dark track line on a light background, scaled to `length` metres. */
   | { type: 'png'; image: string; length: number; width?: number; threshold?: number; smoothing?: number; reverse?: boolean; start?: number };
+
+/**
+ * A track: its shape, plus timing that doesn't change the shape. `sectors`: where sectors 1 and
+ * 2 end, in metres from the start line along the centreline (default: the lap in thirds).
+ */
+export type TrackSpec = TrackShape & { sectors?: [number, number] };
 
 export interface CarEntry {
   id: string;
@@ -271,12 +278,12 @@ function validateTrack(v: V, path: string, t: unknown): void {
   }
   const w = RANGES.width;
   if (t.type === 'generated') {
-    if (!object(v, path, t, ['type', 'seed'], ['width', 'complexity'])) return;
+    if (!object(v, path, t, ['type', 'seed'], ['width', 'complexity', 'sectors'])) return;
     num(v, join(path, 'seed'), t.seed, SEED[0], SEED[1], { int: true });
     num(v, join(path, 'width'), t.width, w[0], w[1], { optional: true });
     num(v, join(path, 'complexity'), t.complexity, RANGES.complexity[0], RANGES.complexity[1], { optional: true });
   } else if (t.type === 'drawn') {
-    if (!object(v, path, t, ['type', 'points'], ['width'])) return;
+    if (!object(v, path, t, ['type', 'points'], ['width', 'sectors'])) return;
     num(v, join(path, 'width'), t.width, w[0], w[1], { optional: true });
     if (array(v, join(path, 'points'), t.points, 3, 2000)) {
       (t.points as unknown[]).forEach((p, i) => {
@@ -287,7 +294,7 @@ function validateTrack(v: V, path: string, t: unknown): void {
       });
     }
   } else {
-    if (!object(v, path, t, ['type', 'image', 'length'], ['width', 'threshold', 'smoothing', 'reverse', 'start'])) return;
+    if (!object(v, path, t, ['type', 'image', 'length'], ['width', 'threshold', 'smoothing', 'reverse', 'start', 'sectors'])) return;
     if (str(v, join(path, 'image'), t.image, { max: 8_000_000 }) && !/^data:image\/png;base64,/.test(t.image as string)) {
       err(v, join(path, 'image'), 'must be a PNG data URL ("data:image/png;base64,...")');
     }
@@ -298,6 +305,18 @@ function validateTrack(v: V, path: string, t: unknown): void {
     bool(v, join(path, 'reverse'), t.reverse);
     num(v, join(path, 'start'), t.start, 0, RANGES.pngLength[1], { optional: true });
   }
+  validateSectors(v, join(path, 'sectors'), t.sectors);
+}
+
+/** Two increasing distances in metres (whether they fit the lap is checked once the track is built). */
+function validateSectors(v: V, path: string, x: unknown): void {
+  if (x === undefined) return;
+  if (!Array.isArray(x) || x.length !== 2 || !x.every((m) => typeof m === 'number' && Number.isFinite(m))) {
+    err(v, path, `must be [end of sector 1, end of sector 2] in metres from the start line (got ${JSON.stringify(x)})`);
+    return;
+  }
+  if (x[0] <= 0) err(v, path, 'sector 1 must end after the start line');
+  else if (x[1] <= x[0]) err(v, path, 'sector 2 must end after sector 1');
 }
 
 export function validateScenario(x: unknown): ScenarioError[] {

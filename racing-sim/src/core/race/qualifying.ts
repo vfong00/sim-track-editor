@@ -2,6 +2,7 @@ import type { Entrant } from '../agents/driver';
 import type { PhysicsParams } from '../physics/model';
 import type { LaneSet } from './lanes';
 import { Race } from './race';
+import { sectorTimes } from './sectors';
 
 /** Timed laps in a qualifying run (after the flying run-up); the best one counts. */
 export const QUALI_LAPS = 2;
@@ -13,6 +14,7 @@ export interface QualifyingOptions {
   physics?: Partial<PhysicsParams>;
   incidents?: boolean;
   incidentRate?: number;
+  sectors?: [number, number];
 }
 
 /**
@@ -22,13 +24,15 @@ export interface QualifyingOptions {
 export function qualifyingRun(o: QualifyingOptions): Race {
   return new Race({
     track: o.lanes.track, lanes: o.lanes, entrants: [o.entrant], laps: QUALI_LAPS, seed: o.seed,
-    physics: o.physics, incidents: o.incidents, incidentRate: o.incidentRate, session: 'qualifying',
+    physics: o.physics, incidents: o.incidents, incidentRate: o.incidentRate, session: 'qualifying', sectors: o.sectors,
   }).run();
 }
 
 export interface QualifyingResult {
   /** Timed laps completed (s). */
   laps: number[];
+  /** Sector times of each timed lap ([S1, S2, S3]; NaN for a sector not finished). */
+  sectors: number[][];
   /** Best lap (Infinity if none: out of the session). */
   best: number;
   /** What happened, if anything: "Off at Stowe, lap 2", "Crashed out at Copse, lap 1", or ''. */
@@ -47,5 +51,5 @@ export function qualifyingResult(r: Race): QualifyingResult {
   for (const e of r.events) if (NOTED.has(e.type) && (!worst || rank.indexOf(e.type) > rank.indexOf(worst.type))) worst = e;
   const what = worst ? worst.text.replace(`${name} `, '') : '';
   const note = what ? `${what[0].toUpperCase()}${what.slice(1)}, lap ${Math.max(1, Math.min(QUALI_LAPS, worst!.lap))}` : '';
-  return { laps, best: laps.length ? Math.min(...laps) : Infinity, note };
+  return { laps, sectors: sectorTimes(r, 0), best: laps.length ? Math.min(...laps) : Infinity, note };
 }

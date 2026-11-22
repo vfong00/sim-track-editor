@@ -1,4 +1,4 @@
-import type { Race } from '../core';
+import { bestSectors, classOf, type Race, sectorTimes } from '../core';
 import { fmtTime } from './draw';
 
 /**
@@ -25,6 +25,10 @@ export interface SummaryRow {
   best: string;
   /** Holds the race's fastest lap. */
   fastest: boolean;
+  /** Best time in each sector (any lap); `purple` = the best in the car's class. */
+  sectors: { text: string; purple: boolean }[];
+  /** The sum of those: the lap the driver had in them ('–' until every sector has a time). */
+  ideal: string;
   passes: number;
   incidents: number;
 }
@@ -58,6 +62,13 @@ export function raceSummary(r: Race): RaceSummary {
   r.cars.forEach((_, i) => lapsOf(i).forEach((t, n) => { if (t < fastest) { fastest = t; fastestBy = i; fastestLap = n + 1; } }));
   const pole = Math.min(...r.cars.map((c) => c.entrant.gridTime ?? Infinity));
   const gridTime = (t: number | undefined) => (t === undefined ? '' : t === pole ? fmtTime(t) : `+${(t - pole).toFixed(3)}`);
+  // Best sectors per car, and per class.
+  const best = r.cars.map((_, i) => bestSectors(sectorTimes(r, i)));
+  const classBest = new Map<string, number[]>();
+  r.cars.forEach((c, i) => {
+    const k = classOf(c.entrant), cb = classBest.get(k);
+    classBest.set(k, cb ? cb.map((t, n) => Math.min(t, best[i][n])) : [...best[i]]);
+  });
   const count = (i: number, f: (type: string) => boolean) => r.events.filter((e) => f(e.type) && e.cars[0] === i).length;
   const rows = order.map((i, p): SummaryRow => {
     const c = r.cars[i];
@@ -73,6 +84,8 @@ export function raceSummary(r: Race): RaceSummary {
       i, pos: p + 1, name: c.entrant.driver.name, color: c.entrant.color, car: c.entrant.car.id,
       grid: i + 1, gridTime: gridTime(c.entrant.gridTime), gained: i - p, result, dnf: c.dnf,
       best: laps.length ? fmtTime(Math.min(...laps)) : '–', fastest: i === fastestBy,
+      sectors: best[i].map((t, n) => ({ text: Number.isFinite(t) ? t.toFixed(3) : '–', purple: Number.isFinite(t) && t <= classBest.get(classOf(c.entrant))![n] })),
+      ideal: best[i].every(Number.isFinite) ? fmtTime(best[i].reduce((a, b) => a + b, 0)) : '–',
       passes: count(i, (t) => t === 'pass'), incidents: count(i, (t) => INCIDENT_TYPES.has(t)),
     };
   });
@@ -96,7 +109,7 @@ export function summaryHtml(title: string, s: RaceSummary): string {
   const rows = s.rows.map((x) => `<tr class="${x.dnf ? 'out' : ''}" data-i="${x.i}">
     <td class="p">${x.dnf ? '' : x.pos}</td><td><span class="sw" style="background:${x.color}"></span>${x.name}</td>
     ${s.multiCar ? `<td class="car">${x.car}</td>` : ''}<td class="n">${x.grid}</td>${s.timedGrid ? `<td class="n">${x.gridTime}</td>` : ''}<td class="n">${gained(x.gained)}</td>
-    <td class="n">${x.result}</td><td class="n${x.fastest ? ' purple' : ''}">${x.best}</td><td class="n">${x.passes || ''}</td><td class="n">${x.incidents || ''}</td></tr>`).join('');
+    <td class="n">${x.result}</td><td class="n${x.fastest ? ' purple' : ''}">${x.best}</td>${x.sectors.map((c) => `<td class="n sec${c.purple ? ' purple' : ''}">${c.text}</td>`).join('')}<td class="n">${x.ideal}</td><td class="n">${x.passes || ''}</td><td class="n">${x.incidents || ''}</td></tr>`).join('');
   const facts = [
     s.fastestLap ? `Fastest lap <b>${s.fastestLap.name}</b> ${s.fastestLap.time} (L${s.fastestLap.lap})` : '',
     s.mover ? `Most places gained <b>${s.mover.name}</b> +${s.mover.gained}` : '',
@@ -104,6 +117,6 @@ export function summaryHtml(title: string, s: RaceSummary): string {
   ].filter(Boolean).map((f) => `<div>${f}</div>`).join('');
   return `<div class="hd"><span>Result · ${title}</span><button class="x" title="Close (Esc)">×</button></div>
     <div class="facts">${facts}</div>
-    <table><thead><tr><th></th><th>Driver</th>${s.multiCar ? '<th>Car</th>' : ''}<th class="n">Grid</th>${s.timedGrid ? '<th class="n" title="The lap that set the grid">Quali</th>' : ''}<th class="n">+/−</th><th class="n">Time</th><th class="n">Best</th><th class="n" title="Passes made">Pass</th><th class="n" title="Offs, spins and crashes">Inc</th></tr></thead>
+    <table><thead><tr><th></th><th>Driver</th>${s.multiCar ? '<th>Car</th>' : ''}<th class="n">Grid</th>${s.timedGrid ? '<th class="n" title="The lap that set the grid">Quali</th>' : ''}<th class="n">+/−</th><th class="n">Time</th><th class="n">Best</th><th class="n" title="Best sector 1 (purple: best in class)">S1</th><th class="n" title="Best sector 2">S2</th><th class="n" title="Best sector 3">S3</th><th class="n" title="Best sectors added up">Ideal</th><th class="n" title="Passes made">Pass</th><th class="n" title="Offs, spins and crashes">Inc</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }

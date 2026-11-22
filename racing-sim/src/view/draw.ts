@@ -25,7 +25,11 @@ export function curvatureColor(k: number): string {
   return `hsl(${120 - 120 * t}, 85%, 50%)`;
 }
 
-export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line?: TrackPath): void {
+/**
+ * The track: run-off, road, curvature kerbs, the racing line (dashed), the start line and, if
+ * given, the sector lines (`sectors`: lap distances where sectors 1 and 2 end).
+ */
+export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line?: TrackPath, sectors: number[] = []): void {
   const X = (x: number) => v.ox + x * v.scale;
   const Y = (y: number) => v.oy - y * v.scale;
   ctx.lineCap = 'round';
@@ -66,6 +70,26 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
     ctx.stroke();
     ctx.setLineDash([]);
   }
+  // Sector lines: dashed, across the road and a little into the run-off on both sides.
+  ctx.strokeStyle = 'rgba(255, 210, 80, 0.75)';
+  ctx.lineWidth = Math.max(1.5, 0.5 * v.scale);
+  ctx.setLineDash([Math.max(3, 1.2 * v.scale), Math.max(3, 1.2 * v.scale)]);
+  ctx.fillStyle = 'rgba(255, 210, 80, 0.9)';
+  ctx.font = `600 ${Math.max(10, Math.min(16, 3 * v.scale))}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  sectors.forEach((s, k) => {
+    const i = Math.round(s / t.ds) % t.n;
+    const a = t.edge(i, 1), b = t.edge(i, -1);
+    const ux = (a.x - b.x) / (t.width || 1), uy = (a.y - b.y) / (t.width || 1);
+    const ext = 3;
+    ctx.beginPath();
+    ctx.moveTo(X(a.x + ux * ext), Y(a.y + uy * ext));
+    ctx.lineTo(X(b.x - ux * ext), Y(b.y - uy * ext));
+    ctx.stroke();
+    ctx.fillText(`S${k + 1}`, X(a.x + ux * (ext + 4)), Y(a.y + uy * (ext + 4)));
+  });
+  ctx.setLineDash([]);
   const a = t.edge(0, 1), b = t.edge(0, -1);
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = Math.max(2, 0.8 * v.scale);

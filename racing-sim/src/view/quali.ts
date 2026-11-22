@@ -1,4 +1,4 @@
-import type { Entrant } from '../core';
+import { bestSectors, classOf, type Entrant } from '../core';
 import { fmtTime } from './draw';
 
 /**
@@ -14,6 +14,10 @@ export interface QualiRow {
   car: string;
   /** Each timed lap, the best one marked. */
   laps: { text: string; best: boolean }[];
+  /** Best time in each sector over the session (any lap); `purple` = the best in class. */
+  sectors: { text: string; purple: boolean }[];
+  /** Those added up: the lap the driver had in them ('–' without a time in every sector). */
+  ideal: string;
   /** Pole's lap time; the rest as "+gap"; "No time" for a car out of the session. */
   result: string;
   pole: boolean;
@@ -32,13 +36,24 @@ export function qualiSummary(field: Entrant[]): QualiSummary | null {
   if (!field.some((e) => e.quali)) return null;
   const pole = Math.min(...field.map((e) => e.gridTime ?? Infinity));
   const laps = Math.max(1, ...field.map((e) => e.quali?.laps.length ?? 0));
+  const classBest = new Map<string, number[]>();
+  for (const e of field) {
+    const b = bestSectors(e.quali?.sectors ?? []), k = classOf(e), cb = classBest.get(k);
+    classBest.set(k, cb ? cb.map((t, n) => Math.min(t, b[n])) : b);
+  }
   const rows = field.map((e, i): QualiRow => {
     const ls = e.quali?.laps ?? [];
     const best = ls.length ? Math.min(...ls) : NaN;
+    const bestSecs = bestSectors(e.quali?.sectors ?? []);
     const t = e.gridTime;
     return {
       i, name: e.driver.name, color: e.color, car: e.car.id,
       laps: ls.map((x) => ({ text: fmtTime(x), best: x === best })),
+      sectors: [0, 1, 2].map((n) => {
+        const t = bestSecs[n];
+        return { text: Number.isFinite(t) ? t.toFixed(3) : '–', purple: Number.isFinite(t) && t <= classBest.get(classOf(e))![n] };
+      }),
+      ideal: bestSecs.every(Number.isFinite) ? fmtTime(bestSecs.reduce((a, b) => a + b, 0)) : '–',
       result: t === undefined ? 'No time' : t === pole ? fmtTime(t) : `+${(t - pole).toFixed(3)}`,
       pole: t !== undefined && t === pole,
       note: e.quali?.note ?? '',
@@ -60,10 +75,10 @@ export function qualiHtml(title: string, q: QualiSummary | null): string {
     }).join('');
     return `<tr class="${x.result === 'No time' ? 'out' : ''}" data-i="${x.i}">
       <td class="p">${p + 1}</td><td><span class="sw" style="background:${x.color}"></span>${esc(x.name)}</td>
-      ${q.multiCar ? `<td class="car">${esc(x.car)}</td>` : ''}${laps}<td class="n${x.pole ? ' purple' : ''}">${x.result}</td>
+      ${q.multiCar ? `<td class="car">${esc(x.car)}</td>` : ''}${laps}<td class="n${x.pole ? ' purple' : ''}">${x.result}</td>${x.sectors.map((c) => `<td class="n sec${c.purple ? ' purple' : ''}">${c.text}</td>`).join('')}<td class="n">${x.ideal}</td>
       <td class="note">${esc(x.note)}</td><td><button class="watch" data-watch="${x.i}" title="Watch this run">▶ Watch</button></td></tr>`;
   }).join('');
   return `${hd}<div class="facts">Each car alone at the limit, ${q.laps} timed laps, best counts. Watch a run to see it.</div>
-    <table><thead><tr><th></th><th>Driver</th>${q.multiCar ? '<th>Car</th>' : ''}${lapCols}<th class="n">Best</th><th>Note</th><th></th></tr></thead>
+    <table><thead><tr><th></th><th>Driver</th>${q.multiCar ? '<th>Car</th>' : ''}${lapCols}<th class="n">Best</th><th class="n" title="Best sector 1 of the session (purple: best in class)">S1</th><th class="n" title="Best sector 2">S2</th><th class="n" title="Best sector 3">S3</th><th class="n" title="Best sectors added up">Ideal</th><th>Note</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }

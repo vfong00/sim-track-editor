@@ -9,7 +9,7 @@ import { makeRng } from '../rng';
 import { generateTrack } from '../track/generate';
 import { trackFromPng } from '../track/png';
 import { Track } from '../track/track';
-import { type Scenario, type ScenarioError, type TrackSpec, parseScenario } from './schema';
+import { type Scenario, type ScenarioError, type TrackShape, type TrackSpec, parseScenario } from './schema';
 
 /**
  * Bumped whenever the code that turns a track spec into a Track changes, so a cached track
@@ -19,8 +19,8 @@ export const TRACK_CODE_VERSION = 2;
 
 export const DEFAULT_WIDTH = 14;
 
-/** A track spec with every default filled in (what the track actually depends on). */
-export function normalizeTrack(t: TrackSpec): Required<TrackSpec> {
+/** A track spec's shape with every default filled in (what the track actually depends on; not its sectors). */
+export function normalizeTrack(t: TrackSpec): Required<TrackShape> {
   const width = t.width ?? DEFAULT_WIDTH;
   if (t.type === 'generated') return { type: 'generated', seed: t.seed, width, complexity: t.complexity ?? 0.6 };
   if (t.type === 'drawn') return { type: 'drawn', points: t.points, width };
@@ -49,7 +49,7 @@ export class ScenarioBuildError extends Error {
 export function buildTrack(spec: TrackSpec, image?: ImageData): Track {
   const t = normalizeTrack(spec);
   try {
-    if (t.type === 'generated') return generateTrack({ seed: t.seed, width: t.width, complexity: t.complexity });
+    if (t.type === 'generated') return checkSectors(spec, generateTrack({ seed: t.seed, width: t.width, complexity: t.complexity }));
     if (t.type === 'drawn') {
       const pts: Vec[] = t.points.map(([x, y]) => ({ x, y }));
       const track = Track.fromControlPoints(pts, t.width);
@@ -58,14 +58,24 @@ export function buildTrack(spec: TrackSpec, image?: ImageData): Track {
       for (let i = 0; i < track.n; i += 4) coarse.push({ x: track.xs[i], y: track.ys[i] });
       if (polylineSelfIntersects(coarse)) throw new Error('the drawn loop crosses itself');
       if (track.clearance() < t.width) throw new Error('the drawn loop passes too close to itself (the road would overlap)');
-      return track;
+      return checkSectors(spec, track);
     }
     if (!image) throw new Error('the PNG image has not been decoded');
-    return trackFromPng(image, t.length, t.width, { threshold: t.threshold, smoothing: t.smoothing, reverse: t.reverse, start: t.start });
+    return checkSectors(spec, trackFromPng(image, t.length, t.width, { threshold: t.threshold, smoothing: t.smoothing, reverse: t.reverse, start: t.start }));
   } catch (e) {
     if (e instanceof ScenarioBuildError) throw e;
     throw new ScenarioBuildError([{ path: 'track', message: (e as Error).message }]);
   }
+}
+
+/** Sector lines must fall inside the lap, sector 2 ending at least SECTOR_MIN m before the line. */
+const SECTOR_MIN = 50;
+function checkSectors(spec: TrackSpec, track: Track): Track {
+  const s = spec.sectors;
+  if (s && s[1] > track.length - SECTOR_MIN) {
+    throw new ScenarioBuildError([{ path: 'track.sectors', message: `sector 2 must end at least ${SECTOR_MIN} m before the line (the lap is ${track.length.toFixed(0)} m)` }]);
+  }
+  return track;
 }
 
 /** Car specs by id, with defaults from the car's preset, or else the standard car. */
@@ -141,8 +151,8 @@ export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
     const timed = list.map((e): Entrant => {
       if (order !== 'qualifying') return { ...e, gridTime: ideal(e) };
       const seed = Math.floor(rng.next() * 4294967296);
-      const q = qualifyingResult(qualifyingRun({ lanes, entrant: e, seed, physics: s.physics, incidents: s.race.incidents ?? true, incidentRate: s.race.incidentRate ?? 1 }));
-      return { ...e, gridTime: Number.isFinite(q.best) ? q.best : undefined, quali: { seed, laps: q.laps, note: q.note } };
+      const q = qualifyingResult(qualifyingRun({ lanes, entrant: e, seed, physics: s.physics, incidents: s.race.incidents ?? true, incidentRate: s.race.incidentRate ?? 1, sectors: s.track.sectors }));
+      return { ...e, gridTime: Number.isFinite(q.best) ? q.best : undefined, quali: { seed, laps: q.laps, sectors: q.sectors, note: q.note } };
     });
     const key = (e: Entrant) => e.gridTime ?? Infinity;
     const sign = order === 'reverse-rating' ? -1 : 1;
@@ -183,6 +193,7 @@ export function scenarioRaceOptions(s: Scenario, track: Track, lanes?: LaneSet):
     incidentRate: s.race.incidentRate ?? 1,
     safetyCar: s.race.safetyCar ?? 'off',
     events,
+    ...(s.track.sectors ? { sectors: s.track.sectors } : {}),
   };
 }
 
