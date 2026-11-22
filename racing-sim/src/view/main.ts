@@ -512,7 +512,8 @@ function idealRows(s: Session, at: RaceAt, i: number): string {
 
 /** Driver ratings and car spec of the followed car, each ranked in the field (only re-rendered when it changes). */
 let statsKey = '';
-let statsOpen = localStorage.getItem('racing-sim.stats') !== '0';
+/** Driver and car stats: collapsed unless the user opened them (remembered; a new key, so the old default-open setting doesn't carry over). */
+let statsOpen = localStorage.getItem('racing-sim.statsOpen') === '1';
 function renderStats(s: Session, i: number) {
   const key = `${i}/${statsOpen}`;
   if (key === statsKey) return;
@@ -868,7 +869,7 @@ function buildControls() {
   hudStats.addEventListener('click', (e) => {
     if (!(e.target as HTMLElement).closest('.tg')) return;
     statsOpen = !statsOpen;
-    localStorage.setItem('racing-sim.stats', statsOpen ? '1' : '0');
+    localStorage.setItem('racing-sim.statsOpen', statsOpen ? '1' : '0');
     if (S && followIdx >= 0) renderStats(S, followIdx);
   });
   feed.addEventListener('click', (e) => {
