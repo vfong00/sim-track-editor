@@ -355,7 +355,11 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
   hand-tuned smoothing. Yas: the "kink" at the top is not a tracing artefact. The source image
   draws the chicane before the long back straight as a hard Z step about a road width deep,
   so the trace has two tight bends (12 and 17 m radius, 60 and 81 km/h in F1), the slowest
-  point of the lap. Smoothing 14 only gets them to 31 and 36 m and softens everything else. Silverstone: Brooklands and Luffield
+  point of the lap. Smoothing 14 only gets them to 31 and 36 m and softens everything else.
+  Tried a second map (a venue map with grandstands, the line extracted by colour): worse. Its
+  chicane is one sharp corner (39 km/h in F1) and its hairpin a narrow loop that more
+  smoothing pinches (29 km/h at smoothing 20); F1 laps 1:35 (smoothing 6) to 1:25 (20) vs
+  1:25.5 now. Kept the current image; OSM geometry is the real fix. Silverstone: Brooklands and Luffield
   ~75 km/h in F1 vs ~110 real. Laguna Seca (from a 300 px silhouette): the Corkscrew is too
   gentle. Nordschleife (800 px for 20.8 km): laps 5–10% quick, no GP section (the 24h layout
   needs it), no elevation.
