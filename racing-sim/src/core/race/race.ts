@@ -50,7 +50,7 @@ export type ScriptedEvent =
   | { lap: number; type: 'spin' | 'retire'; car: number; note?: string }
   | { lap: number; type: 'safety-car'; laps: number; note?: string };
 
-export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'grip' | 'safety-car' | 'lap' | 'finish';
+export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'cleared' | 'grip' | 'safety-car' | 'lap' | 'finish';
 
 export interface RaceEvent {
   t: number;
@@ -75,7 +75,7 @@ export interface RaceEvent {
 export type CarStatus = 'run' | 'spin' | 'stopped' | 'crash' | 'retiring' | 'out';
 
 /** Status codes in the state log. */
-export const STATUS = { run: 0, off: 1, spin: 2, stopped: 3, crash: 4, retiring: 4, out: 5 } as const;
+export const STATUS = { run: 0, off: 1, spin: 2, stopped: 3, crash: 4, retiring: 4, out: 5, cleared: 6 } as const;
 
 /**
  * Incident model (Phase 5). Odds come from the physics: how far over the grip limit a car is,
@@ -109,6 +109,11 @@ export const INCIDENTS = {
   causeWindow: 6,
   /** A running car at a standstill this long is beached (e.g. against a wreck in the run-off) and retires. */
   stuckAfter: 30,
+  /**
+   * Marshals clear a car that is out of the race this long after it stopped: it is no longer an
+   * obstacle (without this, a pile-up at one corner could block the whole field for good).
+   */
+  clearAfter: 40,
 };
 
 /**
@@ -151,6 +156,9 @@ export interface RaceCar {
   dnf: boolean;
   /** Retired: an immovable obstacle for the others. */
   fixed: boolean;
+  /** When it came to rest out of the race (NaN while running), and whether marshals have cleared it. */
+  outSince: number;
+  cleared: boolean;
   /** Heading relative to the road while spinning or stopped (rad, cosmetic), and its rate. */
   yaw: number;
   yawRate: number;
@@ -296,7 +304,7 @@ export class Race {
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
         status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
-        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN, crossTimes: [],
+        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN, outSince: NaN, cleared: false, crossTimes: [],
       };
     });
     for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
@@ -336,7 +344,7 @@ export class Race {
     const me = this.cars[i];
     const out: Near[] = [];
     for (const o of this.cars) {
-      if (o === me) continue;
+      if (o === me || o.cleared) continue;
       let gap = o.st.s - me.st.s;
       if (gap >= L / 2) gap -= L;
       else if (gap < -L / 2) gap += L;
@@ -622,7 +630,13 @@ export class Race {
   private incidents(): void {
     const I = INCIDENTS, dt = this.dt;
     for (const c of this.cars) {
-      if (c.status === 'out') continue;
+      if (c.status === 'out') {
+        if (!c.cleared && this.t - c.outSince > I.clearAfter) {
+          c.cleared = true;
+          this.emit('cleared', [c.idx], `Marshals clear ${this.name(c.idx)}'s car at ${this.cornerName(c.st.s)}`);
+        }
+        continue;
+      }
       const i = c.idx;
       const excess = c.st.mu > 0 ? c.st.slide / c.st.mu : 0;
       if (c.st.slide > 0) c.lastSlideT = this.t;
@@ -669,7 +683,7 @@ export class Race {
         if (c.st.v < 0.3) {
           c.st.v = 0;
           c.st.vDelta = 0;
-          if (c.status === 'crash') { c.status = 'out'; c.fixed = true; this.autoSafetyCar(c); }
+          if (c.status === 'crash') { c.status = 'out'; c.fixed = true; c.outSince = this.t; this.autoSafetyCar(c); }
           else { c.status = 'stopped'; c.restartAt = this.t + 1.5 + 1.5 * c.rng.next(); }
         }
       } else if (c.status === 'retiring' && c.st.v < 0.3) {
@@ -677,6 +691,7 @@ export class Race {
         c.st.vDelta = 0;
         c.status = 'out';
         c.fixed = true;
+        c.outSince = this.t;
         this.autoSafetyCar(c);
       } else if (c.status === 'run' && !c.finished && this.t > c.startDelay + 5) {
         // Beached: no way past (e.g. nose against a wreck at the barrier). Retire rather than
@@ -856,7 +871,7 @@ export class Race {
       f[k + 1] = c.d;
       f[k + 2] = c.st.v;
       f[k + 3] = c.yaw;
-      f[k + 4] = c.status === 'run' ? (c.offEvent >= 0 ? STATUS.off : STATUS.run) : STATUS[c.status];
+      f[k + 4] = c.cleared ? STATUS.cleared : c.status === 'run' ? (c.offEvent >= 0 ? STATUS.off : STATUS.run) : STATUS[c.status];
     });
     this.frames.push(f);
     this.modeLog.push(Uint8Array.from(this.cars, (c) => MODE[c.craft.mode]));

@@ -19,6 +19,8 @@ interface Body {
   d: number;
   /** A retired car: it doesn't move, the other car takes the whole push and the whole hit. */
   fixed?: boolean;
+  /** Cleared away by marshals: no longer there to hit. */
+  cleared?: boolean;
 }
 
 /** Speed lost by both cars in a contact of 2 m/s or more (fraction), on top of the inelastic exchange. */
@@ -42,6 +44,7 @@ export function resolveCollisions(cars: Body[], lanes: LaneSet, edgeWall = false
     for (let i = 0; i < cars.length; i++) {
       for (let j = i + 1; j < cars.length; j++) {
         const A = cars[i], B = cars[j];
+        if (A.cleared || B.cleared) continue;
         let ds = B.st.s - A.st.s;
         if (ds >= L / 2) ds -= L;
         else if (ds < -L / 2) ds += L;

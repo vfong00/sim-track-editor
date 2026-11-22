@@ -51,7 +51,7 @@ describe('follow panel stats', () => {
 });
 
 describe('timing tower modes', () => {
-  const scn = JSON.parse(readFileSync(new URL('../scenarios/equal-field.json', import.meta.url).pathname, 'utf8')) as Scenario;
+  const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.json', import.meta.url).pathname, 'utf8')) as Scenario;
   const race = new Race(loadScenario(scn).options);
   while (race.t < 200 && !race.finished) race.step();
   const at = new RaceAt(race, race.t);

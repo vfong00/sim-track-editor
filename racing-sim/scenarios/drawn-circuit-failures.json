@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "name": "Drawn circuit, scripted failures",
+  "description": "A hand-drawn loop with eight roster drivers in sports cars. Chen's engine lets go on lap 2 and Hughes spins on lap 3 (oil), so the field has to pick its way past. Four laps.",
+  "seed": 5,
+  "track": {
+    "type": "drawn",
+    "width": 14,
+    "points": [
+      [
+        -420,
+        -160
+      ],
+      [
+        0,
+        -230
+      ],
+      [
+        420,
+        -160
+      ],
+      [
+        520,
+        40
+      ],
+      [
+        330,
+        210
+      ],
+      [
+        120,
+        130
+      ],
+      [
+        -90,
+        230
+      ],
+      [
+        -380,
+        170
+      ],
+      [
+        -520,
+        10
+      ]
+    ]
+  },
+  "race": {
+    "laps": 4
+  },
+  "cars": [
+    {
+      "id": "sports",
+      "preset": "road"
+    }
+  ],
+  "drivers": [
+    {
+      "name": "Nakamura",
+      "car": "sports"
+    },
+    {
+      "name": "Chen",
+      "car": "sports"
+    },
+    {
+      "name": "Hughes",
+      "car": "sports"
+    },
+    {
+      "name": "Ito",
+      "car": "sports"
+    },
+    {
+      "name": "Kowalski",
+      "car": "sports"
+    },
+    {
+      "name": "Olsen",
+      "car": "sports"
+    },
+    {
+      "name": "Bianchi",
+      "car": "sports"
+    },
+    {
+      "name": "Quinn",
+      "car": "sports"
+    }
+  ],
+  "events": [
+    {
+      "lap": 2,
+      "type": "retire",
+      "driver": "Chen",
+      "note": "engine"
+    },
+    {
+      "lap": 3,
+      "type": "spin",
+      "driver": "Hughes",
+      "note": "oil"
+    }
+  ]
+}

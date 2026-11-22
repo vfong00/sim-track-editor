@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Drawn circuit, scripted failures",
-  "description": "A hand-drawn loop. Haddad's engine lets go on lap 2 and Moreau spins on lap 3 (oil), so the field has to pick its way past.",
+  "description": "A hand-drawn loop. Chen's engine lets go on lap 2 and Hughes spins on lap 3 (oil), so the field has to pick its way past.",
   "seed": 5,
   "track": { "type": "drawn", "width": 14, "points": [
     [-420, -160], [0, -230], [420, -160], [520, 40], [330, 210], [120, 130],

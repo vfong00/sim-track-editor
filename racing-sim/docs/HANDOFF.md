@@ -24,7 +24,10 @@ npm on this Mac: Artifactory may be unreachable. Install with
 - **Drivers**: the fixed roster (`src/core/agents/roster.ts`), named A–T by overall ability;
   a test keeps the order. Scenarios use speed / consistency / risk (`driverFromRatings`).
 - **Scenarios** (`src/core/scenario/`): strict validation; PNG tracks take `reverse` and
-  `start` (metres along the trace to the start line).
+  `start` (metres along the trace to the start line). Examples shown in the viewer live in
+  `scenarios/` and can change freely; the checks use their own copies in
+  `tests/fixtures/scenarios/`. Track images: `tests/fixtures/*.png` (Laguna and the
+  Nordschleife are cleaned-up, upscaled versions of the originals).
 - **Viewer** (`src/view/`): reads only logs (`RaceAt` in `at.ts`); stats, tower and minimap
   are DOM-free modules (`stats.ts`, `tower.ts`, `minimap.ts`).
 

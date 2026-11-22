@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "Lab: twelve equal cars",
+  "description": "Identical GT3s and identical average drivers on a generated track: any passing comes from the race itself (slipstream, mistakes, incidents). For checking behaviour, not for watching.",
+  "seed": 1,
+  "track": {
+    "type": "generated",
+    "seed": 3
+  },
+  "race": {
+    "laps": 5
+  },
+  "cars": [
+    {
+      "id": "gt3",
+      "preset": "gt3"
+    }
+  ],
+  "field": {
+    "count": 12,
+    "car": "gt3",
+    "spread": 0
+  }
+}

@@ -4,7 +4,7 @@ import {
   CAR_PRESET_IDS, CAR_PRESETS, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, overallAbility, ROSTER, type Scenario, simulateLap,
 } from '../src/core';
 
-const read = (f: string) => JSON.parse(readFileSync(new URL(`../scenarios/${f}`, import.meta.url).pathname, 'utf8')) as Scenario;
+const read = (f: string) => JSON.parse(readFileSync(new URL(`./fixtures/scenarios/${f}`, import.meta.url).pathname, 'utf8')) as Scenario;
 
 describe('car presets', () => {
   const track = generateTrack({ seed: 7 });

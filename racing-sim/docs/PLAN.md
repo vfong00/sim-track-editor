@@ -237,6 +237,12 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Fixed roster of 20 drivers, named A–T by overall ability (Alvarez best, Tanaka weakest).
 - PNG import: no longer mirrored; `reverse` and `start` options; Yas runs anticlockwise from
   its pit straight.
+- Real tracks: Yas Marina, Silverstone, Laguna Seca and the Nordschleife (on its own, 20.8 km;
+  the GP section was left out because the source image's junction there is ambiguous). The
+  examples are a lineup on these (F1, GT3, MX-5 Cup, multi-class, rookie, drying track,
+  safety car, Sunday drive), plus a generated "lab" field and the drawn-track demo.
+- Marshals clear a car that is out of the race 40 s after it stops (before, a pile-up at one
+  corner could block every car for good). A deep tow makes drivers go for the pass.
 
 **Next (racing and sim)**
 - Passing balance: dirty air no longer measurably holds a faster car up (its check is marked
@@ -259,9 +265,11 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - A loop of real roads in Verona: the user names the roads (or corner intersections) in order,
   plus which Verona and the road width (real, about 7–10 m, or race-track width). Querying OSM
   sends that area and those names to its public service, so do it only with that input.
-- Remap Yas Marina and Silverstone the same way: the PNG traces tighten some corners (Yas's
-  top kink; Silverstone's Brooklands and Luffield are ~75 km/h in F1 vs ~110 real) and needed
-  hand-tuned smoothing.
+- Remap the traced tracks the same way: the PNG traces soften or tighten corners and needed
+  hand-tuned smoothing. Yas: a sharp kink at the top. Silverstone: Brooklands and Luffield
+  ~75 km/h in F1 vs ~110 real. Laguna Seca (from a 300 px silhouette): the Corkscrew is too
+  gentle. Nordschleife (800 px for 20.8 km): laps 5–10% quick, no GP section (the 24h layout
+  needs it), no elevation.
 
 **Driving styles (its own session)** L
 - Replace the risk and racecraft ratings with styles that bring several behaviours together:
@@ -274,9 +282,8 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   after contact. Lock-ups are rarer than run-wides, which feels backwards.
 
 **Marshalling and flags** M
-- Today the only race control is the safety car, and wrecks stay on track for the rest of the
-  race.
-- Marshals recover wrecks (a stopped car is cleared after a while, sooner off the road).
+- Done: marshals clear a car out of the race 40 s after it stops. Still to do: sooner off the
+  road than on it, and flags while they work.
 - Local yellow flags at an incident: no passing and a little slower through that stretch,
   double yellow for a car on the road. Blue flags: a lapped car lets the leaders by.
 - Escalation: yellow → virtual safety car (a speed limit, no queue) → safety car → red flag

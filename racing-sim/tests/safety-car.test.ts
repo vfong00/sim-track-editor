@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { AVERAGE_DRIVER, CAR_LENGTH, dWall, identicalField, loadScenario, Race, type Scenario } from '../src/core';
+import { AVERAGE_DRIVER, CAR_LENGTH, dWall, identicalField, INCIDENTS, loadScenario, Race, type Scenario, STATUS } from '../src/core';
 import { lanes7, track7 } from './racing-helpers';
 
-const BASE = JSON.parse(readFileSync(new URL('../scenarios/safety-car.json', import.meta.url).pathname, 'utf8')) as Scenario;
+const BASE = JSON.parse(readFileSync(new URL('./fixtures/scenarios/safety-car.json', import.meta.url).pathname, 'utf8')) as Scenario;
 
 /** Moves already under way when the safety car comes out may still complete (s). */
 const GRACE = 5;
@@ -135,5 +135,24 @@ describe('Phase 5 fix: a beached car retires', () => {
     const stuck = r.events.find((e) => e.type === 'retire' && /is stuck at .* and retires/.test(e.text));
     expect(stuck?.text.startsWith(r.name(1))).toBe(true);
     expect(r.events[stuck!.cause!].type).toBe('off');
+  });
+});
+
+describe('marshals clear wrecks', () => {
+  it('a car out of the race is cleared after INCIDENTS.clearAfter and is no longer there to hit', () => {
+    const r = new Race({ track: track7, lanes: lanes7, entrants: identicalField(3, AVERAGE_DRIVER), laps: 3, seed: 2 });
+    while (r.t < 10) r.step();
+    r.retire(0);
+    const stopped = () => r.cars[0].status === 'out';
+    while (!stopped()) r.step();
+    const restAt = r.t;
+    while (r.t < restAt + INCIDENTS.clearAfter + 1) r.step();
+    const ev = r.events.find((e) => e.type === 'cleared');
+    expect(ev?.cars).toEqual([0]);
+    expect(ev!.t - restAt).toBeCloseTo(INCIDENTS.clearAfter, 0);
+    expect(r.frames[r.frames.length - 1][4]).toBe(STATUS.cleared);
+    // Nobody can touch it afterwards, and the others never queue behind it.
+    while (!r.finished) r.step();
+    expect(r.events.filter((e) => e.type === 'contact' && e.t > ev!.t && e.cars.includes(0))).toEqual([]);
   });
 });

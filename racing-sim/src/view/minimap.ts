@@ -9,6 +9,8 @@ export interface MiniCar {
   p: Vec;
   color: string;
   out: boolean;
+  /** Cleared away by marshals: not drawn. */
+  gone?: boolean;
 }
 
 export function drawMinimap(
@@ -50,7 +52,7 @@ export function drawMinimap(
     ctx.arc(X(p.x), Y(p.y), r, 0, 7);
     ctx.fill();
   };
-  cars.forEach((c, i) => { if (i !== follow) dot(c.p, 3 * dpr, c.out ? '#555b66' : c.color); });
+  cars.forEach((c, i) => { if (i !== follow && !c.gone) dot(c.p, 3 * dpr, c.out ? '#555b66' : c.color); });
   if (sc) dot(sc, 3.5 * dpr, '#ffb000');
   const f = cars[follow];
   if (f) {

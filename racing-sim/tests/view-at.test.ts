@@ -9,7 +9,7 @@ import { RaceAt } from '../src/view/at';
  * stopped at that time, whose live state is the truth.
  */
 describe('viewer state at a time, from the logs', () => {
-  const scn = JSON.parse(readFileSync(new URL('../scenarios/rookie-rocket-rain.json', import.meta.url).pathname, 'utf8')) as Scenario;
+  const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/rookie-rocket-rain.json', import.meta.url).pathname, 'utf8')) as Scenario;
   const opts = () => loadScenario(scn).options;
   const full = new Race(opts()).run();
 

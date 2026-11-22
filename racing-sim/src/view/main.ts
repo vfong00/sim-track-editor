@@ -325,7 +325,7 @@ function craftTag(mode: string, finished: boolean): string {
   return `<span class="tag ${mode}">${mode === 'attack' ? 'ATK' : 'DEF'}</span>`;
 }
 
-const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'grip', 'safety-car']);
+const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'cleared', 'grip', 'safety-car']);
 const FEED_MAX = 40;
 let feedKey = '';
 /**
@@ -472,7 +472,7 @@ function frame(now: number) {
       const mw = Math.round(miniCanvas.clientWidth * dpr), mh = Math.round(miniCanvas.clientHeight * dpr);
       if (miniCanvas.width !== mw || miniCanvas.height !== mh) { miniCanvas.width = mw; miniCanvas.height = mh; }
       drawMinimap(mctx, miniCanvas.width, miniCanvas.height, s.track,
-        poses.map((q, i) => ({ p: q.p, color: r.cars[i].entrant.color, out: q.status >= STATUS.crash })),
+        poses.map((q, i) => ({ p: q.p, color: r.cars[i].entrant.color, out: q.status >= STATUS.crash, gone: q.status === STATUS.cleared })),
         followIdx, scPose?.p ?? null, s.cam, W, H, dpr);
     }
     renderFeed(s);
@@ -742,7 +742,10 @@ function resetZoom() {
   if (S) S.allView = S.overview;
 }
 
-/** First scenario: a shared link (#s=...), an example (?scenario=name), else the URL parameters. */
+/** The example the viewer opens on when the URL asks for nothing else. */
+const DEFAULT_EXAMPLE = 'f1-silverstone';
+
+/** First scenario: a shared link (#s=...), an example (?scenario=name), the URL parameters, else the default example. */
 async function initial(): Promise<Scenario> {
   if (location.hash.startsWith('#s=')) {
     const res = await decodeScenario(location.hash);
@@ -752,6 +755,8 @@ async function initial(): Promise<Scenario> {
   const ex = params.get('scenario');
   if (ex && EXAMPLES[ex]) return EXAMPLES[ex];
   if (ex) console.warn(`[racing-sim] no example scenario "${ex}" (have: ${Object.keys(EXAMPLES).join(', ')})`);
+  // No URL settings at all: open on a real track rather than a generated one.
+  if (![...params.keys()].length && EXAMPLES[DEFAULT_EXAMPLE]) return EXAMPLES[DEFAULT_EXAMPLE];
   return urlScenario();
 }
 

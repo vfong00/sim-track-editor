@@ -77,6 +77,7 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
 
 /** Car as an oriented rectangle (world size), at least a few pixels so it stays visible. */
 export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading: number, color: string, len: number, wid: number, outline = false, status = 0): void {
+  if (status === STATUS.cleared) return; // taken away by marshals
   const q = toScreen(v, p);
   const L = Math.max(len * v.scale, 7), W = Math.max(wid * v.scale, 3.5);
   ctx.save();

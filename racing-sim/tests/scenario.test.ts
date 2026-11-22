@@ -6,9 +6,13 @@ import {
 } from '../src/core';
 import { decodeDataUrl } from '../src/cli/png-node';
 
+/** The example scenarios shipped with the viewer (each must validate and run). */
 const DIR = new URL('../scenarios/', import.meta.url).pathname;
 const files = readdirSync(DIR).filter((f) => f.endsWith('.json')).sort();
-const read = (f: string) => JSON.parse(readFileSync(DIR + f, 'utf8')) as Scenario;
+/** Scenarios the checks depend on, kept apart so the examples can change freely. */
+const FIX = new URL('./fixtures/scenarios/', import.meta.url).pathname;
+const read = (f: string) => JSON.parse(readFileSync(FIX + f, 'utf8')) as Scenario;
+const readExample = (f: string) => JSON.parse(readFileSync(DIR + f, 'utf8')) as Scenario;
 const imageOf = (s: Scenario) => (s.track.type === 'png' ? decodeDataUrl(s.track.image) : undefined);
 const run = (s: Scenario) => new Race(loadScenario(s, imageOf(s)).options).run();
 
@@ -33,9 +37,12 @@ const base = (): Scenario => ({
  * line sweeps across the road into T2 and the field piled into a wreck at the edge).
  */
 function wreckHits(r: Race): string[] {
+  // Only wrecks that were already at rest a reaction time earlier: in a pile-up, a car that
+  // came to rest half a second ago can't be avoided by the one right behind it.
+  const react = Math.round(1.5 / r.dt);
   return r.events.filter((e) => e.type === 'contact' && e.cars.some((x) => {
     const k = Math.max(0, Math.round(e.t / r.dt) - 2);
-    return r.frames[k][x * FRAME_STRIDE + 4] === STATUS.out;
+    return r.frames[k][x * FRAME_STRIDE + 4] === STATUS.out && r.frames[Math.max(0, k - react)][x * FRAME_STRIDE + 4] === STATUS.out;
   })).map((e) => `${e.t.toFixed(1)} ${e.text}`);
 }
 
@@ -46,14 +53,14 @@ const sameLog = (a: Race, b: Race) =>
 
 describe('Phase 6: example scenarios', () => {
   it('there are examples, covering every track type and event type', () => {
-    const all = files.map(read);
+    const all = files.map(readExample);
     expect(files.length).toBeGreaterThanOrEqual(5);
     expect(new Set(all.map((s) => s.track.type))).toEqual(new Set(['generated', 'drawn', 'png']));
     expect(new Set(all.flatMap((s) => (s.events ?? []).map((e) => e.type)))).toEqual(new Set(['grip', 'spin', 'retire', 'safety-car']));
   });
 
   it.each(files)('%s validates and runs to completion', (f) => {
-    const s = read(f);
+    const s = readExample(f);
     const res = parseScenario(readFileSync(DIR + f, 'utf8'));
     expect(res.ok ? [] : res.errors.map(formatError)).toEqual([]);
     const r = run(s);
@@ -140,7 +147,7 @@ describe('Phase 6: invalid files fail with clear errors', () => {
 
 describe('Phase 6: replay from seed', () => {
   it('the same scenario file loaded twice gives an identical state log; another seed does not', () => {
-    const text = readFileSync(DIR + 'drawn-kidney.json', 'utf8');
+    const text = readFileSync(FIX + 'drawn-kidney.json', 'utf8');
     const a = run(JSON.parse(text)), b = run(JSON.parse(text));
     expect(sameLog(a, b)).toBe(true);
     const c = run({ ...JSON.parse(text), seed: 6 });
