@@ -298,6 +298,13 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   `batch`). On a mixed-grid Nordschleife (LMPs and MX-5s) the worst 10% of LMP laps lost 21 s
   instead of 30 s and DNFs halved; most of what is left is the lap-1 pack on a narrow road.
   Still to do: lapped cars of the same class (blue flags, below).
+- Qualifying grid (`gridOrder: "qualifying"`, now the examples' default): one seeded lap each,
+  the solver's ideal lap plus a half-normal loss that grows as consistency falls (~0.3% for an
+  average driver, 0.15% for the steadiest) and an occasional blunder (0.8–2.5%). Close drivers
+  swap from seed to seed (spec F1 at Silverstone: Alvarez on pole 29 times in 40, Chen 11).
+  Rating and qualifying grids keep each entrant's `gridTime`; the tower opens on a "Grid time"
+  column (pole's lap, then gaps) and the result table has a Quali column. Race-day form (the
+  same idea applied to the race itself) is not done.
 
 **Next (racing and sim)**
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S

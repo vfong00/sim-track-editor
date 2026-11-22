@@ -15,6 +15,8 @@ export interface SummaryRow {
   color: string;
   car: string;
   grid: number;
+  /** The lap that set the grid ("1:24.775" for pole, "+0.463" behind it), or '' on an untimed grid. */
+  gridTime: string;
   /** Places gained from the grid (negative = lost). */
   gained: number;
   /** Race time for the winner, "+gap" or "+N laps" for the others, "DNF" with the lap for retirements. */
@@ -31,6 +33,8 @@ export interface RaceSummary {
   rows: SummaryRow[];
   /** Show a car column (the field has more than one car). */
   multiCar: boolean;
+  /** Show a grid time column (a qualifying or rating grid). */
+  timedGrid: boolean;
   passes: number;
   contacts: number;
   incidents: number;
@@ -52,6 +56,8 @@ export function raceSummary(r: Race): RaceSummary {
   const lapsOf = (i: number) => r.cars[i].crossTimes.slice(1).map((t, n) => t - r.cars[i].crossTimes[n]);
   let fastest = Infinity, fastestBy = -1, fastestLap = 0;
   r.cars.forEach((_, i) => lapsOf(i).forEach((t, n) => { if (t < fastest) { fastest = t; fastestBy = i; fastestLap = n + 1; } }));
+  const pole = Math.min(...r.cars.map((c) => c.entrant.gridTime ?? Infinity));
+  const gridTime = (t: number | undefined) => (t === undefined ? '' : t === pole ? fmtTime(t) : `+${(t - pole).toFixed(3)}`);
   const count = (i: number, f: (type: string) => boolean) => r.events.filter((e) => f(e.type) && e.cars[0] === i).length;
   const rows = order.map((i, p): SummaryRow => {
     const c = r.cars[i];
@@ -65,7 +71,7 @@ export function raceSummary(r: Race): RaceSummary {
     }
     return {
       i, pos: p + 1, name: c.entrant.driver.name, color: c.entrant.color, car: c.entrant.car.id,
-      grid: i + 1, gained: i - p, result, dnf: c.dnf,
+      grid: i + 1, gridTime: gridTime(c.entrant.gridTime), gained: i - p, result, dnf: c.dnf,
       best: laps.length ? fmtTime(Math.min(...laps)) : '–', fastest: i === fastestBy,
       passes: count(i, (t) => t === 'pass'), incidents: count(i, (t) => INCIDENT_TYPES.has(t)),
     };
@@ -74,6 +80,7 @@ export function raceSummary(r: Race): RaceSummary {
   return {
     rows,
     multiCar: new Set(r.cars.map((c) => c.entrant.car.id)).size > 1,
+    timedGrid: pole < Infinity,
     passes: r.events.filter((e) => e.type === 'pass').length,
     contacts: r.events.filter((e) => e.type === 'contact').length,
     incidents: r.events.filter((e) => INCIDENT_TYPES.has(e.type)).length,
@@ -88,7 +95,7 @@ export function summaryHtml(title: string, s: RaceSummary): string {
   const gained = (g: number) => (g > 0 ? `<span class="up">▲${g}</span>` : g < 0 ? `<span class="dn">▼${-g}</span>` : '<span class="eq">–</span>');
   const rows = s.rows.map((x) => `<tr class="${x.dnf ? 'out' : ''}" data-i="${x.i}">
     <td class="p">${x.dnf ? '' : x.pos}</td><td><span class="sw" style="background:${x.color}"></span>${x.name}</td>
-    ${s.multiCar ? `<td class="car">${x.car}</td>` : ''}<td class="n">${x.grid}</td><td class="n">${gained(x.gained)}</td>
+    ${s.multiCar ? `<td class="car">${x.car}</td>` : ''}<td class="n">${x.grid}</td>${s.timedGrid ? `<td class="n">${x.gridTime}</td>` : ''}<td class="n">${gained(x.gained)}</td>
     <td class="n">${x.result}</td><td class="n${x.fastest ? ' purple' : ''}">${x.best}</td><td class="n">${x.passes || ''}</td><td class="n">${x.incidents || ''}</td></tr>`).join('');
   const facts = [
     s.fastestLap ? `Fastest lap <b>${s.fastestLap.name}</b> ${s.fastestLap.time} (L${s.fastestLap.lap})` : '',
@@ -97,6 +104,6 @@ export function summaryHtml(title: string, s: RaceSummary): string {
   ].filter(Boolean).map((f) => `<div>${f}</div>`).join('');
   return `<div class="hd"><span>Result · ${title}</span><button class="x" title="Close (Esc)">×</button></div>
     <div class="facts">${facts}</div>
-    <table><thead><tr><th></th><th>Driver</th>${s.multiCar ? '<th>Car</th>' : ''}<th class="n">Grid</th><th class="n">+/−</th><th class="n">Time</th><th class="n">Best</th><th class="n" title="Passes made">Pass</th><th class="n" title="Offs, spins and crashes">Inc</th></tr></thead>
+    <table><thead><tr><th></th><th>Driver</th>${s.multiCar ? '<th>Car</th>' : ''}<th class="n">Grid</th>${s.timedGrid ? '<th class="n" title="The lap that set the grid">Quali</th>' : ''}<th class="n">+/−</th><th class="n">Time</th><th class="n">Best</th><th class="n" title="Passes made">Pass</th><th class="n" title="Offs, spins and crashes">Inc</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }

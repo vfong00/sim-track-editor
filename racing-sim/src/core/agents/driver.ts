@@ -34,6 +34,8 @@ export interface Entrant {
   color: string;
   car: CarSpec;
   driver: DriverSpec;
+  /** The lap that set the grid (s): a qualifying lap, or the ideal lap for a rating grid. Absent for other grids. */
+  gridTime?: number;
 }
 
 const NAMES = ['Nakamura', 'Alvarez', 'Garcia', 'Chen', 'Reyes', 'Petrov', 'Jovanovic', 'Schmidt', 'Eriksen', 'Murphy', 'Ito',

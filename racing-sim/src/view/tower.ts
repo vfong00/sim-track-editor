@@ -5,9 +5,9 @@ import { fmtTime } from './draw';
  * What the timing tower's right-hand column shows (no DOM, so it can be tested). It cycles
  * through gap to the leader, interval to the car ahead, last lap and best lap.
  */
-export type TowerMode = 'gap' | 'interval' | 'last' | 'best';
-export const TOWER_MODES: TowerMode[] = ['gap', 'interval', 'last', 'best'];
-export const TOWER_LABEL: Record<TowerMode, string> = { gap: 'Gap', interval: 'Interval', last: 'Last lap', best: 'Best lap' };
+export type TowerMode = 'gap' | 'interval' | 'last' | 'best' | 'grid';
+export const TOWER_MODES: TowerMode[] = ['gap', 'interval', 'last', 'best', 'grid'];
+export const TOWER_LABEL: Record<TowerMode, string> = { gap: 'Gap', interval: 'Interval', last: 'Last lap', best: 'Best lap', grid: 'Grid time' };
 /** Auto-rotation period, and how long a click holds the chosen mode before rotation resumes (wall-clock seconds). */
 export const TOWER_ROTATE = 6;
 export const TOWER_HOLD = 30;
@@ -30,6 +30,14 @@ function behind(at: RaceAt, i: number, ahead: number): string {
   return isFinite(g) ? `+${g.toFixed(3)}` : '';
 }
 
+/** Whether the grid was set by lap times (a qualifying or rating grid). */
+export const hasGridTimes = (at: RaceAt) => at.r.cars.some((c) => c.entrant.gridTime !== undefined);
+
+/** Pole position's grid time (Infinity if the grid wasn't timed). */
+export function poleTime(at: RaceAt): number {
+  return Math.min(...at.r.cars.map((c) => c.entrant.gridTime ?? Infinity));
+}
+
 /** The fastest lap anyone has set so far (Infinity if none). */
 export function fastestLap(at: RaceAt): number {
   let best = Infinity;
@@ -43,6 +51,12 @@ export function fastestLap(at: RaceAt): number {
  */
 export function towerCell(at: RaceAt, order: number[], p: number, mode: TowerMode, fastest = fastestLap(at)): { text: string; purple: boolean } {
   const i = order[p];
+  if (mode === 'grid') {
+    // The lap that set the grid: pole's time, the rest as the gap to it.
+    const t = at.r.cars[i].entrant.gridTime, pole = poleTime(at);
+    if (t === undefined) return { text: '–', purple: false };
+    return t === pole ? { text: fmtTime(t), purple: true } : { text: `+${(t - pole).toFixed(3)}`, purple: false };
+  }
   if (mode === 'gap' || mode === 'interval') {
     if (p === 0) return { text: at.finished(i) ? 'Winner' : 'Leader', purple: false };
     return { text: behind(at, i, mode === 'gap' ? order[0] : order[p - 1]), purple: false };

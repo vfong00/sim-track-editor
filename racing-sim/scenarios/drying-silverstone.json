@@ -13,7 +13,7 @@
   },
   "race": {
     "laps": 6,
-    "gridOrder": "rating",
+    "gridOrder": "qualifying",
     "incidentRate": 1.5
   },
   "physics": {

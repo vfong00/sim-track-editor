@@ -13,7 +13,7 @@ import { CAR_PRESET_IDS, type CarPreset } from '../physics/model';
 
 export const SCENARIO_VERSION = 1;
 
-export type GridOrder = 'as-listed' | 'rating' | 'reverse-rating' | 'random';
+export type GridOrder = 'as-listed' | 'qualifying' | 'rating' | 'reverse-rating' | 'random';
 
 export type TrackSpec =
   | { type: 'generated'; seed: number; width?: number; complexity?: number }
@@ -317,7 +317,7 @@ export function validateScenario(x: unknown): ScenarioError[] {
     const r = x.race;
     if (num(v, 'race.laps', r.laps, RANGES.laps[0], RANGES.laps[1], { int: true })) laps = r.laps as number;
     oneOf(v, 'race.start', r.start, ['grid'], true);
-    oneOf(v, 'race.gridOrder', r.gridOrder, ['as-listed', 'rating', 'reverse-rating', 'random'], true);
+    oneOf(v, 'race.gridOrder', r.gridOrder, ['as-listed', 'qualifying', 'rating', 'reverse-rating', 'random'], true);
     bool(v, 'race.incidents', r.incidents);
     num(v, 'race.incidentRate', r.incidentRate, RANGES.incidentRate[0], RANGES.incidentRate[1], { optional: true });
     oneOf(v, 'race.safetyCar', r.safetyCar, ['off', 'auto'], true);

@@ -42,4 +42,16 @@ describe('end-of-race summary', () => {
   it('renders one table row per car', () => {
     expect(summaryHtml('t', s).match(/<tr class="[^"]*" data-i=/g)).toHaveLength(r.cars.length);
   });
+
+  it('shows grid times only for a timed grid: pole as a lap time, the rest as gaps to it', () => {
+    expect(s.timedGrid).toBe(false);
+    expect(summaryHtml('t', s)).not.toContain('Quali');
+    const data = scenario('random-field.json');
+    const q = raceSummary(new Race(loadScenario({ ...data, race: { ...data.race, laps: 1, gridOrder: 'qualifying' } }).options).run());
+    expect(q.timedGrid).toBe(true);
+    const byGrid = [...q.rows].sort((a, b) => a.grid - b.grid);
+    expect(byGrid[0].gridTime).toMatch(/^\d+:\d\d\.\d{3}$/);
+    for (const x of byGrid.slice(1)) expect(x.gridTime).toMatch(/^\+\d+\.\d{3}$/);
+    expect(summaryHtml('t', q)).toContain('Quali');
+  });
 });

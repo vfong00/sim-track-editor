@@ -13,7 +13,7 @@
   },
   "race": {
     "laps": 8,
-    "gridOrder": "rating"
+    "gridOrder": "qualifying"
   },
   "cars": [
     {

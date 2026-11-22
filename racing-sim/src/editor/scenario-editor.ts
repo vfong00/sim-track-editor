@@ -125,7 +125,7 @@ export class ScenarioEditor {
       </section>
       <section><h4>Race rules</h4>
         ${this.row('Laps', this.num(['race', 'laps'], s.race.laps, RANGES.laps, '1'))}
-        ${this.row('Grid', this.select(['race', 'gridOrder'], s.race.gridOrder ?? 'as-listed', [['as-listed', 'As listed'], ['rating', 'Quickest on pole'], ['reverse-rating', 'Reverse (slowest on pole)'], ['random', 'Random (seeded)']]))}
+        ${this.row('Grid', this.select(['race', 'gridOrder'], s.race.gridOrder ?? 'as-listed', [['as-listed', 'As listed'], ['qualifying', 'Qualifying (seeded)'], ['rating', 'Ideal lap (quickest on pole)'], ['reverse-rating', 'Reverse (slowest on pole)'], ['random', 'Random (seeded)']]))}
         ${this.row('Incidents', `<input type="checkbox" data-path="race.incidents" data-kind="bool"${s.race.incidents === false ? '' : ' checked'}>`, 'off: road edge is a wall')}
         ${this.row('Incident rate', this.num(['race', 'incidentRate'], s.race.incidentRate, RANGES.incidentRate, '0.1', '1'), '× odds')}
         ${this.row('Safety car', this.select(['race', 'safetyCar'], s.race.safetyCar ?? 'off', [['off', 'Only when scripted'], ['auto', 'Also when a car stops on track']]))}

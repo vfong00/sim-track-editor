@@ -209,6 +209,32 @@ describe('Phase 6: driver ratings', () => {
     const draws = new Set([1, 2, 3, 4, 5].map((k) => names('random', k).join()));
     expect(draws.size).toBeGreaterThan(1);
   });
+
+  it('qualifying: one seeded lap each, never quicker than the ideal lap, steadier drivers closer to it', () => {
+    const s = read('equal-field.json');
+    const lanes = new LaneSet(buildTrack(s.track));
+    // Two drivers with the same pace: one steady, one erratic.
+    const base = { ...s, drivers: [{ name: 'Steady', car: s.cars[0].id, speed: 0.5, consistency: 0.95 }, { name: 'Erratic', car: s.cars[0].id, speed: 0.5, consistency: 0.72 }], field: undefined };
+    const grid = (seed: number) => scenarioEntrants({ ...base, seed, race: { ...s.race, gridOrder: 'qualifying' } }, lanes);
+    const ideal = scenarioEntrants({ ...base, race: { ...s.race, gridOrder: 'rating' } }, lanes)[0].gridTime!;
+    expect(grid(3)).toEqual(grid(3));
+    const loss = { Steady: [] as number[], Erratic: [] as number[] };
+    let steadyPoles = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const g = grid(seed);
+      expect(g[0].gridTime!).toBeLessThanOrEqual(g[1].gridTime!);
+      for (const e of g) {
+        expect(e.gridTime!).toBeGreaterThanOrEqual(ideal);
+        loss[e.driver.name as 'Steady' | 'Erratic'].push(e.gridTime! / ideal - 1);
+      }
+      if (g[0].driver.name === 'Steady') steadyPoles++;
+    }
+    const avg = (x: number[]) => x.reduce((a, b) => a + b, 0) / x.length;
+    expect(avg(loss.Steady)).toBeLessThan(avg(loss.Erratic));
+    // Close drivers swap: the steady one is usually on pole, but not always.
+    expect(steadyPoles).toBeGreaterThan(20);
+    expect(steadyPoles).toBeLessThan(40);
+  });
 });
 
 describe('Phase 6: mid-race events', () => {

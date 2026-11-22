@@ -87,10 +87,23 @@ export function carSpecs(s: Scenario): Map<string, CarSpec> {
 const FIELD_SPREAD = { speed: 0.3, consistency: 0.12, risk: 0.4 };
 
 /**
+ * Qualifying: how far off their ideal lap a driver's one flying lap lands, as a share of it. A
+ * half-normal loss whose spread grows as consistency falls (QUALI_SPREAD at consistency 1, plus
+ * QUALI_PER_INCONSISTENCY per point below it: about 0.3% for an average driver, 0.15% for the
+ * steadiest), and now and then a blunder (a lock-up or a wide moment) costing QUALI_BLUNDER more.
+ */
+export const QUALI_SPREAD = 0.001;
+export const QUALI_PER_INCONSISTENCY = 0.012;
+export const QUALI_BLUNDER_CHANCE = 0.3;
+export const QUALI_BLUNDER: readonly [number, number] = [0.008, 0.025];
+
+/**
  * The entrants in grid order (pole first). Listed drivers, then the generated field, then
  * sorted by `race.gridOrder`: 'rating' puts the quickest car-and-driver on pole (by the solver
  * lap time on this track at the starting grip, so a rocket car counts), 'reverse-rating' the
- * slowest. Deterministic in the scenario.
+ * slowest, 'qualifying' sorts by one simulated qualifying lap each (the solver lap plus a
+ * seeded loss that depends on consistency, so close drivers swap places from race to race).
+ * Rating and qualifying grids record each entrant's `gridTime`. Deterministic in the scenario.
  */
 export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
   const cars = carSpecs(s);
@@ -131,10 +144,20 @@ export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
   }
   const order = s.race.gridOrder ?? 'as-listed';
   // Rating = clean-air lap time of the car and driver; ties keep list order.
-  if (order === 'rating' || order === 'reverse-rating') {
-    const lap = new Map(list.map((e) => [e, lanePlansFor(lanes, e.car, e.driver.pace, s.physics).plans.lapTime]));
-    const sign = order === 'rating' ? 1 : -1;
-    return stableSort(list, (a, b) => sign * (lap.get(a)! - lap.get(b)!));
+  if (order === 'rating' || order === 'reverse-rating' || order === 'qualifying') {
+    const ideal = (e: Entrant) => lanePlansFor(lanes, e.car, e.driver.pace, s.physics).plans.lapTime;
+    // Its own stream, like the random grid's, drawn in list order.
+    const rng = makeRng((s.seed ^ 0x2c1b3c6d) >>> 0);
+    const timed = list.map((e): Entrant => {
+      const t = ideal(e);
+      if (order !== 'qualifying') return { ...e, gridTime: t };
+      const spread = QUALI_SPREAD + QUALI_PER_INCONSISTENCY * (1 - e.driver.consistency);
+      let loss = spread * Math.abs(rng.normal());
+      if (rng.next() < QUALI_BLUNDER_CHANCE * (1 - e.driver.consistency)) loss += rng.range(QUALI_BLUNDER[0], QUALI_BLUNDER[1]);
+      return { ...e, gridTime: t * (1 + loss) };
+    });
+    const sign = order === 'reverse-rating' ? -1 : 1;
+    return stableSort(timed, (a, b) => sign * (a.gridTime! - b.gridTime!));
   }
   if (order === 'random') {
     // Its own stream (not the race's), so the grid draw doesn't shift the race's rolls.
