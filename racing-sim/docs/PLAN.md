@@ -340,6 +340,25 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Escalation: yellow → virtual safety car (a speed limit, no queue) → safety car → red flag
   (stop, restart from the grid order).
 
+**Long races (shelved: 60 min covers most uses)** M
+- Today the viewer and `Race.run` stop at 3600 s (`MAX_RACE_TIME` in `view/main.ts`), and the
+  schema allows 200 laps (~6 h at Silverstone). Nothing is saved to disk: the state log lives
+  in memory and a replay re-runs the seed.
+- Memory is the limit, not CPU (the sim runs ~200–400× real time, so 24 h of a 20-car field
+  is ~4–8 min of compute). Each tick stores a frame, the order and race-craft modes: ~800 B at
+  60 Hz for 20 cars, ~170 MB per race hour, ~4 GB for 24 h.
+- 1. Compact, decimated log: physics still steps every tick (so the race, its events and
+  incidents are unchanged), but poses are recorded at 10 Hz in packed chunks (s as float32,
+  offset and yaw as int16, speed and status as small ints): ~6–15 MB per hour. The viewer
+  already interpolates; along-track coordinates follow the curve. Keep every tick while any
+  car is spinning, off or in contact, so incidents don't look choppy.
+- 2. Compute in a Web Worker: the viewer gets 6 ms a frame to compute ahead, so a 24 h race
+  would take a long time to scrub to the end.
+- 3. Only if 1 isn't enough: keep an hour's window and re-simulate from checkpoints. Needs a
+  serialisable race state (the RNGs keep their state in closures today).
+- Also: lift the 3600 s caps and the 200-lap schema limit. Long races mean little without pit
+  stops, fuel, tyres and driver swaps (below).
+
 **Later (a "racing revamp" with playability)**
 - Tyre wear and temperature, weather that builds, pit stops, team radio, picking your driver.
 
