@@ -75,7 +75,7 @@ export class RaceAt {
     const e = this.r.cars[i].entrant;
     const dmg = this.damage(i);
     const spec = dmg > 0 ? { ...e.car, grip: e.car.grip * (1 - dmg) } : e.car;
-    return lanePlansFor(this.r.lanes, spec, e.driver.pace, { ...this.r.physics, gripLevel: this.gripLevel }).plans;
+    return lanePlansFor(this.r.lanes, spec, this.r.paceOf(e), { ...this.r.physics, gripLevel: this.gripLevel }).plans;
   }
 
   /** Checkpoints car i had passed by now (index of the last one, -1 = none). */

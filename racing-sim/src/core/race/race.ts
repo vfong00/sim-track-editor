@@ -1,4 +1,4 @@
-import { type DriverSpec, type Entrant } from '../agents/driver';
+import { type DriverSpec, type Entrant, racePace } from '../agents/driver';
 import { avoidSlowCar, trafficControls, type Near } from '../agents/controller';
 import { CLASS_GAP, type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
 import { CarModel, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type PhysicsParams, STANDARD_CAR } from '../physics/model';
@@ -322,7 +322,12 @@ export class Race {
   /** Car model and lane plans for an entrant with `damage` grip loss (shared across races on the lanes). */
   private plansFor(e: Entrant, damage: number): { model: CarModel; plans: LanePlans } {
     const spec = damage > 0 ? { ...e.car, grip: e.car.grip * (1 - damage) } : e.car;
-    return lanePlansFor(this.lanes, spec, e.driver.pace, this.physics);
+    return lanePlansFor(this.lanes, spec, this.paceOf(e), this.physics);
+  }
+
+  /** Share of the car's grip a driver uses in this session: a margin under the limit in a race. */
+  paceOf(e: Entrant): number {
+    return racePace(e.driver);
   }
 
   get track(): Track {

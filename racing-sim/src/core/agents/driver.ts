@@ -5,7 +5,10 @@ import type { Rng } from '../rng';
 /** Driver ratings, all in [0, 1] except pace (fraction of the car's grip the driver uses). */
 export interface DriverSpec {
   name: string;
-  /** Share of the car's grip used on a normal lap (0.9 = slow, 1.0 = on the limit). */
+  /**
+   * Share of the car's grip the driver can use at the limit: a qualifying lap (0.9 = slow, 1.0 =
+   * all of it). Races run a margin under this (`racePace`).
+   */
   pace: number;
   /** 1 = never makes mistakes, 0 = error-prone. */
   consistency: number;
@@ -25,6 +28,18 @@ export interface DriverSpec {
 export const PACE_MIN = 0.90;
 export const PACE_MAX = 1.0;
 export const paceFromSpeed = (speed: number) => PACE_MIN + (PACE_MAX - PACE_MIN) * speed;
+
+/**
+ * Races are run under the limit: the grip share given up, more for an erratic driver (who has to
+ * back off to stay on the road) than a steady one. Lap time moves ~0.3–0.4% per 1% of grip, so
+ * consistency 0.96 races ~1% off their qualifying lap (3.0% grip), 0.85 ~1.5% (4.3%), 0.70 ~2%
+ * (6.1%).
+ */
+export const RACE_MARGIN_BASE = 0.025;
+export const RACE_MARGIN_PER_INCONSISTENCY = 0.12;
+export const raceMargin = (consistency: number) => RACE_MARGIN_BASE + RACE_MARGIN_PER_INCONSISTENCY * (1 - consistency);
+/** Share of the car's grip a driver uses in a race. */
+export const racePace = (d: Pick<DriverSpec, 'pace' | 'consistency'>) => d.pace * (1 - raceMargin(d.consistency));
 
 /** The average driver: speed 0.5. */
 export const AVERAGE_DRIVER: Omit<DriverSpec, 'name'> = { pace: paceFromSpeed(0.5), consistency: 0.85, aggression: 0.5, racecraft: 0.6, bravery: 0.5 };
