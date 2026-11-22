@@ -7,7 +7,10 @@ import { ScenarioEditor } from '../editor/scenario-editor';
 import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
 import { RaceAt } from './at';
 import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
+import { drawMinimap } from './minimap';
+import { statRows } from './stats';
 import { drawTimeline, timelineDuration } from './timeline';
+import { nextMode, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
 import { drawSpeedTrace } from './trace';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -17,7 +20,10 @@ const traceCanvas = $<HTMLCanvasElement>('trace');
 const tctx = traceCanvas.getContext('2d')!;
 const tlCanvas = $<HTMLCanvasElement>('tl');
 const tlctx = tlCanvas.getContext('2d')!;
+const miniCanvas = $<HTMLCanvasElement>('mini');
+const mctx = miniCanvas.getContext('2d')!;
 const info = $('info'), hud = $('hud'), tower = $('tower'), feed = $('feed');
+const hudLive = $('hud-live'), hudStats = $('hud-stats');
 const drawBtn = $<HTMLButtonElement>('draw'), closeBtn = $<HTMLButtonElement>('close');
 
 const params = new URLSearchParams(location.search);
@@ -58,10 +64,15 @@ const barObserver = new ResizeObserver(() => {
   document.documentElement.style.setProperty('--bar', `${$('bar').getBoundingClientRect().bottom}px`);
 });
 barObserver.observe($('bar'));
+/** The event feed (bottom right) shrinks so it never runs under the follow panel (top right). */
+const hudObserver = new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--hud', `${hud.getBoundingClientRect().bottom}px`);
+});
+hudObserver.observe(hud);
 
 function resize() {
   const dpr = devicePixelRatio || 1;
-  for (const c of [canvas, traceCanvas, tlCanvas]) {
+  for (const c of [canvas, traceCanvas, tlCanvas, miniCanvas]) {
     c.width = c.clientWidth * dpr;
     c.height = c.clientHeight * dpr;
   }
@@ -134,6 +145,7 @@ async function runScenario(s: Scenario): Promise<boolean> {
   }
   feedKey = '';
   towerKey = '';
+  statsKey = '';
   followIdx = 0;
   editor.set(s);
   const n = S.race.cars.length;
@@ -231,26 +243,28 @@ function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos
   return { p, heading, v: a[o + 2] + (b[o + 2] - a[o + 2]) * u, sPos, d, status };
 }
 
-/** Race distance at the viewer clock (a finished car: its finishing distance). */
-function distAt(at: RaceAt, i: number): number {
-  const c = at.r.cars[i];
-  return at.finished(i) ? c.finishLaps * at.r.track.length : at.dist(i);
-}
-
-function gapText(at: RaceAt, i: number, leader: number): string {
-  if (i === leader) return at.finished(i) ? 'Winner' : 'Leader';
-  // Lapped only if the leader is a whole lap ahead in distance, not just across the line.
-  const L = at.r.track.length;
-  const down = distAt(at, leader) - distAt(at, i);
-  if (down >= L) return `+${Math.floor(down / L)} lap`;
-  const g = at.gap(i, leader);
-  return isFinite(g) ? `+${g.toFixed(3)}` : '';
-}
-
 let towerKey = '';
+/** What the tower's time column shows; rotates every TOWER_ROTATE s unless the user picked one recently. */
+let towerMode: TowerMode = 'gap';
+let towerHeldUntil = 0;
+let towerSwitched = performance.now();
+function updateTowerMode(now: number, anyLaps: boolean) {
+  if (now < towerHeldUntil || now - towerSwitched < TOWER_ROTATE * 1000) return;
+  towerMode = nextMode(towerMode);
+  // Before anyone has completed a lap, lap times would be an empty column: rotate gap and interval only.
+  while (!anyLaps && (towerMode === 'last' || towerMode === 'best')) towerMode = nextMode(towerMode);
+  towerSwitched = now;
+}
+function clickTowerMode() {
+  towerMode = nextMode(towerMode);
+  towerSwitched = performance.now();
+  towerHeldUntil = towerSwitched + TOWER_HOLD * 1000;
+}
+
 function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) {
   const r = s.race;
   const lap = at.leaderLap;
+  const fastest = towerMode === 'last' || towerMode === 'best' ? fastestLap(at) : Infinity;
   const rows = order.map((i, p) => {
     const c = r.cars[i];
     const out = status[i] >= STATUS.crash;
@@ -258,13 +272,21 @@ function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) 
     const tag = out ? '' : incidentTag(status[i]) || craftTag(at.mode(i), fin);
     return `<div class="tr${i === followIdx ? ' sel' : camMode === 'battle' && battle.includes(i) ? ' bt' : ''}${fin ? ' fin' : ''}${out ? ' out' : ''}" data-i="${i}">
       <span class="p">${out ? '' : p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
-      <span>${c.entrant.driver.name}${tag}</span><span class="gap">${out ? 'DNF' : gapText(at, i, order[0])}</span></div>`;
+      <span>${c.entrant.driver.name}${tag}</span>${cell(i, p, out)}</div>`;
   }).join('');
+  function cell(i: number, p: number, out: boolean): string {
+    if (out && (towerMode === 'gap' || towerMode === 'interval')) return '<span class="gap">DNF</span>';
+    const c = towerCell(at, order, p, towerMode, fastest);
+    return `<span class="gap${c.purple ? ' purple' : ''}">${c.text}</span>`;
+  }
+  const held = performance.now() < towerHeldUntil;
+  const dots = TOWER_MODES.map((m) => (m === towerMode ? '●' : '○')).join('');
+  const modeBtn = `<span class="mode" title="${held ? 'Held (auto-rotates again after 30 s)' : 'Auto-rotating'}: click for ${TOWER_LABEL[nextMode(towerMode)].toLowerCase()}">${TOWER_LABEL[towerMode]}<span class="dots">${dots}</span></span>`;
   const grip = at.gripLevel;
   const wx = grip === 1 ? '' : `<span class="grip" title="Track grip">${grip < 1 ? 'Wet' : 'Grip'} ${(grip * 100).toFixed(0)}%</span>`;
   const sc = scState(r, s.clock);
   const banner = sc ? `<div class="scb">${sc === 'out' ? 'SAFETY CAR' : 'SAFETY CAR IN THIS LAP'}</div>` : '';
-  const html = `<div class="hd"><span>${at.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}<span>${fmtTime(s.clock)}</span></div>${banner}${rows}`;
+  const html = `<div class="hd"><span>${at.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}${modeBtn}</div>${banner}${rows}`;
   if (html !== towerKey) {
     tower.innerHTML = html;
     towerKey = html;
@@ -323,7 +345,7 @@ function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
   const last = at.lastCross(i);
   const cur = at.finished(i) ? NaN : isFinite(last) ? s.clock - last : NaN;
   const damage = at.damage(i);
-  hud.innerHTML = `
+  hudLive.innerHTML = `
     <div class="row"><span style="color:${c.entrant.color};font-weight:600">${c.entrant.driver.name}</span><span>P${pos}</span></div>
     <div class="big">${(v * 3.6).toFixed(0)} km/h</div>
     <div class="row"><span class="lbl">This lap</span><span>${fmtTime(cur)}</span></div>
@@ -333,6 +355,22 @@ function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
     <div class="row"><span class="lbl">Pace</span><span>${(c.entrant.driver.pace * 100).toFixed(1)}%</span></div>
     ${damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(damage * 100).toFixed(1)}% grip</span></div>` : ''}
     ${at.out(i) ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
+  renderStats(s, i);
+}
+
+/** Driver ratings and car spec of the followed car, each ranked in the field (only re-rendered when it changes). */
+let statsKey = '';
+let statsOpen = localStorage.getItem('racing-sim.stats') !== '0';
+function renderStats(s: Session, i: number) {
+  const key = `${i}/${statsOpen}`;
+  if (key === statsKey) return;
+  statsKey = key;
+  const st = statRows(s.race.cars.map((c) => c.entrant), i);
+  const rows = (rs: typeof st.driver) => rs.map((r) =>
+    `<div class="sr"><span class="lbl">${r.label}</span><span>${r.value}</span><span class="rk${r.rank.startsWith('1st') ? ' top' : ''}">${r.rank}</span></div>`).join('');
+  hudStats.innerHTML = `<div class="st"><div class="tg" title="Show or hide the driver and car stats"><span>Driver &amp; car</span><span>${statsOpen ? '▾' : '▸'}</span></div>
+    <div class="prof">${st.profile}</div>
+    ${statsOpen ? `<div class="sub">Driver</div>${rows(st.driver)}<div class="sub">Car</div>${rows(st.car)}` : ''}</div>`;
 }
 
 let last = performance.now();
@@ -342,6 +380,7 @@ function frame(now: number) {
   ctx.fillStyle = '#14161a';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (drawing) {
+    document.body.classList.remove('mm');
     ctx.fillStyle = '#7cf';
     for (const p of clicks) {
       ctx.beginPath();
@@ -418,7 +457,18 @@ function frame(now: number) {
       ctx.fillStyle = '#ffb000';
       ctx.fillText('SC', q.x + 8 * dpr, q.y - 8 * dpr);
     }
+    updateTowerMode(now, fastestLap(at) < Infinity);
     renderTower(s, at, order, poses.map((q) => q.status));
+    const mini = camMode !== 'all' && followIdx >= 0;
+    document.body.classList.toggle('mm', mini);
+    if (mini) {
+      // Sized here: it has no size while hidden (Overview), when resize() may have run.
+      const mw = Math.round(miniCanvas.clientWidth * dpr), mh = Math.round(miniCanvas.clientHeight * dpr);
+      if (miniCanvas.width !== mw || miniCanvas.height !== mh) { miniCanvas.width = mw; miniCanvas.height = mh; }
+      drawMinimap(mctx, miniCanvas.width, miniCanvas.height, s.track,
+        poses.map((q, i) => ({ p: q.p, color: r.cars[i].entrant.color, out: q.status >= STATUS.crash })),
+        followIdx, scPose?.p ?? null, s.cam, W, H, dpr);
+    }
     renderFeed(s);
     if (followIdx >= 0) {
       const fp = poses[followIdx];
@@ -500,22 +550,32 @@ function setDrawing(on: boolean) {
   if (on) info.textContent = 'Click points around the loop, then "Close loop"';
 }
 
+/** Show the pause and speed state in the timeline bar. */
+function syncPlayback() {
+  const pb = $('pause');
+  pb.textContent = paused ? '▶' : '⏸';
+  pb.classList.toggle('on', paused);
+  $<HTMLSelectElement>('speed').value = String(speed);
+}
+
+function setRaceMenu(open: boolean) {
+  $('raceItems').hidden = !open;
+  $('raceBtn').classList.toggle('on', open);
+  $('raceBtn').setAttribute('aria-expanded', String(open));
+}
+
 function buildControls() {
-  const box = $('speeds');
-  box.innerHTML = '<button data-v="0">⏸</button>' + SPEEDS.map((v) => `<button data-v="${v}">${v}x</button>`).join('');
-  const sync = () => box.querySelectorAll('button').forEach((b) => {
-    const v = Number(b.dataset.v);
-    b.classList.toggle('on', v === 0 ? paused : !paused && v === speed);
-  });
-  box.onclick = (e) => {
-    const b = (e.target as HTMLElement).closest('button');
-    if (!b) return;
-    const v = Number(b.dataset.v);
-    if (v === 0) paused = !paused;
-    else { speed = v; paused = false; }
-    sync();
-  };
+  const sel = $<HTMLSelectElement>('speed');
+  if (!SPEEDS.includes(speed)) speed = 1;
+  sel.innerHTML = SPEEDS.map((v) => `<option value="${v}">${v}x</option>`).join('');
+  sel.onchange = () => { speed = Number(sel.value); paused = false; syncPlayback(); sel.blur(); };
+  $('pause').onclick = () => { paused = !paused; syncPlayback(); };
+  const sync = syncPlayback;
   sync();
+  // The Race menu: opens on click, closes on a pick, a click elsewhere or Escape.
+  $('raceBtn').onclick = () => setRaceMenu($('raceItems').hidden);
+  $('raceItems').addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button')) setRaceMenu(false); });
+  addEventListener('pointerdown', (e) => { if (!(e.target as HTMLElement).closest('#raceMenu')) setRaceMenu(false); });
   $('camAll').onclick = () => setCam('all');
   $('camFollow').onclick = () => setCam('follow');
   $('camBattle').onclick = () => setCam('battle');
@@ -543,7 +603,7 @@ function buildControls() {
   // o/f/b camera, n names, space pause.
   addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
-    if (el.closest('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (el.closest?.('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
     if (k === 'ArrowUp') stepFollow(-1);
     else if (k === 'ArrowDown') stepFollow(1);
@@ -557,7 +617,8 @@ function buildControls() {
     else if (k === 'o') setCam('all');
     else if (k === 'f') setCam('follow');
     else if (k === 'b') setCam('battle');
-    else if (k === ' ') { paused = !paused; sync(); }
+    else if (k === ' ') { paused = !paused; sync(); if (el instanceof HTMLButtonElement) el.blur(); }
+    else if (k === 'Escape') setRaceMenu(false);
     else return;
     e.preventDefault();
   });
@@ -587,10 +648,19 @@ function buildControls() {
     rerun((s) => { s.track = { type: 'drawn', points: world, width: s.track.width ?? WIDTH }; s.events = s.events?.filter((e) => e.lap <= s.race.laps); });
   };
   canvas.addEventListener('click', (e) => { if (drawing) clicks.push({ x: e.clientX, y: e.clientY }); });
-  tower.addEventListener('click', (e) => {
-    const row = (e.target as HTMLElement).closest('.tr') as HTMLElement | null;
+  // Pointerdown, not click: the tower re-renders while the race runs, which can swallow a click.
+  tower.addEventListener('pointerdown', (e) => {
+    const el = e.target as HTMLElement;
+    if (el.closest('.mode')) { clickTowerMode(); return; }
+    const row = el.closest('.tr') as HTMLElement | null;
     if (!row) return;
     pick(Number(row.dataset.i));
+  });
+  hudStats.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('.tg')) return;
+    statsOpen = !statsOpen;
+    localStorage.setItem('racing-sim.stats', statsOpen ? '1' : '0');
+    if (S && followIdx >= 0) renderStats(S, followIdx);
   });
   feed.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest('.ev') as HTMLElement | null;

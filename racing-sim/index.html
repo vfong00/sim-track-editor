@@ -6,19 +6,49 @@
     <title>Racing Sim</title>
     <style>
       html, body { margin: 0; height: 100%; background: #14161a; color: #ddd; font: 13px system-ui, sans-serif; overflow: hidden; }
-      #bar { position: fixed; top: 8px; left: 8px; right: 8px; display: flex; gap: 6px; align-items: center; z-index: 2; flex-wrap: wrap; }
+      #bar { position: fixed; top: 8px; left: 8px; right: 8px; display: flex; gap: 6px; align-items: center; z-index: 2; flex-wrap: nowrap; pointer-events: none; }
       button { background: #2a2f38; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 9px; cursor: pointer; font: inherit; }
       button.on { background: #3b6ea8; border-color: #4f86c6; }
       .grp { display: flex; gap: 2px; }
       .grp button { border-radius: 0; }
       .grp button:first-child { border-radius: 4px 0 0 4px; }
       .grp button:last-child { border-radius: 0 4px 4px 0; }
-      #info { opacity: .75; }
+      #info { pointer-events: none !important; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+      #bar > * { pointer-events: auto; }
+      .menu { position: relative; }
+      .menu .items { position: absolute; top: calc(100% + 4px); left: 0; min-width: 190px; display: flex; flex-direction: column; gap: 1px; padding: 4px; background: rgba(20,22,26,.97); border: 1px solid #2a2f38; border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.4); z-index: 4; }
+      .menu .items[hidden] { display: none; }
+      .menu .items button { text-align: left; background: transparent; border-color: transparent; }
+      .menu .items button:hover { background: #2a2f38; }
+      .menu .items button.on { background: #2c3a4e; border-color: transparent; }
+      .menu .items .sep { border-top: 1px solid #2a2f38; margin: 3px 2px; }
+      #cam { left: 8px; bottom: 168px; display: flex; gap: 6px; align-items: center; padding: 4px; z-index: 2; }
+      #mini { left: 8px; bottom: 206px; width: 200px; height: 150px; padding: 0; display: none; }
+      body.mm #mini { display: block; }
+      #tlbar { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 0 0 4px; border-top: 1px solid #2a2f38; background: #181b20; }
+      #tlbar button { padding: 1px 8px; }
+      #tlbar #pause { width: 30px; padding: 1px 0; }
+      #tlbar #pause.on { background: #7a5a1e; border-color: #a77b2a; }
+      #tlbar select { background: #2a2f38; color: #ddd; border: 1px solid #444; border-radius: 4px; font: inherit; padding: 2px 2px; }
+      #tower .hd .mode { cursor: pointer; padding: 0 5px; border-radius: 3px; background: #2a2f38; font-weight: 600; user-select: none; }
+      #tower .hd .mode:hover { background: #3b6ea8; }
+      #tower .hd .mode .dots { opacity: .5; font-size: 9px; margin-left: 3px; letter-spacing: 1px; }
+      .tr .gap.purple { color: #c58cff; opacity: 1; font-weight: 600; }
+      #hud { width: 250px; }
+      #hud .st { margin-top: 6px; border-top: 1px solid #2a2f38; padding-top: 4px; font-size: 12px; }
+      #hud .st .tg { cursor: pointer; user-select: none; display: flex; justify-content: space-between; opacity: .8; }
+      #hud .st .tg:hover { opacity: 1; }
+      #hud .st .prof { font-style: italic; margin: 3px 0 4px; color: #cfd5dd; }
+      #hud .st .sub { opacity: .55; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; margin: 5px 0 1px; }
+      #hud .st .sr { display: grid; grid-template-columns: 78px 1fr auto; gap: 6px; }
+      #hud .st .sr .rk { opacity: .6; text-align: right; }
+      #hud .st .sr .rk.top { color: #9fd18b; opacity: 1; }
       #c { display: block; width: 100vw; height: calc(100vh - 158px); }
-      #tl { display: block; width: 100vw; height: 28px; border-top: 1px solid #2a2f38; cursor: pointer; touch-action: none; }
+      #tl { display: block; flex: 1; min-width: 0; height: 28px; cursor: pointer; touch-action: none; }
       #trace { display: block; width: 100vw; height: 130px; border-top: 1px solid #2a2f38; }
       .panel { position: fixed; background: rgba(20,22,26,.9); border: 1px solid #2a2f38; border-radius: 6px; padding: 6px 8px; z-index: 1; font-variant-numeric: tabular-nums; }
-      #tower { top: calc(var(--bar, 36px) + 12px); left: 8px; width: 238px; max-height: calc(100vh - var(--bar, 36px) - 200px); overflow: auto; }
+      #tower { top: calc(var(--bar, 36px) + 12px); left: 8px; width: 238px; max-height: calc(100vh - var(--bar, 36px) - 222px); overflow: auto; }
+      body.mm #tower { max-height: calc(100vh - var(--bar, 36px) - 380px); }
       #tower .hd { display: flex; justify-content: space-between; font-weight: 600; padding: 2px 2px 6px; border-bottom: 1px solid #2a2f38; margin-bottom: 3px; }
       .tr { display: grid; grid-template-columns: 22px 6px 1fr 64px; gap: 6px; align-items: center; padding: 2px; border-radius: 3px; cursor: pointer; }
       .tr:hover { background: #22262d; }
@@ -32,7 +62,7 @@
       #hud .big { font-size: 22px; font-weight: 600; }
       #hud .row { display: flex; justify-content: space-between; gap: 16px; }
       #hud .lbl { opacity: .6; }
-      #feed { right: 8px; bottom: 168px; width: 340px; max-height: 210px; overflow: auto; }
+      #feed { right: 8px; bottom: 168px; width: 340px; max-height: min(210px, calc(100vh - 168px - var(--hud, 300px) - 12px)); overflow: auto; }
       #feed .hd { font-weight: 600; padding: 2px 2px 5px; border-bottom: 1px solid #2a2f38; margin-bottom: 3px; }
       .ev { display: grid; grid-template-columns: 64px 1fr; gap: 6px; padding: 2px; border-radius: 3px; cursor: pointer; }
       .ev:hover { background: #22262d; }
@@ -86,25 +116,37 @@
   </head>
   <body>
     <div id="bar">
-      <button id="gen">New random track</button>
-      <button id="draw">Draw track</button>
+      <div class="menu" id="raceMenu">
+        <button id="raceBtn" aria-haspopup="menu" aria-expanded="false">Race ▾</button>
+        <div class="items" id="raceItems" role="menu" hidden>
+          <button id="gen" role="menuitem">New random track</button>
+          <button id="draw" role="menuitem" title="Click points around the loop on the canvas">Draw track</button>
+          <button id="edit" role="menuitem" title="Edit, open, save or share the scenario">Scenario…</button>
+          <div class="sep"></div>
+          <button id="reseed" role="menuitem" title="Same scenario, next seed">New seed</button>
+          <button id="restart" role="menuitem" title="Back to the start of this race (same seed: identical) (Home)">Replay</button>
+        </div>
+      </div>
       <button id="close" hidden>Close loop</button>
-      <button id="restart" title="Back to the start of this race (same seed: identical)">Replay</button>
-      <button id="reseed" title="Same scenario, next seed">New seed</button>
-      <button id="edit">Scenario</button>
-      <span class="grp" id="speeds"></span>
-      <button id="skip">+30 s</button>
-      <button id="names" title="Driver names over the cars (n)">Names</button>
-      <span class="grp"><button id="camAll" title="Whole track (o); wheel to zoom, drag to pan">Overview</button><button id="camFollow" title="Follow the selected car (f)">Follow</button><button id="camBattle" title="Frame the selected car and the cars racing it (b)">Battle</button></span>
-      <span class="grp"><button id="zoomOut" title="Zoom out (−)">−</button><button id="zoomIn" title="Zoom in (+)">+</button></span>
       <span id="info"></span>
     </div>
     <div id="tower" class="panel"></div>
-    <div id="hud" class="panel"></div>
+    <div id="hud" class="panel"><div id="hud-live"></div><div id="hud-stats"></div></div>
     <div id="feed" class="panel"></div>
+    <canvas id="mini" class="panel" title="Whole track: every car, the followed one ringed"></canvas>
+    <div id="cam" class="panel">
+      <span class="grp"><button id="camAll" title="Whole track (o); wheel to zoom, drag to pan">Overview</button><button id="camFollow" title="Follow the selected car (f)">Follow</button><button id="camBattle" title="Frame the selected car and the cars racing it (b)">Battle</button></span>
+      <span class="grp"><button id="zoomOut" title="Zoom out (−)">−</button><button id="zoomIn" title="Zoom in (+)">+</button></span>
+      <button id="names" title="Driver names over the cars (n)">Names</button>
+    </div>
     <div id="editor" class="panel" hidden></div>
     <canvas id="c"></canvas>
-    <canvas id="tl" title="Timeline: click or drag to rewind or skip ahead (← → keys)"></canvas>
+    <div id="tlbar">
+      <button id="pause" title="Pause / play (space)">⏸</button>
+      <select id="speed" title="Playback speed"></select>
+      <button id="skip" title="Skip ahead 30 s (shift →)">+30 s</button>
+      <canvas id="tl" title="Timeline: click or drag to rewind or skip ahead (← → keys)"></canvas>
+    </div>
     <canvas id="trace"></canvas>
     <script type="module" src="/src/view/main.ts"></script>
   </body>
