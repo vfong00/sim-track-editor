@@ -121,3 +121,28 @@ describe('pedals from the log', () => {
     expect(pedals(m, v, -m.maxBrake(v, alat)).brake).toBeLessThan(0.9);
   });
 });
+
+describe('kerbs', () => {
+  it('go where the racing line uses the edge in corners: inside at the apex, outside either side', async () => {
+    const { kerbsFor } = await import('../src/view/draw');
+    const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.json', import.meta.url).pathname, 'utf8')) as Scenario;
+    const race = new Race(loadScenario(scn).options);
+    const t = race.track, line = race.lanes.line;
+    const k = kerbsFor(t, line);
+    const share = (m: Uint8Array) => m.reduce((a, b) => a + b, 0) / t.n;
+    // Some of the lap, on both sides, but far from all of it.
+    expect(share(k.left)).toBeGreaterThan(0.02);
+    expect(share(k.right)).toBeGreaterThan(0.02);
+    expect(share(k.left) + share(k.right)).toBeLessThan(0.6);
+    // Wherever the line is right at the edge in a tight corner, that side has a kerb.
+    let checked = 0;
+    for (let i = 0; i < t.n; i++) {
+      if (Math.abs(t.curvature[i]) > 1 / 120 && Math.abs(line.d[i]) > t.width / 2 - 2) {
+        expect((line.d[i] > 0 ? k.left : k.right)[i]).toBe(1);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+    expect(kerbsFor(t, line)).toBe(k); // cached
+  });
+});

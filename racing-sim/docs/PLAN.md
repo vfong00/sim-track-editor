@@ -339,7 +339,11 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
 **Racing and sim (small)**
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
 - Kerbs: let the racing line use a little kerb at the apex and exit (a per-track kerb width
-  past the road edge, with a small grip cost), as real lines do. S–M
+  past the road edge, with a small grip cost), as real lines do. S–M. Drawn already: red and
+  white kerbs where the racing line comes within 2.5 m of the edge in a corner tighter than
+  250 m radius (`kerbsFor` in `view/draw.ts`): outside at turn-in, inside at the apex, outside
+  at the exit. The physics could use the same mask. The old curvature-coloured edges are a
+  debug view (k, or Race ▾ → Curvature colours).
 
 **Real-map tracks (its own session)** M
 - Build tracks from OpenStreetMap geometry instead of traced images: road ways converted to

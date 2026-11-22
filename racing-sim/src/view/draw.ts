@@ -27,10 +27,11 @@ export function curvatureColor(k: number): string {
 }
 
 /**
- * The track: run-off, road, curvature kerbs, the racing line (dashed), the start line and, if
- * given, the sector lines (`sectors`: lap distances where sectors 1 and 2 end).
+ * The track: run-off, road, edge lines and kerbs (or, with `curvature`, the edges coloured by
+ * curvature: a debug view), the racing line (dashed), the start line and, if given, the sector
+ * lines (`sectors`: lap distances where sectors 1 and 2 end).
  */
-export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line?: TrackPath, sectors: number[] = []): void {
+export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line?: TrackPath, sectors: number[] = [], curvature = false): void {
   const X = (x: number) => v.ox + x * v.scale;
   const Y = (y: number) => v.oy - y * v.scale;
   ctx.lineCap = 'round';
@@ -50,16 +51,52 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
   ctx.strokeStyle = '#2b2f37';
   ctx.lineWidth = t.width * v.scale;
   loop();
-  // Curvature colouring as kerb-like edge strips.
-  ctx.lineWidth = Math.max(1, 0.8 * v.scale);
-  for (const side of [1, -1] as const) {
-    for (let i = 0; i < t.n; i++) {
-      const a = t.edge(i, side), b = t.edge((i + 1) % t.n, side);
-      ctx.strokeStyle = curvatureColor(t.curvature[i]);
+  if (curvature) {
+    // Debug view: curvature colouring as edge strips (green straight → red tight).
+    ctx.lineWidth = Math.max(1, 0.8 * v.scale);
+    for (const side of [1, -1] as const) {
+      for (let i = 0; i < t.n; i++) {
+        const a = t.edge(i, side), b = t.edge((i + 1) % t.n, side);
+        ctx.strokeStyle = curvatureColor(t.curvature[i]);
+        ctx.beginPath();
+        ctx.moveTo(X(a.x), Y(a.y));
+        ctx.lineTo(X(b.x), Y(b.y));
+        ctx.stroke();
+      }
+    }
+  } else {
+    // White edge lines, then red and white kerbs where the racing line uses the edge.
+    ctx.strokeStyle = 'rgba(235, 235, 235, 0.8)';
+    ctx.lineWidth = Math.max(1, 0.15 * v.scale);
+    for (const side of [1, -1] as const) {
       ctx.beginPath();
-      ctx.moveTo(X(a.x), Y(a.y));
-      ctx.lineTo(X(b.x), Y(b.y));
+      for (let i = 0; i <= t.n; i++) {
+        const a = t.edge(i % t.n, side);
+        ctx[i ? 'lineTo' : 'moveTo'](X(a.x), Y(a.y));
+      }
       ctx.stroke();
+    }
+    if (line) {
+      const kerb = kerbsFor(t, line);
+      const off = t.width / 2 - KERB_WIDTH / 2;
+      const at = (i: number, side: number) => ({ x: t.xs[i] + t.nx[i] * side * off, y: t.ys[i] + t.ny[i] * side * off });
+      ctx.lineWidth = Math.max(1, KERB_WIDTH * v.scale);
+      ctx.lineCap = 'butt';
+      for (const side of [1, -1] as const) {
+        const mask = side > 0 ? kerb.left : kerb.right;
+        for (const red of [true, false]) {
+          ctx.strokeStyle = red ? '#d62828' : '#f2f2f2';
+          ctx.beginPath();
+          for (let i = 0; i < t.n; i++) {
+            if (!mask[i] || (Math.floor((i * t.ds) / KERB_STRIPE) % 2 === 0) !== red) continue;
+            const a = at(i, side), b = at((i + 1) % t.n, side);
+            ctx.moveTo(X(a.x), Y(a.y));
+            ctx.lineTo(X(b.x), Y(b.y));
+          }
+          ctx.stroke();
+        }
+      }
+      ctx.lineCap = 'round';
     }
   }
   if (line) {
@@ -99,6 +136,48 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
   ctx.moveTo(X(a.x), Y(a.y));
   ctx.lineTo(X(b.x), Y(b.y));
   ctx.stroke();
+}
+
+/** Kerb width (m), stripe length (m), and where kerbs go: see `kerbsFor`. */
+export const KERB_WIDTH = 1.0;
+export const KERB_STRIPE = 2.5;
+/** The racing line within this of the road edge (m) uses the kerb there... */
+const KERB_NEAR = 2.5;
+/** ...in a corner: somewhere within KERB_LOOK m the centreline is tighter than this radius (m). */
+const KERB_RADIUS = 250;
+const KERB_LOOK = 15;
+/** Kerbs run on this far (m) either side of where the line touches. */
+const KERB_EXTEND = 6;
+
+const kerbCache = new WeakMap<TrackPath, { left: Uint8Array; right: Uint8Array }>();
+
+/**
+ * Where the kerbs go, per node and side (left = side +1): where the racing line comes close to
+ * the edge in a corner, which is the outside at turn-in, the inside at the apex and the outside
+ * at the exit, as on a real circuit.
+ */
+export function kerbsFor(t: Track, line: TrackPath): { left: Uint8Array; right: Uint8Array } {
+  const hit = kerbCache.get(line);
+  if (hit) return hit;
+  const n = t.n, edge = t.width / 2;
+  const look = Math.round(KERB_LOOK / t.ds), ext = Math.round(KERB_EXTEND / t.ds);
+  // Tightest centreline curvature near each node.
+  const near = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let m = 0;
+    for (let j = -look; j <= look; j++) m = Math.max(m, Math.abs(t.curvature[(i + j + n) % n]));
+    near[i] = m;
+  }
+  const left = new Uint8Array(n), right = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const d = line.d[i];
+    if (Math.abs(d) < edge - KERB_NEAR || near[i] < 1 / KERB_RADIUS) continue;
+    const mask = d > 0 ? left : right;
+    for (let j = -ext; j <= ext; j++) mask[(i + j + n) % n] = 1;
+  }
+  const out = { left, right };
+  kerbCache.set(line, out);
+  return out;
 }
 
 /** Below this length on screen (px) a car is a plain coloured block: details would be mush. */

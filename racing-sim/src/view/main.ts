@@ -606,7 +606,7 @@ function frame(now: number) {
     }
 
     camFrom = { session: s, follow: followIdx, mode: camMode };
-    drawTrack(ctx, s.track, s.cam, s.lanes.line, r.sectorEnds.slice(0, 2));
+    drawTrack(ctx, s.track, s.cam, s.lanes.line, r.sectorEnds.slice(0, 2), showCurvature);
     drawSkidMarks(ctx, s.cam, skidMarksAt(r, s.clock), s.clock);
     for (let p = n - 1; p >= 0; p--) {
       const i = order[p];
@@ -796,6 +796,7 @@ function buildControls() {
     else if (k === 'Home') seek(0);
     else if (k === 'n') toggleNames();
     else if (k === 'i') toggleInputs();
+    else if (k === 'k') toggleCurvature();
     else if (k === 'r') setResult(summaryBox.hidden);
     else if (k === 'q') setQuali(qualiBox.hidden);
     else if (k === '+' || k === '=') zoomBy(1.25);
@@ -812,6 +813,8 @@ function buildControls() {
   $('names').onclick = () => toggleNames();
   $('names').classList.toggle('on', showNames);
   $('inputs').onclick = () => toggleInputs();
+  $('curv').onclick = () => { toggleCurvature(); setRaceMenu(false); };
+  $('curv').classList.toggle('on', showCurvature);
   $('inputs').classList.toggle('on', showInputs);
   // Replay: back to the start of the same race (same scenario and seed: identical by design).
   $('restart').onclick = () => seek(0);
@@ -882,6 +885,12 @@ function buildControls() {
 /** Dragging on the timeline (the clock is held while seeking). */
 let seeking = false;
 let showNames = params.get('names') !== '0';
+/** Debug view: track edges coloured by curvature instead of edge lines and kerbs (k). */
+let showCurvature = params.get('curvature') === '1';
+function toggleCurvature() {
+  showCurvature = !showCurvature;
+  $('curv').classList.toggle('on', showCurvature);
+}
 /** Throttle and brake on the speed trace (remembered between visits). */
 let showInputs = localStorage.getItem('racing-sim.inputs') === '1';
 function toggleInputs() {
