@@ -273,9 +273,17 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   slides (over the limit and caught), ~4 run-wides, ~1 lock-up and ~1.5 spins, half of them
   after contact. Lock-ups are rarer than run-wides, which feels backwards.
 
+**Marshalling and flags** M
+- Today the only race control is the safety car, and wrecks stay on track for the rest of the
+  race.
+- Marshals recover wrecks (a stopped car is cleared after a while, sooner off the road).
+- Local yellow flags at an incident: no passing and a little slower through that stretch,
+  double yellow for a car on the road. Blue flags: a lapped car lets the leaders by.
+- Escalation: yellow → virtual safety car (a speed limit, no queue) → safety car → red flag
+  (stop, restart from the grid order).
+
 **Later (a "racing revamp" with playability)**
-- Tyre wear and temperature, weather that builds, pit stops, safety car extras (clearing
-  wrecks, virtual safety car, red flag), team radio, picking your driver.
+- Tyre wear and temperature, weather that builds, pit stops, team radio, picking your driver.
 
 **Watching**
 - Car art or liveries. S–M
