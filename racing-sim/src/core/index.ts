@@ -15,6 +15,7 @@ export * from './race/qualifying';
 export * from './race/sectors';
 export * from './race/collide';
 export * from './race/batch';
+export * from './race/baseline';
 export * from './agents/driver';
 export * from './agents/controller';
 export * from './track/corners';

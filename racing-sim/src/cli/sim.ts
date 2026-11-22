@@ -1,5 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { type BatchSummary, buildTrack, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, makeField, makeRng, parseScenario, Race, runBatch, ScenarioBuildError, scenarioRaceOptions, seedRange, simulateLap, type Spread, STANDARD_CAR } from '../core';
+import { execSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { type Baseline, type BaselineComparison, type BatchSummary, buildTrack, compareBaseline, hashText, makeBaseline, type RunResult, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, makeField, makeRng, parseScenario, Race, runBatch, ScenarioBuildError, scenarioRaceOptions, seedRange, simulateLap, type Spread, STANDARD_CAR } from '../core';
 import { decodeGrayPngBytes } from './png-node';
 
 const HELP = `Racing sim CLI
@@ -10,7 +12,7 @@ Usage:
   npm run sim -- lap [--seed N]
   npm run sim -- race [--seed N] [--race N] [--cars N] [--laps N]
   npm run sim -- scenario <file.json> [--seed N]
-  npm run sim -- batch <file.json> [--runs N] [--from S] [--json]
+  npm run sim -- batch <file.json> [--runs N] [--from S] [--json] [--save] [--baseline FILE]
 
 Commands:
   track   Generate a random track and print its stats (length, min corner radius, clearance).
@@ -20,7 +22,16 @@ Commands:
   batch   Run a scenario N times (default 20) with race seeds S, S+1, … (default 1) and print
           win %, positions, passes, incidents and how processional the race is (± = standard
           error of the mean).
+          --save writes the batch as the scenario's baseline (baselines/<name>.json, or
+          --baseline FILE). Later batches print the change against it, race by race for
+          the seeds both ran; * marks a change bigger than twice its standard error.
 `;
+
+/** Where a scenario's baseline lives unless --baseline says otherwise. */
+const baselinePath = (args: string[], file: string) => {
+  const i = args.indexOf('--baseline');
+  return i >= 0 && args[i + 1] ? args[i + 1] : join('baselines', basename(file).replace(/\.json$/, '') + '.json');
+};
 
 function flag(args: string[], name: string, fallback: number): number {
   const i = args.indexOf(`--${name}`);
@@ -41,9 +52,10 @@ if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
   const lap = simulateLap(lanes, plans, model);
   console.log(JSON.stringify({ length: +t.length.toFixed(1), solverLap: +plans.lapTime.toFixed(3), steppedLap: +lap.lapTime.toFixed(3), maxGripUsage: +lap.maxUsage.toFixed(4) }));
 } else if (args[0] === 'batch') {
-  if (!args[1] || args[1].startsWith('--')) { console.error('Usage: npm run sim -- batch <file.json> [--runs N] [--from S] [--json]'); process.exit(1); }
+  if (!args[1] || args[1].startsWith('--')) { console.error('Usage: npm run sim -- batch <file.json> [--runs N] [--from S] [--json] [--save] [--baseline FILE]'); process.exit(1); }
   let data: { track?: { type?: string; image?: string } };
-  try { data = JSON.parse(readFileSync(args[1], 'utf8')); } catch (e) { console.error(`${args[1]}: ${(e as Error).message}`); process.exit(1); }
+  let text: string;
+  try { text = readFileSync(args[1], 'utf8'); data = JSON.parse(text); } catch (e) { console.error(`${args[1]}: ${(e as Error).message}`); process.exit(1); }
   const res = parseScenario(data);
   if (!res.ok) { console.error(`${args[1]} is not a valid scenario:\n${new ScenarioBuildError(res.errors).message.replace(/^/gm, '  ')}`); process.exit(1); }
   const png = data.track?.type === 'png' && data.track.image?.startsWith('data:image/png;base64,')
@@ -53,11 +65,28 @@ if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
   const lanes = new LaneSet(track);
   const runs = flag(args, 'runs', 20);
   const json = args.includes('--json');
-  const sum = runBatch((seed) => scenarioRaceOptions({ ...s, seed }, track, lanes), seedRange(runs, flag(args, 'from', 1)), (k) => {
+  const results: RunResult[] = [];
+  const sum = runBatch((seed) => scenarioRaceOptions({ ...s, seed }, track, lanes), seedRange(runs, flag(args, 'from', 1)), (k, r) => {
+    results.push(r);
     if (!json && process.stderr.isTTY) process.stderr.write(`\r${k}/${runs} races`);
   });
   if (!json && process.stderr.isTTY) process.stderr.write('\r');
-  console.log(json ? JSON.stringify(sum, null, 1) : batchReport(s.name, sum));
+  const bpath = baselinePath(args, args[1]);
+  const hash = hashText(text);
+  if (args.includes('--save')) {
+    let commit: string | undefined;
+    try { commit = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { /* not a git checkout */ }
+    mkdirSync(dirname(bpath), { recursive: true });
+    writeFileSync(bpath, JSON.stringify(makeBaseline(s.name, hash, results, new Date().toISOString(), commit)) + '\n');
+  }
+  const base: Baseline | null = !args.includes('--save') && existsSync(bpath) ? JSON.parse(readFileSync(bpath, 'utf8')) : null;
+  const cmp = base ? compareBaseline(base, results) : null;
+  if (json) console.log(JSON.stringify(cmp ? { ...sum, baseline: { file: bpath, ...cmp } } : sum, null, 1));
+  else {
+    console.log(batchReport(s.name, sum));
+    if (args.includes('--save')) console.log(`\n  Saved as the baseline: ${bpath}`);
+    if (base && cmp) console.log(`\n${baselineReport(bpath, base, cmp, hash)}`);
+  }
 } else if (args[0] === 'race' || args[0] === 'scenario') {
   let race: Race;
   if (args[0] === 'scenario') {
@@ -94,6 +123,24 @@ if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
   process.exit(1);
 }
 
+function baselineReport(file: string, base: Baseline, c: BaselineComparison, hash: string): string {
+  const fmt = (x: number, d: number) => x.toFixed(d);
+  const sign = (x: number, d: number) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(d)}`;
+  const w = Math.max(...c.rows.map((r) => r.label.length));
+  const head = `  Against ${file} (saved ${base.saved.slice(0, 10)}${base.commit ? ` at ${base.commit}` : ''}): ${c.unpaired ? 'different seeds, compared as two samples' : `${c.paired} races paired by seed`}`;
+  const same = !c.unpaired && c.rows.every((r) => r.delta.mean === 0 && r.delta.se === 0);
+  const notes = [
+    base.scenarioHash !== hash ? '  The scenario file has changed since the baseline was saved.' : '',
+    same ? '  Identical race by race: nothing that affects these races has changed.' : '',
+  ].filter(Boolean);
+  const rows = c.rows.map((r) => {
+    const d = r.digits;
+    const rel = Math.abs(r.before.mean) > 1e-9 ? ` (${sign((100 * r.delta.mean) / r.before.mean, 0)}%)` : '';
+    return `  ${r.notable ? '*' : ' '} ${r.label.padEnd(w)}  ${fmt(r.before.mean, d).padStart(8)} → ${fmt(r.after.mean, d).padStart(8)}   ${sign(r.delta.mean, d)} ± ${fmt(r.delta.se, d)}${rel}`;
+  });
+  return [head, ...notes, ...rows].join('\n');
+}
+
 function batchReport(name: string, b: BatchSummary): string {
   const pm = (x: Spread, d = 1) => `${x.mean.toFixed(d)} ± ${x.se.toFixed(d)}`;
   const pct = (k: number) => `${((100 * k) / b.runs).toFixed(0)}%`.padStart(5);
@@ -108,7 +155,7 @@ function batchReport(name: string, b: BatchSummary): string {
     `  ${'Driver'.padEnd(w)}  Grid    Win  Podium  DNF     Avg pos     Best lap`,
     ...rows,
     '',
-    `  Per race: passes ${pm(b.passes)}, contacts ${pm(b.contacts)}, incidents ${pm(b.incidents)}, spins ${pm(b.spins)}, DNFs ${pm(b.dnfs)}`,
+    `  Per race: passes ${pm(b.passes)}, contacts ${pm(b.contacts)} (lap 1 ${pm(b.lap1Contacts)}), incidents ${pm(b.incidents)}, spins ${pm(b.spins)}, DNFs ${pm(b.dnfs)}`,
     `  Stuck time ${pm(b.stuckTime, 0)} car-s, in a train ${(100 * b.trainShare.mean).toFixed(0)}% of the time, behind a slower class ${pm(b.trafficTime, 0)} car-s`,
     `  Chaos ${pm(b.chaos, 2)} (${chaos}: 0 = finish as they started, 1 = grid order means nothing)`,
   ].join('\n');

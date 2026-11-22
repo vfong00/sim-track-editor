@@ -43,6 +43,8 @@ export interface RunResult {
   stats: RaceStats;
   /** Incidents (offs, spins and crashes) in the race. */
   incidents: number;
+  /** Contacts while the leader was on lap 1 (the start and the first corners). */
+  lap1Contacts: number;
   /** Position-change score of this race (see `BatchSummary.chaos`). */
   chaos: number;
   /** Simulated race time (s). */
@@ -56,6 +58,7 @@ export interface BatchSummary {
   /** Per race. */
   passes: Spread;
   contacts: Spread;
+  lap1Contacts: Spread;
   incidents: Spread;
   spins: Spread;
   dnfs: Spread;
@@ -92,6 +95,7 @@ export function runOne(options: RaceOptions): RunResult {
     bestLaps: race.cars.map((c) => (c.lapTimes.length ? Math.min(...c.lapTimes) : Infinity)),
     stats,
     incidents: stats.offs + stats.spins + race.events.filter((e) => e.type === 'crash').length,
+    lap1Contacts: race.events.filter((e) => e.type === 'contact' && e.lap <= 1).length,
     chaos: moved / n / randomShuffle(n),
     time: race.t,
   };
@@ -125,6 +129,7 @@ export function summarize(runs: RunResult[], ms = 0): BatchSummary {
     drivers,
     passes: of((r) => r.stats.passes),
     contacts: of((r) => r.stats.contacts),
+    lap1Contacts: of((r) => r.lap1Contacts),
     incidents: of((r) => r.incidents),
     spins: of((r) => r.stats.spins),
     dnfs: of((r) => r.stats.dnfs),
