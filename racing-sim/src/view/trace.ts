@@ -59,8 +59,8 @@ export function drawSpeedTrace(
   ctx.fillText(`km/h vs distance · grey = solver plan, colour = this lap${inputs ? ' · green = throttle, red = brake' : ''}`, padL, h - 4 * dpr);
 
   if (inputs && actual.length > 1) {
-    // Pedal band: the lower 70% of the plot, throttle rising from its middle, brake falling.
-    const bandH = 0.7 * (h - padT - padB);
+    // Pedal band: the whole plot, throttle rising from its middle, brake falling.
+    const bandH = h - padT - padB;
     const mid = h - padB - bandH / 2;
     const area = (key: 'throttle' | 'brake', sign: number, fill: string) => {
       ctx.fillStyle = fill;
