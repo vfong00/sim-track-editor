@@ -35,6 +35,17 @@ export const COMMIT_SLACK = 0.985;
 export const COMMIT_LATERAL = 5;
 /** Dirty air reaches this far behind a car (m). */
 export const DIRTY_RANGE = 30;
+/**
+ * Clean-air lap time share by which a car counts as a different, slower class (multi-class
+ * traffic). A much faster car doesn't wait in the tow for a braking zone: it pulls out and goes
+ * by from up to CLASS_FROM metres back, and the slower car holds its line instead of defending.
+ */
+export const CLASS_GAP = 0.04;
+export const CLASS_FROM = 30;
+
+/** Whether car `fast` is a class quicker than car `slow` (CLASS_GAP or more over a clean-air lap). */
+export const classQuicker = (fast: CraftCar, slow: CraftCar) =>
+  slow.plans.lapTime - fast.plans.lapTime >= CLASS_GAP * slow.plans.lapTime;
 
 export type Mode = 'line' | 'attack' | 'defend';
 
@@ -56,12 +67,14 @@ export interface Craft {
   defendedCorner: number;
   /** Attacking: pulled out to pass (else still tucked in behind, in the tow). */
   commit: boolean;
+  /** Attacking a slower class: already switched sides once in this move. */
+  swapped: boolean;
   /** Next time (s) the driver reconsiders attacking (decisions aren't made every tick). */
   nextThink: number;
   mistake: Mistake | null;
 }
 
-export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, nextThink: 0, mistake: null });
+export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, mistake: null });
 
 export interface CraftContext {
   t: number;
@@ -212,17 +225,32 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     if (corner && Math.sign(-o.dd) !== corner.dir) allOutside = false;
   }
 
+  // --- Blue flag: a class quicker car pulling out to pass me. I drop my own battle (attack or
+  // defence) and give it the side it is going for, until it is by.
+  let yieldTo: Near | null = null;
+  if (!ctx.neutral && avoid.hazard < 0 && off === 0) {
+    for (const o of near) {
+      const t = cars[o.j].craft;
+      if (o.gap > -CLASS_FROM && o.gap < ALONGSIDE && t.mode === 'attack' && t.commit && t.other === me.idx && classQuicker(cars[o.j], me) && (!yieldTo || o.gap > yieldTo.gap)) yieldTo = o;
+    }
+    if (yieldTo) cr.mode = 'line';
+  }
+
   // --- Attack: decide (a few times a second) whether to have a go at the car in front.
-  if (cr.mode === 'line' && !ctx.neutral && avoid.hazard < 0 && off === 0 && front && ctx.t >= cr.nextThink) {
+  if (cr.mode === 'line' && !yieldTo && !ctx.neutral && avoid.hazard < 0 && off === 0 && front && ctx.t >= cr.nextThink) {
     cr.nextThink = ctx.t + 0.5;
     const target = cars[front.j];
     const faster = target.plans.lapTime - plans.lapTime; // s per lap the attacker is quicker
     const closing = st.v - front.v;
-    const close = front.gap < 14 + 6 * drv.aggression;
+    // A class quicker: always go, from further back, and straight out of the tow.
+    const lapping = classQuicker(me, target);
+    const close = front.gap < (lapping ? CLASS_FROM : 14 + 6 * drv.aggression);
     // A reason to go: a pace advantage, a run on the car (closing speed) or a deep tow.
     // Aggression alone only rarely starts a move on an equal car.
-    const want = drv.aggression * 0.15 + Math.max(0, faster) * 0.8 + (closing > 1 ? 0.3 : 0) + TOW_URGE * depth.tow;
-    if (close && toCorner > 60 && me.rng.next() < want) {
+    const want = lapping ? 1 : drv.aggression * 0.15 + Math.max(0, faster) * 0.8 + (closing > 1 ? 0.3 : 0) + TOW_URGE * depth.tow;
+    // (Not into a corner: a class quicker car may go anywhere it has room, or on a twisty track
+    // there's almost nowhere it can start.)
+    if (close && (lapping || toCorner > 60) && me.rng.next() < want) {
       // Prefer the inside of the next corner, else the other side, if there's room.
       const inside = corner ? corner.dir : 1;
       for (const side of [inside, -inside]) {
@@ -235,7 +263,8 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
         cr.other = front.j;
         cr.side = side;
         cr.corner = ci;
-        cr.commit = false;
+        cr.commit = lapping;
+        cr.swapped = false;
         break;
       }
     }
@@ -270,6 +299,14 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
           cr.commit = true;
         }
       }
+      // A class quicker car goes by wherever there's road: while not yet alongside, if the
+      // slower car's line has closed our side (it often runs on the edge), take the other.
+      // Once per move: the line swings across a narrow road, and flipping back and forth with it
+      // never got the car out.
+      if (cr.commit && !cr.swapped && o.gap > ALONGSIDE && !room(cr.side) && room(-cr.side) && !busy(-cr.side) && classQuicker(me, cars[cr.other])) {
+        cr.side = -cr.side;
+        cr.swapped = true;
+      }
       if (!cr.commit) {
         // The leader's line, as an offset from the racing line where the leader is (its lateral
         // position now would be a different point of the corner here).
@@ -291,10 +328,11 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   }
 
   // --- Defend: one move to the inside of the next corner when someone is close behind.
-  if (cr.mode === 'line' && !ctx.neutral && avoid.hazard < 0 && off === 0 && behind && corner && cr.defendedCorner !== ci && toCorner < 220 && toCorner > 40) {
+  if (cr.mode === 'line' && !yieldTo && !ctx.neutral && avoid.hazard < 0 && off === 0 && behind && corner && cr.defendedCorner !== ci && toCorner < 220 && toCorner > 40) {
     const threat = cars[behind.j];
     const attacking = threat.craft.mode === 'attack' && threat.craft.other === me.idx;
-    if ((attacking || behind.v > st.v + 1.5) && behind.gap > -15 && me.rng.next() < drv.racecraft * 0.6) {
+    // A class quicker car isn't a rival: hold the line and let it by.
+    if (!classQuicker(threat, me) && (attacking || behind.v > st.v + 1.5) && behind.gap > -15 && me.rng.next() < drv.racecraft * 0.6) {
       cr.mode = 'defend';
       cr.side = corner.dir;
       cr.corner = ci;
@@ -305,6 +343,13 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   if (cr.mode === 'defend') {
     if (ci !== cr.corner) cr.mode = 'line';
     else wantDelta = clamp(cr.side * (lim - 1), -lim, lim) - lineD;
+  }
+
+  if (yieldTo) {
+    // My distance from the edge on its side must leave it a car's width and the spacing.
+    const side = cars[yieldTo.j].craft.side;
+    const edge = side * lim - side * (SIDE_GAP + 0.3);
+    if (side * (edge - (lineD + wantDelta)) < 0) wantDelta = edge - lineD;
   }
 
   // --- Side by side into a corner: whoever is on the inside keeps the inside line.

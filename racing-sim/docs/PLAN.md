@@ -290,9 +290,14 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   is now "F1 spec at Silverstone". Schema grip limit raised to 3 (the F1 preset itself is 2.1).
 - Lap-1 pile-ups in big winged fields: 20 F1 cars at Yas average ~4 DNFs a race at the default
   incident rate (was ~9 before the passing work), mostly contact into T1. S–M
-- Lapped and slower-class traffic: LMPs at Silverstone spend ~6 min a race (all six) within
-  0.6 s behind a GT3 they are 15 s a lap faster than, before and after the passing work. A
-  slower-class car defends against them like a rival; blue flags (below) should fix it. S–M
+- Slower-class traffic (done): a car `CLASS_GAP` (4%) or more quicker over a clean-air lap
+  starts a move from up to `CLASS_FROM` (30 m) back, even near a corner, pulls straight out
+  instead of waiting in the tow, and may switch sides once if the slower car's line closes its
+  side. The slower car drops its own battle and keeps to the other side of the road (a blue
+  flag). New stat `trafficTime` (car-s within 1 s behind a much slower car, any lap; shown by
+  `batch`). On a mixed-grid Nordschleife (LMPs and MX-5s) the worst 10% of LMP laps lost 21 s
+  instead of 30 s and DNFs halved; most of what is left is the lap-1 pack on a narrow road.
+  Still to do: lapped cars of the same class (blue flags, below).
 
 **Next (racing and sim)**
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S

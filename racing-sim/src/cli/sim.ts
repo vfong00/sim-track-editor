@@ -109,7 +109,7 @@ function batchReport(name: string, b: BatchSummary): string {
     ...rows,
     '',
     `  Per race: passes ${pm(b.passes)}, contacts ${pm(b.contacts)}, incidents ${pm(b.incidents)}, spins ${pm(b.spins)}, DNFs ${pm(b.dnfs)}`,
-    `  Stuck time ${pm(b.stuckTime, 0)} car-s, in a train ${(100 * b.trainShare.mean).toFixed(0)}% of the time`,
+    `  Stuck time ${pm(b.stuckTime, 0)} car-s, in a train ${(100 * b.trainShare.mean).toFixed(0)}% of the time, behind a slower class ${pm(b.trafficTime, 0)} car-s`,
     `  Chaos ${pm(b.chaos, 2)} (${chaos}: 0 = finish as they started, 1 = grid order means nothing)`,
   ].join('\n');
 }

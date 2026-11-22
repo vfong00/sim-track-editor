@@ -1,6 +1,6 @@
 import { type DriverSpec, type Entrant } from '../agents/driver';
 import { avoidSlowCar, trafficControls, type Near } from '../agents/controller';
-import { type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
+import { CLASS_GAP, type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
 import { CarModel, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type PhysicsParams, STANDARD_CAR } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
@@ -201,6 +201,11 @@ export interface RaceStats {
    * 1.0 s behind a slower one. Dirty air raises this; passing lowers it.
    */
   stuckTime: number;
+  /**
+   * Car-seconds a car spent within 1.0 s behind a car on the road at least CLASS_GAP slower over a
+   * clean-air lap (another class, or a backmarker in a much slower car), whatever lap either is on.
+   */
+  trafficTime: number;
 }
 
 /** Ticks between train samples. */
@@ -266,6 +271,7 @@ export class Race {
   private trainSamples = 0;
   private trainHits = 0;
   private stuckTime = 0;
+  private trafficTime = 0;
   /** Next scripted event (index into opts.events) still to fire. */
   private nextScripted = 0;
   /** The safety car while deployed (out or just pulled in), else null. */
@@ -798,6 +804,7 @@ export class Race {
   }
 
   private sampleTrains(): void {
+    this.sampleTraffic();
     if (this.leaderLap < 2 || this.leaderFinished) return;
     const order = this.order();
     for (let p = 1; p < order.length; p++) {
@@ -811,6 +818,19 @@ export class Race {
     }
   }
 
+  /** Class traffic: each running car's nearest car ahead on the road, if much slower and within 1 s. */
+  private sampleTraffic(): void {
+    const racing = (c: RaceCar) => !c.dnf && !c.finished && !c.cleared && c.status === 'run';
+    for (const me of this.cars) {
+      if (!racing(me) || me.st.v < 10) continue;
+      let ahead: Near | null = null;
+      for (const o of this.neighbours(me.idx)) if (o.gap > 0 && racing(this.cars[o.j]) && (!ahead || o.gap < ahead.gap)) ahead = o;
+      if (!ahead || ahead.gap > me.st.v * 1.0) continue;
+      const slow = this.cars[ahead.j].plans.lapTime;
+      if (slow - me.plans.lapTime >= CLASS_GAP * slow) this.trafficTime += TRAIN_EVERY * this.dt;
+    }
+  }
+
   stats(): RaceStats {
     const count = (t: RaceEventType) => this.events.filter((e) => e.type === t).length;
     return {
@@ -818,6 +838,7 @@ export class Race {
       offs: count('off'), spins: count('spin'), dnfs: this.cars.filter((c) => c.dnf).length,
       trainShare: this.trainSamples ? this.trainHits / this.trainSamples : 0,
       stuckTime: this.stuckTime,
+      trafficTime: this.trafficTime,
     };
   }
 

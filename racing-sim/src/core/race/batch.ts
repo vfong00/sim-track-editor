@@ -60,6 +60,8 @@ export interface BatchSummary {
   spins: Spread;
   dnfs: Spread;
   stuckTime: Spread;
+  /** Car-seconds within 1 s behind a much slower car on the road (RaceStats.trafficTime). */
+  trafficTime: Spread;
   trainShare: Spread;
   /**
    * Processional vs chaotic: the mean |finish − grid| position change of the field, as a share of
@@ -127,6 +129,7 @@ export function summarize(runs: RunResult[], ms = 0): BatchSummary {
     spins: of((r) => r.stats.spins),
     dnfs: of((r) => r.stats.dnfs),
     stuckTime: of((r) => r.stats.stuckTime),
+    trafficTime: of((r) => r.stats.trafficTime),
     trainShare: of((r) => r.stats.trainShare),
     chaos: of((r) => r.chaos),
     ms,

@@ -40,7 +40,7 @@ describe('Phase 7: batch runs', () => {
   });
 
   it('the chaos score is 0 for an unchanged order and 1 on average for a random one', () => {
-    const run = (order: number[]) => ({ seed: 0, names: order.map((_, i) => 'abcd'[i]), order, dnf: order.map(() => false), bestLaps: order.map(() => 60), stats: { passes: 0, mistakes: 0, contacts: 0, offs: 0, spins: 0, dnfs: 0, trainShare: 0, stuckTime: 0 }, incidents: 0, chaos: 0, time: 0 });
+    const run = (order: number[]) => ({ seed: 0, names: order.map((_, i) => 'abcd'[i]), order, dnf: order.map(() => false), bestLaps: order.map(() => 60), stats: { passes: 0, mistakes: 0, contacts: 0, offs: 0, spins: 0, dnfs: 0, trainShare: 0, stuckTime: 0, trafficTime: 0 }, incidents: 0, chaos: 0, time: 0 });
     expect(summarize([run([0, 1])]).drivers[0].wins).toBe(1);
     // Exhaustive over permutations of 4: the mean |p − i| equals randomShuffle(4).
     const perms: number[][] = [];
