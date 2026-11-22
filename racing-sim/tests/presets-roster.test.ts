@@ -21,9 +21,16 @@ describe('car presets', () => {
     expect(laps[id].usage).toBeLessThan(1.01);
   });
 
-  it('rank by class: F1 < LMP < GT3 < road car < MX-5', () => {
-    const order = ['f1', 'lmp', 'gt3', 'road', 'mx5'].map((id) => laps[id].solver);
+  it('rank by class: F1 < LMP < GT3 < the road cars (road car and MX-5 Cup trade places by track)', () => {
+    const order = ['f1', 'lmp', 'gt3'].map((id) => laps[id].solver);
     for (let i = 1; i < order.length; i++) expect(order[i]).toBeGreaterThan(order[i - 1]);
+    expect(Math.min(laps.road.solver, laps.mx5.solver)).toBeGreaterThan(laps.gt3.solver);
+  });
+
+  it('the MX-5 Cup corners faster than the road car (slicks) but is slower on the straights', () => {
+    const mx5 = new CarModel({ id: 'm', ...CAR_PRESETS.mx5 }), road = new CarModel({ id: 'r', ...CAR_PRESETS.road });
+    expect(mx5.cornerSpeed(1 / 30)).toBeGreaterThan(road.cornerSpeed(1 / 30));
+    expect(mx5.spec.topSpeed).toBeLessThan(road.spec.topSpeed);
   });
 
   it('downforce helps most in fast corners', () => {
