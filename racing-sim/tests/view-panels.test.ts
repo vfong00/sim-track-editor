@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CAR_PRESETS, driverFromRatings, type Entrant, loadScenario, Race, type Scenario, STANDARD_CAR } from '../src/core';
+import { CAR_PRESETS, driverFromRatings, type Entrant, loadScenario, Race, racePace, ROSTER, type Scenario, STANDARD_CAR } from '../src/core';
 import { RaceAt } from '../src/view/at';
 import { carPhrase, ordinal, profile, rankIn, rankText, ratingsOf, statRows } from '../src/view/stats';
 import { nextMode, TOWER_MODES, towerCell } from '../src/view/tower';
@@ -32,15 +32,34 @@ describe('follow panel stats', () => {
   });
 
   it('profiles a driver in one line', () => {
-    expect(profile({ speed: 0.7, consistency: 0.95, risk: 0.2, racecraft: 0.8 })).toBe('Quick, very consistent, cautious');
-    expect(profile({ speed: 0.5, consistency: 0.85, risk: 0.5, racecraft: 0.7 })).toBe('Average pace, consistent, measured');
-    expect(profile({ speed: 0.1, consistency: 0.6, risk: 0.9, racecraft: 0.3 })).toBe('Slow, error-prone, reckless');
+    const at = (speed: number, consistency: number, risk: number) => {
+      const d = driverFromRatings('x', { speed, consistency, risk });
+      return profile({ speed, consistency, risk, racecraft: d.racecraft }, d.pace, racePace(d));
+    };
+    // The roster's ends: Alvarez is dominant on race pace; Tanaka is off the pace.
+    expect(at(0.79, 0.96, 0.32)).toBe('Dominant, very consistent, careful');
+    expect(at(0.8, 0.84, 0.49)).toBe('Very quick, consistent, measured');
+    expect(at(0.2, 0.78, 0.75)).toBe('Off the pace, a bit erratic, reckless');
+    // Quick over one lap but erratic: the race word is lower, and both are said.
+    expect(at(0.66, 0.78, 0.68)).toBe('Quick over a lap, average in races, a bit erratic, aggressive');
+  });
+
+  it('spreads the roster over the pace words (no word for nearly everyone)', () => {
+    const words = ROSTER.map((r) => {
+      const d = driverFromRatings(r.name, r);
+      return profile({ ...r, racecraft: d.racecraft }, d.pace, racePace(d)).split(/,| over /)[0];
+    });
+    const counts = new Map<string, number>();
+    for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
+    expect(counts.size).toBeGreaterThanOrEqual(5);
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(6);
+    expect(counts.get('Dominant')).toBe(1);
   });
 
   it('gives each rating and car value its rank in the field', () => {
     const field = [entrant('A', 0.79, 0.9, 0.3, 90), entrant('B', 0.9, 0.8, 0.5), entrant('C', 0.2, 0.95, 0.7)];
     const st = statRows(field, 0);
-    expect(st.profile).toBe('Quick, consistent, careful, in a custom car');
+    expect(st.profile).toBe("Very quick, consistent, careful, in a custom car that's the quickest on the straights");
     expect(st.driver.map((r) => `${r.label} ${r.value} · ${r.rank}`)).toEqual([
       'Pace 97.9% · 2nd of 3', 'Race pace 94.3% · 1st of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
       'Racecraft 0.84 · 2nd of 3', 'Incident risk ×0.74 · 1st of 3',
@@ -94,11 +113,17 @@ describe('timing tower modes', () => {
 });
 
 describe('car phrase', () => {
-  it('names the preset, a modified preset, the standard car or a custom car', () => {
+  it('names the preset or the standard car, and says what stands out in a changed car', () => {
     expect(carPhrase({ id: 'a', ...CAR_PRESETS.f1, preset: 'f1' })).toBe('an F1 car');
-    expect(carPhrase({ id: 'a', ...CAR_PRESETS.gt3, grip: 1.5, preset: 'gt3' })).toBe('a modified GT3 car');
     expect(carPhrase({ ...STANDARD_CAR })).toBe('the standard car');
+    // Changed from the preset, alone or with nothing to compare against: just its name.
+    expect(carPhrase({ id: 'a', ...CAR_PRESETS.gt3, grip: 1.5, preset: 'gt3' })).toBe('a GT3 car');
     expect(carPhrase({ ...STANDARD_CAR, topSpeed: 90 })).toBe('a custom car');
+    // Against its rivals: its strongest and weakest points.
+    const f1 = (o: object) => ({ id: 'x', ...CAR_PRESETS.f1, preset: 'f1' as const, ...o });
+    const rivals = [f1({ topSpeed: 94 }), f1({ topSpeed: 95, grip: 2.2 }), f1({ grip: 2.15 })];
+    expect(carPhrase(f1({ topSpeed: 98, grip: 2.0 }), rivals)).toBe("an F1 car that's the quickest on the straights, the weakest in the corners");
+    expect(carPhrase(f1({ topSpeed: 95.5, grip: 2.12 }), [...rivals, f1({ topSpeed: 97, grip: 2.05 })])).toBe('an all-round F1 car');
   });
 });
 
