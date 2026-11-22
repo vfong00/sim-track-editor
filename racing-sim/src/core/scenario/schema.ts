@@ -251,7 +251,7 @@ export const RANGES = {
   pace: [0.8, 1],
   gripLevel: [0.3, 1.5],
   slipstream: [0, 0.6],
-  dirtyAir: [0, 0.5],
+  dirtyAir: [0, 1],
   incidentRate: [0, 5],
   fieldCount: [1, MAX_CARS],
   safetyCarLaps: [1, 10],

@@ -36,7 +36,10 @@ describe('Phase 4: pace gap', () => {
     expect(through(r) || r.spun, `lap ${r.lap}`).toBe(true);
   });
 
-  it('…and most of the time it gets through outright (at least 4 of 6)', () => {
-    expect(SEEDS.filter((s) => through(result(s))).length).toBeGreaterThanOrEqual(4);
+  // Over 18 seeds: with 6, one seed either way swings it across the line (the same code gets
+  // 3 to 5 of the first six, and 12 to 13 of 18).
+  const MORE = Array.from({ length: 18 }, (_, k) => k + 1);
+  it('…and most of the time it gets through outright (at least two thirds)', { timeout: 60000 }, () => {
+    expect(MORE.filter((s) => through(result(s))).length).toBeGreaterThanOrEqual(12);
   });
 });

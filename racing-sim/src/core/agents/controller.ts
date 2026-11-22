@@ -1,6 +1,6 @@
 import type { Controls } from '../race/car';
 import { clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet } from '../race/lanes';
-import type { CarModel } from '../physics/model';
+import { type CarModel, type Effects, NO_EFFECTS } from '../physics/model';
 import type { CarState } from '../race/car';
 
 /** Another car as seen from one car: path distance ahead (negative = behind) and lateral gap. */
@@ -28,6 +28,8 @@ export interface DriverView {
   plans: LanePlans;
   lanes: LaneSet;
   dt: number;
+  /** Traffic effects on the car now (slipstream, dirty air); clean air if absent. */
+  effects?: Effects;
 }
 
 export interface TrafficDecision {
@@ -70,13 +72,15 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   const look = 25 + st.v * 2.5;
   // Both cars' real straight-line braking (same model as the integrator); the follower only
   // counts on a share of its own so it keeps a margin for reaction.
-  const b = brakeGain * me.model.maxBrake(st.v, 0);
+  // With the grip the car has now (dirty air costs a winged car braking grip as well).
+  const fx = me.effects ?? NO_EFFECTS;
+  const b = brakeGain * me.model.maxBrake(st.v, 0, fx);
   // A car far slower than me (spun, stopped, crawling back on): seen from further away, and I
   // plan to stop for it with the braking I really have, which mid-corner is what the cornering
   // leaves over (Phase 5: hitting one is no longer just a bump).
   const slow = Math.max(6, 0.5 * st.v);
   const aCorner = Math.abs(st.v * st.v * lanes.kappa(st.s, st.delta));
-  const bHaz = brakeGain * me.model.maxBrake(st.v, Math.min(aCorner, 0.95 * me.model.gripLimit(undefined, st.v)));
+  const bHaz = brakeGain * me.model.maxBrake(st.v, Math.min(aCorner, 0.95 * me.model.gripLimit(fx, st.v)), fx);
   for (const o of near) {
     const hazard = o.v < slow;
     if (o.gap <= 0 || o.gap > (hazard ? 40 + 4 * st.v : look)) continue;

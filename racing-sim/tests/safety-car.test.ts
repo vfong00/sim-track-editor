@@ -156,3 +156,20 @@ describe('marshals clear wrecks', () => {
     expect(r.events.filter((e) => e.type === 'contact' && e.t > ev!.t && e.cars.includes(0))).toEqual([]);
   });
 });
+
+describe('a scripted safety car always comes out', () => {
+  const sc = (r: Race) => r.events.filter((e) => e.type === 'safety-car').map((e) => `L${e.lap} ${e.text}`);
+  const scripted = (events: Scenario['events']) => new Race(loadScenario({ ...BASE, race: { laps: 8 }, events }).options).run();
+
+  it('one already on track stays out for the scripted laps too', () => {
+    const r = scripted([{ lap: 2, type: 'safety-car', laps: 2, note: 'oil' }, { lap: 3, type: 'safety-car', laps: 2, note: 'debris' }]);
+    expect(sc(r)).toEqual(['L2 Safety car: oil', 'L3 Safety car: debris (stays out)', 'L4 Safety car in this lap', 'L5 Green flag: racing resumes']);
+  });
+
+  it('one that has pulled in but not yet gone green comes straight back out', () => {
+    const r = scripted([{ lap: 2, type: 'safety-car', laps: 1, note: 'oil' }, { lap: 3, type: 'safety-car', laps: 2, note: 'debris' }]);
+    const log = sc(r);
+    expect(log.slice(0, 3)).toEqual(['L2 Safety car: oil', 'L2 Safety car in this lap', 'L3 Safety car: debris']);
+    expect(log.at(-1)).toBe('L5 Green flag: racing resumes');
+  });
+});

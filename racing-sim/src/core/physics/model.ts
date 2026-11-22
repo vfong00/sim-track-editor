@@ -56,17 +56,39 @@ export interface PhysicsParams {
   drag: boolean;
   /** Drag reduction when slipstreaming right behind another car (0 = off). Phase 4. */
   slipstream: number;
-  /** Grip loss when following closely through corners (0 = off). Phase 4. */
+  /**
+   * Dirty air (0 = off; Phase 4, by downforce since the racing-sim tuning pass): the share of
+   * downforce a car loses right behind another, fading with distance. Mechanical grip loses
+   * DIRTY_MECH of that share too (tyres and balance), so a wingless car still feels a little.
+   */
   dirtyAir: number;
 }
 
-export const DEFAULT_PHYSICS: PhysicsParams = { g: G, gripLevel: 1, drag: true, slipstream: 0.25, dirtyAir: 0.06 };
+export const DEFAULT_PHYSICS: PhysicsParams = { g: G, gripLevel: 1, drag: true, slipstream: 0.25, dirtyAir: 0.2 };
+
+/**
+ * Mechanical grip lost in dirty air, as a share of the downforce lost (`dirtyAir`). With the
+ * default dirtyAir of 0.2 a wingless car loses 6% of its grip right behind another, as every car
+ * did before dirty air went by downforce; an F1 car at 200 km/h (over half its grip from
+ * downforce) loses about 16%. (At 0.3, F1 lost 22% and its DNFs more than doubled.)
+ */
+export const DIRTY_MECH = 0.3;
 
 /** Per-tick modifiers from traffic (slipstream, dirty air). Planner uses NO_EFFECTS. */
 export interface Effects {
+  /** Multiplies all grip (pace, run-off, dirty air on the tyres). */
   grip: number;
   drag: number;
+  /** Share of downforce left (dirty air); 1 if absent. */
+  aero?: number;
 }
+
+/**
+ * Effects of dirty air with strength `dirtyAir` at `depth` (0 = clean, 1 = right behind) on the
+ * mechanical grip, and at `aeroDepth` on the downforce.
+ */
+export const dirtyEffects = (dirtyAir: number, depth: number, aeroDepth = depth): { grip: number; aero: number } =>
+  ({ grip: 1 - DIRTY_MECH * dirtyAir * depth, aero: 1 - dirtyAir * aeroDepth });
 export const NO_EFFECTS: Effects = { grip: 1, drag: 1 };
 
 export class CarModel {
@@ -89,7 +111,7 @@ export class CarModel {
 
   /** Grip limit at speed v (downforce grows with v²), including traffic effects. */
   gripLimit(f: Effects = NO_EFFECTS, v = 0): number {
-    return (this.mu + this.aero * v * v) * f.grip;
+    return (this.mu + this.aero * (f.aero ?? 1) * v * v) * f.grip;
   }
 
   /** Tire grip left over for driving/braking at speed v after `alat` of cornering (0 if over the limit). */
@@ -106,7 +128,7 @@ export class CarModel {
    * Capped at the top speed.
    */
   cornerSpeed(kappa: number, f: Effects = NO_EFFECTS): number {
-    const mu0 = this.mu * f.grip, a = this.aero * f.grip;
+    const mu0 = this.mu * f.grip, a = this.aero * (f.aero ?? 1) * f.grip;
     const c = this.cd * f.drag;
     const k = Math.hypot(kappa, c);
     const v = k > a ? Math.sqrt(mu0 / (k - a)) : Infinity;

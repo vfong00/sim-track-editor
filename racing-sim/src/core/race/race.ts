@@ -1,7 +1,7 @@
 import { type DriverSpec, type Entrant } from '../agents/driver';
 import { avoidSlowCar, trafficControls, type Near } from '../agents/controller';
 import { type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
-import { CarModel, type CarSpec, DEFAULT_PHYSICS, type PhysicsParams, STANDARD_CAR } from '../physics/model';
+import { CarModel, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type PhysicsParams, STANDARD_CAR } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
 import type { Track } from '../track/track';
@@ -230,8 +230,9 @@ export function lanePlansFor(lanes: LaneSet, spec: CarSpec, pace: number, physic
   const p = model.physics;
   const key = JSON.stringify([spec, p, pace]);
   let plans = cache.get(key);
+  const dirty = dirtyEffects(p.dirtyAir, 1);
   if (!plans) cache.set(key, (plans = new LanePlans(lanes, model, { grip: pace, drag: 1 },
-    { grip: pace, drag: 1 - p.slipstream }, { grip: pace * (1 - p.dirtyAir), drag: 1 })));
+    { grip: pace, drag: 1 - p.slipstream }, { grip: pace * dirty.grip, aero: dirty.aero, drag: 1 })));
   return { model, plans };
 }
 
@@ -400,8 +401,19 @@ export class Race {
    * Deploy the safety car for `laps` laps (racing resumes when the leader starts lap
    * leaderLap + laps). Ignored while one is already deployed or once the leader has finished.
    */
-  deploySafetyCar(laps: number, why?: string, cause?: number): void {
-    if (this.sc || this.leaderFinished) return;
+  deploySafetyCar(laps: number, why?: string, cause?: number, scripted = false): void {
+    if (this.leaderFinished) return;
+    if (this.sc) {
+      // A scripted deployment always happens: a safety car already on track stays out for at
+      // least that long, and one that has pulled in (no green yet) comes straight back out.
+      if (!scripted) return;
+      if (this.sc.phase === 'out') {
+        this.sc.endLap = Math.max(this.sc.endLap, this.leaderLap + laps);
+        this.emit('safety-car', [], `Safety car: ${why ? `${why} (stays out)` : 'stays out'}`, cause);
+        return;
+      }
+      this.sc = null;
+    }
     const lead = this.order().find((i) => !this.cars[i].dnf && !this.cars[i].finished);
     if (lead === undefined) return;
     const c = this.cars[lead];
@@ -474,7 +486,7 @@ export class Race {
       const e = evs[this.nextScripted++];
       if (e.type === 'grip') this.setGrip(e.value, e.note);
       else if (e.type === 'spin') this.spin(e.car);
-      else if (e.type === 'safety-car') this.deploySafetyCar(e.laps, e.note);
+      else if (e.type === 'safety-car') this.deploySafetyCar(e.laps, e.note, undefined, true);
       else this.retire(e.car);
     }
   }

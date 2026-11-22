@@ -1,6 +1,6 @@
 import type { CarState, Controls } from '../race/car';
 import { CAR_WIDTH, clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet, offShare, RUNOFF_GRIP } from '../race/lanes';
-import type { CarModel, PhysicsParams } from '../physics/model';
+import { type CarModel, dirtyEffects, type PhysicsParams } from '../physics/model';
 import type { Rng } from '../rng';
 import type { Corner } from '../track/corners';
 import { ALONGSIDE, avoidSlowCar, type Near, SIDE_GAP, trafficControls } from './controller';
@@ -86,9 +86,11 @@ function distTo(lanes: LaneSet, s: number, apex: number): number {
 /**
  * Slipstream and dirty air from the car in front (rule 6: trains and battles come from these):
  *  - slipstream cuts drag by up to `physics.slipstream`, fading with distance, on straights only;
- *  - dirty air cuts grip by up to `physics.dirtyAir`, fading with distance.
+ *  - dirty air cuts downforce by up to `physics.dirtyAir` (and mechanical grip by DIRTY_MECH of
+ *    that), fading with distance: winged cars feel it far more than road cars.
+ * `tow` and `dirty` are how deep in each the car is (0 = clean air, 1 = the fullest).
  */
-export function wakeEffects(me: CraftCar, near: Near[], ctx: CraftContext): { grip: number; drag: number; source: number } {
+export function wakeEffects(me: CraftCar, near: Near[], ctx: CraftContext): { grip: number; aero: number; drag: number; tow: number; dirty: number; source: number } {
   // The tow reaches WAKE_RANGE metres, or WAKE_TIME seconds back at speed (a car half a second
   // behind on a fast straight is 40 m back and still well in it).
   const range = Math.max(WAKE_RANGE, me.st.v * WAKE_TIME);
@@ -97,11 +99,15 @@ export function wakeEffects(me: CraftCar, near: Near[], ctx: CraftContext): { gr
     if (o.gap <= HIT_LEN || o.gap > range || Math.abs(o.dd) > WAKE_WIDTH || o.v < 10) continue;
     if (!best || o.gap < best.gap) best = o;
   }
-  if (!best) return { grip: 1, drag: 1, source: -1 };
+  if (!best) return { grip: 1, aero: 1, drag: 1, tow: 0, dirty: 0, source: -1 };
   const straight = Math.abs(ctx.lanes.kappa(me.st.s, me.st.delta)) < 1 / 300;
-  const slip = straight ? ctx.physics.slipstream * (1 - best.gap / range) : 0;
-  const dirty = best.gap < DIRTY_RANGE ? ctx.physics.dirtyAir * (1 - best.gap / DIRTY_RANGE) : 0;
-  return { grip: 1 - dirty, drag: 1 - slip, source: best.j };
+  const tow = straight ? 1 - best.gap / range : 0;
+  const dirty = ctx.physics.dirtyAir > 0 && best.gap < DIRTY_RANGE ? 1 - best.gap / DIRTY_RANGE : 0;
+  // The downforce loss fades toward the edge of the wake: a hard edge made a winged car tucking
+  // back in behind lose a sixth of its grip in one tick, mid-corner, and spin. (The small
+  // mechanical part keeps the hard edge it was tuned with.) Drivers plan for the full depth.
+  const side = clamp((WAKE_WIDTH - Math.abs(best.dd)) / (WAKE_WIDTH / 2), 0, 1);
+  return { ...dirtyEffects(ctx.physics.dirtyAir, dirty, side * dirty), drag: 1 - ctx.physics.slipstream * tow, tow: ctx.physics.slipstream > 0 ? tow : 0, dirty, source: best.j };
 }
 
 /**
@@ -120,20 +126,19 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const corner = ci >= 0 ? ctx.corners[ci] : null;
   const toCorner = corner ? distTo(lanes, st.s, corner.apex) : Infinity;
   const wake = wakeEffects(me, near, ctx);
-  const effects = { grip: wake.grip, drag: wake.drag };
+  const effects = { grip: wake.grip, aero: wake.aero, drag: wake.drag };
 
   // Target speed: braking envelope, scaled for dirty air (corner speed ∝ √grip).
   const ahead = st.s + (st.v * dt) / lanes.stretch(st.s, st.delta);
   // How deep in the tow and in dirty air (0 = clean, 1 = full): plan braking for it.
-  const ph = ctx.physics;
-  const depth = { tow: ph.slipstream > 0 ? (1 - wake.drag) / ph.slipstream : 0, dirty: ph.dirtyAir > 0 ? (1 - wake.grip) / ph.dirtyAir : 0 };
+  const depth = { tow: wake.tow, dirty: wake.dirty };
   let vEnv = plans.envelope(ahead, st.delta, depth.tow, depth.dirty);
   // In the run-off: corner speed ∝ √grip, and the driver's only aim is to get back on the road.
   const off = offShare(lanes.track, me.d);
   if (off > 0) vEnv *= Math.sqrt(1 - off * (1 - RUNOFF_GRIP));
   let wantDelta = 0;
   let started: Mistake | null = null;
-  const view = { st, d: me.d, model: me.model, plans, lanes, dt };
+  const view = { st, d: me.d, model: me.model, plans, lanes, dt, effects };
 
   // --- Mistakes in progress override everything else.
   if (cr.mistake && ctx.t >= cr.mistake.until) cr.mistake = null;

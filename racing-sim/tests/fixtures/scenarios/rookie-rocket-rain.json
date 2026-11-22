@@ -5,7 +5,7 @@
   "seed": 42,
   "track": { "type": "generated", "seed": 7, "width": 14, "complexity": 0.6 },
   "race": { "laps": 6, "start": "grid", "gridOrder": "reverse-rating" },
-  "physics": { "slipstream": 0.25, "dirtyAir": 0.06 },
+  "physics": { "slipstream": 0.25, "dirtyAir": 0.2 },
   "cars": [
     { "id": "rocket", "topSpeed": 95, "accel": 14, "grip": 1.12, "brake": 1.1 },
     { "id": "standard", "topSpeed": 85, "accel": 11, "grip": 1.0, "brake": 1.0 }
