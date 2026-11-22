@@ -134,7 +134,7 @@ export class ScenarioEditor {
       <section><h4>Physics</h4>
         ${this.row('Start grip', this.num(['physics', 'gripLevel'], s.physics?.gripLevel, RANGES.gripLevel, '0.05', '1'), '1 = dry')}
         ${this.row('Slipstream', this.num(['physics', 'slipstream'], s.physics?.slipstream, RANGES.slipstream, '0.01', '0.25'))}
-        ${this.row('Dirty air', this.num(['physics', 'dirtyAir'], s.physics?.dirtyAir, RANGES.dirtyAir, '0.05', '0.2'), 'Share of downforce lost right behind another car (winged cars feel it most)')}
+        ${this.row('Dirty air', this.num(['physics', 'dirtyAir'], s.physics?.dirtyAir, RANGES.dirtyAir, '0.05', '0.2'), 'of downforce')}
       </section>
       <section><h4>Cars</h4>
         <table><tr><th>id</th><th>type</th><th>top m/s</th><th>accel</th><th>grip</th><th>brake</th><th></th></tr>${cars}</table>

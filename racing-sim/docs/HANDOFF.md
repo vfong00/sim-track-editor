@@ -1,6 +1,6 @@
 # Handoff: next session
 
-Work on the `racing-sim` branch in `racing-sim/`. Phases 0–6 are done, plus the work in
+Work on the `racing-sim` branch in `racing-sim/`. Phases 0–7 are done (7 as a CLI), plus the work in
 `docs/PLAN.md` → **Feature map** → "Done since Phase 6". The same section lists what is next.
 
 Same rules as before: follow the plan's design rules; run `npm test` and `npm run typecheck`;
@@ -28,14 +28,20 @@ npm on this Mac: Artifactory may be unreachable. Install with
   `scenarios/` and can change freely; the checks use their own copies in
   `tests/fixtures/scenarios/`. Track images: `tests/fixtures/*.png` (Laguna and the
   Nordschleife are cleaned-up, upscaled versions of the originals).
-- **Viewer** (`src/view/`): reads only logs (`RaceAt` in `at.ts`); stats, tower and minimap
-  are DOM-free modules (`stats.ts`, `tower.ts`, `minimap.ts`).
+- **Viewer** (`src/view/`): reads only logs (`RaceAt` in `at.ts`); stats, tower, minimap and
+  the result panel are DOM-free modules (`stats.ts`, `tower.ts`, `minimap.ts`, `summary.ts`).
+- **Batch runs** (`src/core/race/batch.ts`, CLI `batch`): one track and lane set, many seeds;
+  `runBatch` / `summarize` work in Node and the browser. Use it to tune instead of single races.
 
 ## Known soft spots
 
-- Dirty air no longer holds a faster car up (`tests/racing-wake.test.ts`, marked `it.fails`).
-  Turn it back into a normal `it()` once it holds again.
+- Passing at small pace gaps barely works, so two checks are marked `it.fails`: dirty air
+  holding a faster car up (`tests/racing-wake.test.ts`) and the best driver winning most often
+  with equal cars (`tests/batch.test.ts`). The cause is the attack and the gap rule, not dirty
+  air: see "Passing balance" in `PLAN.md` for the findings and options. Turn each back into a
+  normal `it()` once it holds.
 - A 6%-faster car sometimes spins after contact on a late dive instead of passing.
-- An attacker squeezed on the inside can ride the road edge like a wall and bounce back into
-  the gap instead of being forced off (see the feature map in `PLAN.md`).
-- These are small-sample checks; batch stats would make tuning them far less noisy.
+- Many Phase 4 checks use 4–8 seeds and sit near their thresholds. Use the batch runner
+  (`npm run sim -- batch <scenario> --runs N`) or more seeds before reading a change into them.
+  The traffic-rule checks run with the standard car, which has no downforce, so they don't
+  exercise dirty air by downforce; `tests/dirty-air.test.ts` does.

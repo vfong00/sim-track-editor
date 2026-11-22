@@ -203,6 +203,13 @@ ends with the localhost dev server running and showing that phase's visuals (des
 - Optional in-browser "simulate 100" button with result charts.
 - **Checks:** results are stable across reruns with the same seed set; the most skilled driver
   wins most often in an equal-car scenario.
+- **Done** (CLI only). `npm run sim -- batch <scenario> --runs N [--from S] [--json]`: win %,
+  podiums, DNFs, average grid and finish per driver (matched by name, since a random grid moves
+  them), and per race passes, contacts, incidents, spins, DNFs, stuck time and train share, each
+  ± its standard error. Chaos score: mean |finish − grid| as a share of a random order's (0 =
+  processional, 1 = the grid means nothing). About 0.3 s a race on the lab field, 1–8 s on the
+  real tracks. The skill check is marked `it.fails`: with equal cars the result follows the grid
+  (see "Passing balance" below). No in-browser button yet.
 
 ### Nice to haves (pick and choose)
 - Observable tuning: a panel to adjust a driver or car (ratings, grip, power, brakes) and see what
@@ -244,18 +251,41 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Marshals clear a car that is out of the race 40 s after it stops (before, a pile-up at one
   corner could block every car for good). A deep tow makes drivers go for the pass.
 
+- Batch runs (Phase 7, above).
+- Squeezed at the edge: a car alongside closer than `SQUEEZE` (HIT_W + 0.25 m) pushes a car on
+  the road edge over it; the edge no longer holds it like a wall. An off after a squeeze is
+  blamed on the squeezer, a spin in the run-off on the off. Straight-track passing fell by
+  about a quarter (squeezed attackers lose the move), so that check runs 16 seeds.
+- Result panel at the flag (also Race menu → Result, or r): classification, gaps, places
+  gained, best laps (fastest in purple), passes and incidents per driver.
+- Dirty air by downforce: `physics.dirtyAir` (default 0.2) is the share of downforce lost right
+  behind another car, plus `DIRTY_MECH` (0.3) of that on mechanical grip. A wingless car loses
+  6% as before (road-car races are bit-identical); F1 at 200 km/h about 16%. The downforce part
+  fades across the wake's width, and the gap rule brakes with the grip the car has in dirty air.
+  Over 16 races: F1 at Silverstone 14 passes a race (was 18), chaos 0.44 (0.56), DNFs 1.1 (0.8);
+  GT3 at Laguna 43 passes (48), DNFs 0.9 (1.8).
+- A scripted safety car always deploys (one on track stays out for the scripted laps).
+
 **Next (racing and sim)**
-- Passing balance: dirty air no longer measurably holds a faster car up (its check is marked
-  `it.fails`), and a late dive can end in contact. Needs batch stats to tune. M
-- Dirty air by downforce: it should hurt winged cars far more than road cars. S–M
-- Squeezed on the inside: an attacker pinned between the defender and the road edge sometimes
-  stays exactly on the edge and "bounces" back into the gap, instead of being forced off or
-  spun. Likely cause: `stepCar` holds a driven car that isn't sliding on the road edge as if it
-  were a wall, so a squeeze never pushes it off. Fix: let a car squeezed by side spacing go over
-  the edge (like running wide), so it either drops wheels and loses time or makes contact. S–M
-- End-of-race summary: classification, gaps, fastest laps, passes, incidents. S
-- Batch runs (old Phase 7): win %, positions, passes and incidents over N seeds, per track.
-  Mainly a tuning tool now. M
+- Passing balance (design question first, then M). Findings from batch runs and traces, all
+  on the standard car, generated track 7:
+  - A "3% pace gap" is only ~0.5 s a lap of real race pace (solo laps 61.59 vs 62.10; the
+    Ideal lap figure says 0.94 s). The Phase 4 checks ask a car 0.8% quicker to pass reliably.
+  - The gap rule's reaction margin (`brakeGain` 0.97) settles an in-line follower ~9–12 m
+    behind (≈0.25 s). It can't build a speed advantage in the tow: closing is capped there.
+  - An attack starts up to ~17 m back and sits a car's width off the leader. That is off the
+    racing line through every corner on the way, which costs about as much as a 0.5 s/lap edge,
+    and outside the 2.4 m wake, so the tow is lost too. 54 of 77 attacks by a 3%-faster car end
+    still a car length behind at the apex; none pass. Late braking (bravery) gains only 1–2 m.
+  - Dirty air isn't what holds it up: at 3% the faster car never passes with dirty air off
+    either; at 4.5% stuck time is 66 s with 6% dirty air, 208 s with 3%, 129 s with none.
+  - Tried and reverted: staying tucked in behind until 9 m (the gap rule never lets it get that
+    close) and only pulling out on long straights (mixed). The failing checks:
+    `racing-wake.test.ts` (dirty air) and `batch.test.ts` (best driver wins), both `it.fails`.
+  - Options: (a) let an attacker close inside the gap rule's margin when it has a tow and room
+    to pull out (a real slingshot); (b) start attacks only when close enough at a braking zone,
+    and follow on the line otherwise; (c) accept that sub-1% gaps rarely pass with identical
+    cars and rewrite those checks around bigger real-pace gaps or longer races.
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
 
 **Real-map tracks (its own session)** M
