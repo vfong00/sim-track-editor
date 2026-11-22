@@ -12,7 +12,7 @@ import { type Livery, liveries } from './livery';
 import { drawMinimap } from './minimap';
 import { statRows } from './stats';
 import { drawTimeline, timelineDuration } from './timeline';
-import { deltaToBest, nextMode, sectorBoard, sectorCell, type SectorCell, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
+import { deltaToBest, nextMode, sectorBoard, sectorCell, type SectorCell, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, fastestLaps, towerCell } from './tower';
 import { drawSpeedTrace, pedals, type TracePoint } from './trace';
 import { raceOver, raceSummary, summaryHtml } from './summary';
 import { qualiHtml, qualiSummary } from './quali';
@@ -326,6 +326,8 @@ function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos
     const q = s.track.toXY(frames[k0][o], frames[k0][o + 1]);
     const moved = Math.hypot(p.x - q.x, p.y - q.y);
     heading = moved > 0.5 ? Math.atan2(p.y - q.y, p.x - q.x) : Math.atan2(tng.y, tng.x);
+    // Sliding: the logged drift angle turns the nose into the corner.
+    heading += a[o + 3] + (b[o + 3] - a[o + 3]) * u;
   }
   return { p, heading, v: a[o + 2] + (b[o + 2] - a[o + 2]) * u, sPos, d, status };
 }
@@ -354,7 +356,7 @@ function clickTowerMode() {
 function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) {
   const r = s.race;
   const lap = at.leaderLap;
-  const fastest = towerMode === 'last' || towerMode === 'best' ? fastestLap(at) : Infinity;
+  const fastest = towerMode === 'last' || towerMode === 'best' ? fastestLaps(at) : new Map<string, number>();
   const board = towerMode === 'sectors' ? sectorBoard(at) : null;
   const rows = order.map((i, p) => {
     const c = r.cars[i];

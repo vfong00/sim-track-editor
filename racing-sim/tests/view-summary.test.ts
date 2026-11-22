@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { loadScenario, Race } from '../src/core';
+import { loadScenario, Race, type Scenario } from '../src/core';
 import { raceOver, raceSummary, summaryHtml } from '../src/view/summary';
 
 const scenario = (f: string) => JSON.parse(readFileSync(new URL(`./fixtures/scenarios/${f}`, import.meta.url), 'utf8'));
@@ -34,8 +34,10 @@ describe('end-of-race summary', () => {
     expect(s.passes).toBe(r.stats().passes);
     expect(s.rows.filter((x) => x.fastest)).toHaveLength(1);
     const best = Math.min(...r.cars.flatMap((c) => c.lapTimes));
-    expect(s.fastestLap?.name).toBe(s.rows.find((x) => x.fastest)!.name);
-    expect(s.fastestLap?.time).toBe(s.rows.find((x) => x.fastest)!.best);
+    expect(s.fastestLaps).toHaveLength(1);
+    expect(s.fastestLaps[0].cls).toBe('');
+    expect(s.fastestLaps[0].name).toBe(s.rows.find((x) => x.fastest)!.name);
+    expect(s.fastestLaps[0].time).toBe(s.rows.find((x) => x.fastest)!.best);
     expect(best).toBeGreaterThan(0);
   });
 
@@ -69,5 +71,28 @@ describe('qualifying panel', () => {
     expect(qualiHtml('t', q).match(/data-watch=/g)).toHaveLength(r.cars.length);
     // An untimed grid has no session to show.
     expect(qualiSummary(new Race(loadScenario(data).options).opts.entrants)).toBeNull();
+  });
+});
+
+describe('fastest lap per class', () => {
+  it('a multi-class race marks the fastest lap of each class, in the tower and the result', async () => {
+    const { towerCell, fastestLaps } = await import('../src/view/tower');
+    const { RaceAt } = await import('../src/view/at');
+    const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.json', import.meta.url).pathname, 'utf8')) as Scenario;
+    const r = new Race(loadScenario({
+      ...scn,
+      cars: [{ id: 'fast', preset: 'gt3' }, { id: 'slow', preset: 'mx5' }],
+      drivers: [{ name: 'A', car: 'fast' }, { name: 'B', car: 'fast' }, { name: 'C', car: 'slow' }, { name: 'D', car: 'slow' }],
+      field: undefined,
+      race: { laps: 3 },
+    }).options).run();
+    const at = new RaceAt(r, r.t);
+    expect(fastestLaps(at).size).toBe(2);
+    const order = [...r.orders[at.k]];
+    const purple = order.map((_, p) => towerCell(at, order, p, 'best').purple);
+    expect(purple.filter(Boolean)).toHaveLength(2);
+    const s = raceSummary(r);
+    expect(s.rows.filter((x) => x.fastest)).toHaveLength(2);
+    expect(s.fastestLaps.map((f) => f.cls)).toEqual(['GT3', 'MX-5']);
   });
 });

@@ -39,10 +39,20 @@ export function fastestLap(at: RaceAt): number {
 }
 
 /**
- * The tower cell for the car in position p (0-based) of `order`. `purple` marks the race's
- * fastest lap (best-lap mode) or a last lap that is it.
+ * The tower cell for the car in position p (0-based) of `order`. `purple` marks the fastest lap
+ * in the car's class (best-lap mode) or a last lap that is it.
  */
-export function towerCell(at: RaceAt, order: number[], p: number, mode: TowerMode, fastest = fastestLap(at)): { text: string; purple: boolean } {
+/** The fastest lap so far in each class (`classOf`), for the purple in a multi-class race. */
+export function fastestLaps(at: RaceAt): Map<string, number> {
+  const best = new Map<string, number>();
+  at.r.cars.forEach((c, i) => {
+    const k = classOf(c.entrant);
+    for (const t of at.lapTimes(i)) if (t < (best.get(k) ?? Infinity)) best.set(k, t);
+  });
+  return best;
+}
+
+export function towerCell(at: RaceAt, order: number[], p: number, mode: TowerMode, fastest = fastestLaps(at)): { text: string; purple: boolean } {
   const i = order[p];
   if (mode === 'gap' || mode === 'interval') {
     if (p === 0) return { text: at.finished(i) ? 'Winner' : 'Leader', purple: false };
@@ -51,7 +61,7 @@ export function towerCell(at: RaceAt, order: number[], p: number, mode: TowerMod
   const laps = at.lapTimes(i);
   if (!laps.length) return { text: '–', purple: false };
   const t = mode === 'last' ? laps[laps.length - 1] : Math.min(...laps);
-  return { text: fmtTime(t), purple: t === fastest };
+  return { text: fmtTime(t), purple: t === fastest.get(classOf(at.r.cars[i].entrant)) };
 }
 
 /**
