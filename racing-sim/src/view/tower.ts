@@ -81,7 +81,10 @@ export function sectorBoard(at: RaceAt): SectorBoard {
 }
 
 export interface SectorCell {
-  /** The current lap's sectors (a finished car: its last lap). */
+  /**
+   * The lap's sectors: the current lap once its first sector is done, until then the lap just
+   * finished (so its last sector's colour shows for a whole sector). A finished car: its last lap.
+   */
   times: number[];
   colors: SectorColor[];
   /** The latest sector finished (this lap or the end of the last): "S2 28.412", or '' before any. */
@@ -93,7 +96,8 @@ export function sectorCell(b: SectorBoard, i: number): SectorCell {
   const laps = b.laps[i];
   const cb = b.classBest.get(b.cls[i])!;
   const color = (t: number, k: number) => sectorColor(t, b.own[i][k], cb[k]);
-  const cur = laps[laps.length - 1] ?? [NaN, NaN, NaN];
+  let cur = laps[laps.length - 1] ?? [NaN, NaN, NaN];
+  if (!Number.isFinite(cur[0]) && laps.length > 1) cur = laps[laps.length - 2];
   const colors = cur.map(color);
   let text = '', textColor: SectorColor = 'none';
   // The latest finished sector: in the current lap, else the last sector of the lap before.

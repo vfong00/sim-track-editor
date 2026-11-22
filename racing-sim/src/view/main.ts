@@ -365,7 +365,7 @@ function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) 
       cls: `tr${i === followIdx ? ' sel' : camMode === 'battle' && battle.includes(i) ? ' bt' : ''}${fin ? ' fin' : ''}${out ? ' out' : ''}`,
       i,
       inner: `<span class="p">${out ? '' : p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
-      <span>${c.entrant.driver.name}${tag}</span>${cell(i, p, out)}`,
+      <span class="nm"><span class="n">${c.entrant.driver.name}</span>${tag}</span>${cell(i, p, out)}`,
     };
   });
   function cell(i: number, p: number, out: boolean): string {

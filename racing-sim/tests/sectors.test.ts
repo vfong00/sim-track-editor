@@ -123,6 +123,19 @@ describe('sectors in the viewer', () => {
     for (let k = 0; k < 3; k++) expect(s.rows.filter((x) => x.sectors[k].purple).length).toBe(2);
   });
 
+  it('the lap just finished stays up until the next lap has its first sector', () => {
+    const c = race.cars[0];
+    const secs = sectorTimes(race, 0);
+    const justOver = new RaceAt(race, c.crossTimes[2] + 0.5);
+    const held = sectorCell(sectorBoard(justOver), 0);
+    expect(held.times).toEqual(secs[1]);
+    expect(held.colors.every((x) => x !== 'none')).toBe(true);
+    const s1Done = new RaceAt(race, c.crossTimes[2] + secs[2][0] + 0.2);
+    const next = sectorCell(sectorBoard(s1Done), 0);
+    expect(next.times[0]).toBeCloseTo(secs[2][0], 9);
+    expect(next.colors[1]).toBe('none');
+  });
+
   it('the delta to best is about zero on the best lap, and none before a lap is done', () => {
     const c = race.cars[0];
     expect(deltaToBest(new RaceAt(race, (c.crossTimes[0] + c.crossTimes[1]) / 2), 0)).toBeNaN();

@@ -34,11 +34,15 @@
       #tower .hd .mode:hover { background: #3b6ea8; }
       #tower .hd .mode .dots { opacity: .5; font-size: 9px; margin-left: 3px; letter-spacing: 1px; }
       .tr .gap.purple { color: #c58cff; opacity: 1; font-weight: 600; }
-      #tower.sec .tr { grid-template-columns: 32px 6px 1fr 92px; }
-      .tr .chips { display: inline-flex; gap: 2px; margin-right: 5px; vertical-align: 1px; }
+      #tower.sec .tr { grid-template-columns: 32px 6px minmax(0, 1fr) 88px; }
+      .tr .nm { display: flex; align-items: center; min-width: 0; white-space: nowrap; }
+      .tr .nm .n { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+      .tr .nm .tag { flex-shrink: 0; }
+      #tower.sec .tr .gap { display: flex; justify-content: flex-end; align-items: center; }
+      .tr .chips { display: inline-flex; gap: 2px; margin-right: 5px; }
       .tr .sc { display: inline-block; width: 9px; height: 8px; border-radius: 1px; background: #3a3f48; }
       .sc.purple { background: #b06bff; } .sc.green { background: #3fbf5f; } .sc.yellow { background: #e0b400; }
-      .tr .st { font-variant-numeric: tabular-nums; }
+      .tr .st { font-variant-numeric: tabular-nums; display: inline-block; width: 44px; text-align: right; }
       .st.purple, #hud .secs .purple { color: #c58cff; } .st.green, #hud .secs .green { color: #5fd47a; } .st.yellow, #hud .secs .yellow { color: #f0c419; }
       #hud .secs .sv { display: flex; gap: 8px; font-variant-numeric: tabular-nums; }
       #hud .secs .none { opacity: .4; }
@@ -60,7 +64,7 @@
       #tower { top: calc(var(--bar, 36px) + 12px); left: 8px; width: 238px; max-height: calc(100vh - var(--bar, 36px) - 222px); overflow: auto; }
       body.mm #tower { max-height: calc(100vh - var(--bar, 36px) - 380px); }
       #tower .hd { display: flex; justify-content: space-between; font-weight: 600; padding: 2px 2px 6px; border-bottom: 1px solid #2a2f38; margin-bottom: 3px; }
-      .tr { display: grid; grid-template-columns: 32px 6px 1fr 64px; gap: 6px; align-items: center; padding: 2px; border-radius: 3px; cursor: pointer; }
+      .tr { display: grid; grid-template-columns: 32px 6px minmax(0, 1fr) 64px; gap: 6px; align-items: center; padding: 2px; border-radius: 3px; cursor: pointer; }
       .tr:hover { background: #22262d; }
       .tr.sel { background: #2c3a4e; }
       .tr.bt { background: #242c37; box-shadow: inset 2px 0 #4f86c6; }
