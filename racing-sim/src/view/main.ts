@@ -12,6 +12,7 @@ import { statRows } from './stats';
 import { drawTimeline, timelineDuration } from './timeline';
 import { nextMode, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
 import { drawSpeedTrace } from './trace';
+import { raceOver, raceSummary, summaryHtml } from './summary';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('c');
@@ -56,6 +57,8 @@ interface Session {
   /** Furthest time watched so far: the timeline only marks events up to here (no spoilers). */
   watched: number;
   label: string;
+  /** The result panel has opened by itself for this race (it opens once, at the flag). */
+  resultShown: boolean;
 }
 let S: Session | null = null;
 
@@ -138,7 +141,7 @@ async function runScenario(s: Scenario): Promise<boolean> {
     const { track, lanes } = await trackFor(s.track);
     const race = new Race(scenarioRaceOptions(s, track, lanes));
     const overview = fitView(track.centerline(), canvas.width, canvas.height, 50 * (devicePixelRatio || 1));
-    S = { track, lanes, race, scenario: structuredClone(s), overview, allView: overview, cam: { ...overview }, battleOff: { x: 0, y: 0 }, clock: 0, watched: 0, label: s.name };
+    S = { track, lanes, race, scenario: structuredClone(s), overview, allView: overview, cam: { ...overview }, battleOff: { x: 0, y: 0 }, clock: 0, watched: 0, label: s.name, resultShown: false };
   } catch (e) {
     showErrors(e instanceof ScenarioBuildError ? e.errors.map(formatError) : [(e as Error).message]);
     return false;
@@ -147,6 +150,7 @@ async function runScenario(s: Scenario): Promise<boolean> {
   towerKey = '';
   statsKey = '';
   followIdx = 0;
+  setResult(false);
   editor.set(s);
   const n = S.race.cars.length;
   info.textContent = `${s.name} · ${S.track.length.toFixed(0)} m · ${n} cars · ${s.race.laps} laps · seed ${s.seed}`;
@@ -164,6 +168,16 @@ function showErrors(errs: string[]) {
 function setEditor(open: boolean) {
   editorBox.hidden = !open;
   $('edit').classList.toggle('on', open);
+}
+
+const summaryBox = $('summary');
+/** Show or hide the result panel. It can only open once the viewer has reached the end of the race. */
+function setResult(open: boolean) {
+  const s = S;
+  const over = !!s && raceOver(s.race, new RaceAt(s.race, s.clock).k);
+  if (open && s && over) summaryBox.innerHTML = summaryHtml(s.label, raceSummary(s.race));
+  summaryBox.hidden = !(open && over);
+  $('result').classList.toggle('on', !summaryBox.hidden);
 }
 
 /** Run a modified copy of the current scenario. */
@@ -463,6 +477,11 @@ function frame(now: number) {
       ctx.fillStyle = '#ffb000';
       ctx.fillText('SC', q.x + 8 * dpr, q.y - 8 * dpr);
     }
+    // The result opens by itself once, when the viewer reaches the end of the race; rewinding closes it.
+    const over = raceOver(r, at.k);
+    if (over && !s.resultShown) { s.resultShown = true; setResult(true); }
+    if (!over && !summaryBox.hidden) setResult(false);
+    $<HTMLButtonElement>('result').disabled = !over;
     updateTowerMode(now, fastestLap(at) < Infinity);
     renderTower(s, at, order, poses.map((q) => q.status));
     const mini = camMode !== 'all' && followIdx >= 0;
@@ -606,11 +625,11 @@ function buildControls() {
   });
   // Keys (not while typing in the editor): ↑/↓ the car ahead/behind in the running order,
   // ←/→ back/forward 5 s (with shift 30 s), Home to the start, +/− zoom, 0 reset zoom,
-  // o/f/b camera, n names, space pause.
+  // o/f/b camera, n names, r result (once the race is over), space pause.
   addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
     // Escape closes the menu and the scenario panel, even from a field inside the panel.
-    if (e.key === 'Escape') { setRaceMenu(false); setEditor(false); return; }
+    if (e.key === 'Escape') { setRaceMenu(false); setEditor(false); setResult(false); return; }
     if (el.closest?.('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
     if (k === 'ArrowUp') stepFollow(-1);
@@ -619,6 +638,7 @@ function buildControls() {
     else if (k === 'ArrowRight') seek((S?.clock ?? 0) + (e.shiftKey ? 30 : 5));
     else if (k === 'Home') seek(0);
     else if (k === 'n') toggleNames();
+    else if (k === 'r') setResult(summaryBox.hidden);
     else if (k === '+' || k === '=') zoomBy(1.25);
     else if (k === '-' || k === '_') zoomBy(1 / 1.25);
     else if (k === '0') resetZoom();
@@ -647,6 +667,14 @@ function buildControls() {
   $('reseed').onclick = () => rerun((s) => { s.seed = (s.seed + 1) >>> 0; });
   $('gen').onclick = () => rerun((s) => { s.track = { type: 'generated', seed: Math.floor(Math.random() * 1e6), width: s.track.width ?? WIDTH }; });
   $('edit').onclick = () => setEditor(editorBox.hidden);
+  $('result').onclick = () => setResult(summaryBox.hidden);
+  // Result panel: × closes it; a row follows that driver.
+  summaryBox.addEventListener('click', (e) => {
+    const el = e.target as HTMLElement;
+    if (el.closest('.x')) { setResult(false); return; }
+    const row = el.closest<HTMLElement>('tr[data-i]');
+    if (row) { followIdx = Number(row.dataset.i); if (camMode === 'all') setCam('follow'); towerKey = ''; statsKey = ''; }
+  });
   drawBtn.onclick = () => setDrawing(!drawing);
   closeBtn.onclick = () => {
     if (clicks.length < 3) { info.textContent = 'Need at least 3 points'; return; }
