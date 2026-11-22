@@ -33,4 +33,6 @@ npm on this Mac: Artifactory may be unreachable. Install with
 - Dirty air no longer holds a faster car up (`tests/racing-wake.test.ts`, marked `it.fails`).
   Turn it back into a normal `it()` once it holds again.
 - A 6%-faster car sometimes spins after contact on a late dive instead of passing.
+- An attacker squeezed on the inside can ride the road edge like a wall and bounce back into
+  the gap instead of being forced off (see the feature map in `PLAN.md`).
 - These are small-sample checks; batch stats would make tuning them far less noisy.

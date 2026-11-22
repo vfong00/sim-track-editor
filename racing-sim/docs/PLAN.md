@@ -242,6 +242,11 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Passing balance: dirty air no longer measurably holds a faster car up (its check is marked
   `it.fails`), and a late dive can end in contact. Needs batch stats to tune. M
 - Dirty air by downforce: it should hurt winged cars far more than road cars. S–M
+- Squeezed on the inside: an attacker pinned between the defender and the road edge sometimes
+  stays exactly on the edge and "bounces" back into the gap, instead of being forced off or
+  spun. Likely cause: `stepCar` holds a driven car that isn't sliding on the road edge as if it
+  were a wall, so a squeeze never pushes it off. Fix: let a car squeezed by side spacing go over
+  the edge (like running wide), so it either drops wheels and loses time or makes contact. S–M
 - End-of-race summary: classification, gaps, fastest laps, passes, incidents. S
 - Batch runs (old Phase 7): win %, positions, passes and incidents over N seeds, per track.
   Mainly a tuning tool now. M
