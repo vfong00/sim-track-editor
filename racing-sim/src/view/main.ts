@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import {
-  buildTrack, CAR_LENGTH, CAR_WIDTH, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, lanePlansFor, LaneSet, parseScenario,
+  buildTrack, CAR_LENGTH, CAR_WIDTH, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, LaneSet, parseScenario,
   qualifyingRun, Race, type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
 } from '../core';
 import { ScenarioEditor } from '../editor/scenario-editor';
@@ -501,18 +501,13 @@ function sectorRow(at: RaceAt, i: number): string {
 }
 
 /**
- * Clean-air ideal laps: at the limit (a push lap, the driver's speed rating) and, in a race, at
- * race pace (a margin under it, from consistency).
+ * Watching a qualifying run: the clean-air lap at the limit (their speed rating), the lap the
+ * driver is chasing. Not shown in races, where nobody drives to it.
  */
 function idealRows(s: Session, at: RaceAt, i: number): string {
-  const e = s.race.cars[i].entrant;
-  const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
-  const quali = s.race.opts.session === 'qualifying';
-  const limit = quali ? at.plans(i).lapTime : lanePlansFor(s.lanes, e.car, e.driver.pace, { ...s.race.physics, gripLevel: at.gripLevel }).plans.lapTime;
-  const push = `<div class="row" title="Clean air at the limit, using ${pct(e.driver.pace)} of the car's grip (their speed rating): a qualifying lap"><span class="lbl">Ideal push lap</span><span>${fmtTime(limit)}</span></div>`;
-  if (quali) return push;
-  const pace = s.race.paceOf(e);
-  return `<div class="row" title="Clean air at race pace, using ${pct(pace)} of the car's grip: their limit less a margin that is bigger for a less consistent driver"><span class="lbl">Ideal race lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>${push}`;
+  if (s.race.opts.session !== 'qualifying') return '';
+  const pct = `${(s.race.cars[i].entrant.driver.pace * 100).toFixed(1)}%`;
+  return `<div class="row" title="Clean air at the limit, using ${pct} of the car's grip (their speed rating)"><span class="lbl">Ideal push lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>`;
 }
 
 /** Driver ratings and car spec of the followed car, each ranked in the field (only re-rendered when it changes). */
