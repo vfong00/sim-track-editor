@@ -358,8 +358,7 @@ function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
     <div class="row"><span class="lbl">This lap</span><span>${fmtTime(cur)}</span></div>
     <div class="row"><span class="lbl">Last lap</span><span>${laps.length ? fmtTime(laps[laps.length - 1]) : '–'}</span></div>
     <div class="row"><span class="lbl">Best lap</span><span>${laps.length ? fmtTime(Math.min(...laps)) : '–'}</span></div>
-    <div class="row"><span class="lbl">Solver lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>
-    <div class="row"><span class="lbl">Pace</span><span>${(c.entrant.driver.pace * 100).toFixed(1)}%</span></div>
+    <div class="row" title="The best this driver and car can do in clean air, using ${(c.entrant.driver.pace * 100).toFixed(1)}% of the car's grip (their speed rating)"><span class="lbl">Ideal lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>
     ${damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(damage * 100).toFixed(1)}% grip</span></div>` : ''}
     ${at.out(i) ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
   renderStats(s, i);
@@ -374,7 +373,7 @@ function renderStats(s: Session, i: number) {
   statsKey = key;
   const st = statRows(s.race.cars.map((c) => c.entrant), i);
   const rows = (rs: typeof st.driver) => rs.map((r) =>
-    `<div class="sr"><span class="lbl">${r.label}</span><span>${r.value}</span><span class="rk${r.rank.startsWith('1st') ? ' top' : ''}">${r.rank}</span></div>`).join('');
+    `<div class="sr" title="${r.hint}"><span class="lbl">${r.label}</span><span>${r.value}</span><span class="rk${r.rank.startsWith('1st') ? ' top' : ''}">${r.rank}</span></div>`).join('');
   hudStats.innerHTML = `<div class="st"><div class="tg" title="Show or hide the driver and car stats"><span>Driver &amp; car</span><span>${statsOpen ? '▾' : '▸'}</span></div>
     <div class="prof">${st.profile}</div>
     ${statsOpen ? `<div class="sub">Driver</div>${rows(st.driver)}<div class="sub">Car</div>${rows(st.car)}` : ''}</div>`;

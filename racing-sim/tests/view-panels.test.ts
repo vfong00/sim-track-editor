@@ -42,9 +42,9 @@ describe('follow panel stats', () => {
     const st = statRows(field, 0);
     expect(st.profile).toBe('Quick, consistent, careful');
     expect(st.driver.map((r) => `${r.label} ${r.value} · ${r.rank}`)).toEqual([
-      'Speed 0.79 · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Risk 0.30 · 3rd of 3', 'Racecraft 0.84 · 2nd of 3',
+      'Speed 0.79 · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Attacking 0.30 · 3rd of 3', 'Defending 0.84 · 2nd of 3',
     ]);
-    expect(st.car[0]).toEqual({ label: 'Top speed', value: '324 km/h', rank: '1st of 3' });
+    expect(st.car[0]).toMatchObject({ label: 'Top speed', value: '324 km/h', rank: '1st of 3' });
     expect(st.car[2].rank).toBe('all equal');
   });
 });

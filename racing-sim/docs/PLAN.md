@@ -247,6 +247,16 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   Mainly a tuning tool now. M
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
 
+**Driving styles (its own session)** L
+- Replace the risk and racecraft ratings with styles that bring several behaviours together:
+  smooth vs aggressive at the wheel (trail-braking and oversteer moments vs tidy lines),
+  divebomber vs defender, fair vs dirty in wheel-to-wheel. Today "risk" sets attacking and
+  late braking together, and "racecraft" (defending) is just the mean of speed and
+  consistency.
+- Mistake mix to revisit with it: per 12-car, 10-lap race (standard car) there are ~24 logged
+  slides (over the limit and caught), ~4 run-wides, ~1 lock-up and ~1.5 spins, half of them
+  after contact. Lock-ups are rarer than run-wides, which feels backwards.
+
 **Later (a "racing revamp" with playability)**
 - Tyre wear and temperature, weather that builds, pit stops, safety car extras (clearing
   wrecks, virtual safety car, red flag), team radio, picking your driver.
