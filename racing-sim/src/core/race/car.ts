@@ -38,6 +38,11 @@ export interface Controls {
   free?: boolean;
   /** A run-wide mistake: the driver doesn't hold the road edge (Phase 5). */
   runWide?: boolean;
+  /**
+   * Car alongside whose side spacing leaves no room on the road: the driver gives way over the
+   * edge instead of holding it (-1 / absent = not squeezed).
+   */
+  squeezedBy?: number;
 }
 
 /** Sliding friction as a share of grip (a spinning car's tires are dragged, not rolling). */
@@ -118,10 +123,11 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
   // are clamped to the road): it keeps its lateral position d apart from its own sideways speed.
   if (off > 0) st.delta -= lineD - lineD0;
   // On the road, a driven car within its grip follows the road edge (the lanes hug it, and the
-  // driver steers along it). Only a slide, a spin, a push in contact or running wide in a
-  // mistake takes it past the edge.
+  // driver steers along it). Only a slide, a spin, a push in contact, running wide in a mistake
+  // or being squeezed by a car alongside (giving way rather than leaning on it) takes it past
+  // the edge.
   // With `edgeWall` (incidents off) the road edge is a wall for everyone, as before Phase 5.
-  if (edgeWall || (off === 0 && !ctl.free && !ctl.runWide && st.slide === 0)) {
+  if (edgeWall || (off === 0 && !ctl.free && !ctl.runWide && !((ctl.squeezedBy ?? -1) >= 0) && st.slide === 0)) {
     const elo = -lanes.lim - lineD, ehi = lanes.lim - lineD;
     if (st.delta < elo) { st.delta = elo; if (st.vDelta < 0) st.vDelta = 0; }
     if (st.delta > ehi) { st.delta = ehi; if (st.vDelta > 0) st.vDelta = 0; }

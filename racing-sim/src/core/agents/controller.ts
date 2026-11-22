@@ -16,6 +16,8 @@ export interface Near {
 
 /** Lateral clearance two cars keep when side by side (centre to centre). */
 export const SIDE_GAP = HIT_W + 0.6;
+/** Centre-to-centre distance at which a car alongside is leaning in and squeezes a car on the road edge over it. */
+export const SQUEEZE = HIT_W + 0.25;
 /** Longitudinal distance within which a car counts as alongside. */
 export const ALONGSIDE = HIT_LEN + 2;
 
@@ -44,17 +46,23 @@ export interface TrafficDecision {
 export function trafficControls(me: DriverView, near: Near[], wantDelta: number, vPlan: number, brakeGain = 0.97): TrafficDecision {
   const { st, lanes } = me;
   const lineD = lanes.lineD(st.s);
-  let lo = -Infinity, hi = Infinity;
+  let lo = -Infinity, hi = Infinity, loBy = -1, hiBy = -1;
   for (const o of near) {
     if (Math.abs(o.gap) >= ALONGSIDE || Math.abs(o.dd) < 1.2) continue;
-    if (o.dd > 0) hi = Math.min(hi, o.d - SIDE_GAP - lineD);
-    else lo = Math.max(lo, o.d + SIDE_GAP - lineD);
+    // Only a car leaning in (closer than SQUEEZE) squeezes; within the spacing margin the
+    // driver holds the edge and lets the other car make room.
+    const by = Math.abs(o.dd) < SQUEEZE ? o.j : -1;
+    if (o.dd > 0) { if (o.d - SIDE_GAP - lineD < hi) { hi = o.d - SIDE_GAP - lineD; hiBy = by; } }
+    else if (o.d + SIDE_GAP - lineD > lo) { lo = o.d + SIDE_GAP - lineD; loBy = by; }
   }
   // Aim within the road, but side spacing wins: a car squeezed onto the grass stays there until
   // there's room to come back (steering back into a car alongside would only lean on it).
-  const onRoad = clamp(wantDelta, -lanes.lim - lineD, lanes.lim - lineD);
+  const eLo = -lanes.lim - lineD, eHi = lanes.lim - lineD;
+  const onRoad = clamp(wantDelta, eLo, eHi);
   let deltaTarget = lo > hi ? st.delta : clamp(onRoad, lo, hi);
   deltaTarget = clamp(deltaTarget, -lanes.wall - lineD, lanes.wall - lineD);
+  // Squeezed: the spacing rule leaves no room on the road on that side.
+  const squeezedBy = lo > hi ? -1 : hi < eLo - 1e-9 ? hiBy : lo > eHi + 1e-9 ? loBy : -1;
   const targetD = lineD + deltaTarget;
 
   let vTarget = vPlan;
@@ -98,7 +106,7 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
       following = o.j;
     }
   }
-  return { ctl: { vTarget, deltaTarget }, following };
+  return { ctl: squeezedBy >= 0 ? { vTarget, deltaTarget, squeezedBy } : { vTarget, deltaTarget }, following };
 }
 
 /**

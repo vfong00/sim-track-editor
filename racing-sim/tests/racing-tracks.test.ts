@@ -3,10 +3,11 @@ import { LaneSet, makeField, makeRng, Race, Track } from '../src/core';
 import { stadium } from './helpers';
 import { passesAfterLap1 } from './racing-helpers';
 
-const SEEDS = [1, 2, 3, 4];
+// 16 seeds: with 4, a couple of squeezed-off attacks on the straights track swing the count by half.
+const SEEDS = Array.from({ length: 16 }, (_, k) => k + 1);
 
 describe('Phase 4: track character', () => {
-  it('long-straight tracks produce more passes than twisty ones', () => {
+  it('long-straight tracks produce more passes than twisty ones', { timeout: 60000 }, () => {
     const straights = stadium(800, 110);
     const twCtrl = Array.from({ length: 24 }, (_, i) => {
       const a = (i / 24) * 2 * Math.PI;

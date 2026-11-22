@@ -172,7 +172,7 @@ export interface RaceCar {
   lastSlideLog: number;
   /** Last time the car was over its grip limit. */
   lastSlideT: number;
-  /** Last touch with another car (any closing speed) and with whom. */
+  /** Last touch with another car (any closing speed, or a squeeze over the edge) and with whom. */
   lastTouchT: number;
   lastTouchWith: number;
   /** When the car's wheels first went over the road edge in the current excursion (NaN = on the road). */
@@ -500,6 +500,12 @@ export class Race {
     });
     const prev = this.cars.map((c) => c.st.dist);
     const edgeWall = this.opts.incidents === false;
+    // Squeezed over the edge by a car alongside counts as a touch for blaming an off on it,
+    // even when the two never actually touch (the squeezed driver gave way).
+    ctls.forEach((ctl, i) => {
+      const j = ctl.squeezedBy ?? -1;
+      if (j >= 0) { this.cars[i].lastTouchT = this.t; this.cars[i].lastTouchWith = j; }
+    });
     this.cars.forEach((c, i) => { if (c.status !== 'out') stepCar(c.st, ctls[i], c.model, this.lanes, dt, edgeWall); });
     this.moveSafetyCar();
     this.t += dt;
@@ -649,7 +655,8 @@ export class Race {
         // catches more of those that do (rate).
         const scale = this.scaleOf(c);
         const rate = I.spinRate * Math.max(0, excess - I.spinFrom / scale) * scale;
-        if (rate > 0 && c.st.v > 10 && c.rng.next() < rate * dt) this.startSpin(c, this.causeOf(c));
+        // In the run-off, the off itself is to blame if nothing more recent is.
+        if (rate > 0 && c.st.v > 10 && c.rng.next() < rate * dt) this.startSpin(c, this.causeOf(c) >= 0 || c.offEvent < 0 ? this.causeOf(c) : c.offEvent);
       }
       if (c.st.wall > 0 && this.canCrash(c)) {
         const cause = c.offEvent >= 0 ? c.offEvent : this.causeOf(c);
