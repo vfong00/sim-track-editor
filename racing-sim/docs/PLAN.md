@@ -247,6 +247,17 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   Mainly a tuning tool now. M
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
 
+**Real-map tracks (its own session)** M
+- Build tracks from OpenStreetMap geometry instead of traced images: road ways converted to
+  metres and fed in as a drawn track (true length and corner radii, no tracing blur). OSM maps
+  most circuits as `highway=raceway`.
+- A loop of real roads in Verona: the user names the roads (or corner intersections) in order,
+  plus which Verona and the road width (real, about 7–10 m, or race-track width). Querying OSM
+  sends that area and those names to its public service, so do it only with that input.
+- Remap Yas Marina and Silverstone the same way: the PNG traces tighten some corners (Yas's
+  top kink; Silverstone's Brooklands and Luffield are ~75 km/h in F1 vs ~110 real) and needed
+  hand-tuned smoothing.
+
 **Driving styles (its own session)** L
 - Replace the risk and racecraft ratings with styles that bring several behaviours together:
   smooth vs aggressive at the wheel (trail-braking and oversteer moments vs tidy lines),
