@@ -10,7 +10,7 @@ import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
 import { drawMinimap } from './minimap';
 import { statRows } from './stats';
 import { drawTimeline, timelineDuration } from './timeline';
-import { hasGridTimes, nextMode, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
+import { nextMode, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
 import { drawSpeedTrace } from './trace';
 import { raceOver, raceSummary, summaryHtml } from './summary';
 import { qualiHtml, qualiSummary } from './quali';
@@ -27,6 +27,9 @@ const mctx = miniCanvas.getContext('2d')!;
 const info = $('info'), hud = $('hud'), tower = $('tower'), feed = $('feed');
 const hudLive = $('hud-live'), hudStats = $('hud-stats');
 const drawBtn = $<HTMLButtonElement>('draw'), closeBtn = $<HTMLButtonElement>('close');
+
+/** Margin (CSS px) around the track in the overview, so the panels at the sides cover less of it. */
+const OVERVIEW_PAD = 90;
 
 const params = new URLSearchParams(location.search);
 const WIDTH = 14;
@@ -80,7 +83,7 @@ function resize() {
     c.width = c.clientWidth * dpr;
     c.height = c.clientHeight * dpr;
   }
-  if (S) S.allView = S.overview = fitView(S.track.centerline(), canvas.width, canvas.height, 50 * dpr);
+  if (S) S.allView = S.overview = fitView(S.track.centerline(), canvas.width, canvas.height, OVERVIEW_PAD * dpr);
 }
 
 // ---- scenarios (Phase 6) -------------------------------------------------------------------
@@ -141,7 +144,7 @@ async function runScenario(s: Scenario): Promise<boolean> {
   try {
     const { track, lanes } = await trackFor(s.track);
     const race = new Race(scenarioRaceOptions(s, track, lanes));
-    const overview = fitView(track.centerline(), canvas.width, canvas.height, 50 * (devicePixelRatio || 1));
+    const overview = fitView(track.centerline(), canvas.width, canvas.height, OVERVIEW_PAD * (devicePixelRatio || 1));
     S = { track, lanes, race, scenario: structuredClone(s), overview, allView: overview, cam: { ...overview }, battleOff: { x: 0, y: 0 }, clock: 0, watched: 0, label: s.name, resultShown: false };
   } catch (e) {
     showErrors(e instanceof ScenarioBuildError ? e.errors.map(formatError) : [(e as Error).message]);
@@ -152,8 +155,7 @@ async function runScenario(s: Scenario): Promise<boolean> {
   setQuali(false);
   feedKey = '';
   towerKey = '';
-  // A timed grid opens on the grid times (pole and the gaps), then rotates as usual.
-  towerMode = S.race.cars.some((c) => c.entrant.gridTime !== undefined) ? 'grid' : 'gap';
+  towerMode = 'gap';
   towerSwitched = performance.now();
   statsKey = '';
   followIdx = 0;
@@ -331,19 +333,15 @@ let towerKey = '';
 let towerMode: TowerMode = 'gap';
 let towerHeldUntil = 0;
 let towerSwitched = performance.now();
-/** Modes with something to show: lap times once someone has a lap, grid times on a timed grid. */
-const towerModeShown = (m: TowerMode, anyLaps: boolean, gridTimes: boolean) =>
-  m === 'last' || m === 'best' ? anyLaps : m === 'grid' ? gridTimes : true;
-function updateTowerMode(now: number, anyLaps: boolean, gridTimes: boolean) {
+function updateTowerMode(now: number, anyLaps: boolean) {
   if (now < towerHeldUntil || now - towerSwitched < TOWER_ROTATE * 1000) return;
   towerMode = nextMode(towerMode);
-  while (!towerModeShown(towerMode, anyLaps, gridTimes)) towerMode = nextMode(towerMode);
+  // Before anyone has completed a lap, lap times would be an empty column: rotate gap and interval only.
+  while (!anyLaps && (towerMode === 'last' || towerMode === 'best')) towerMode = nextMode(towerMode);
   towerSwitched = now;
 }
 function clickTowerMode() {
   towerMode = nextMode(towerMode);
-  // A click goes through every mode except grid times on an untimed grid.
-  if (S && !towerModeShown(towerMode, true, S.race.cars.some((c) => c.entrant.gridTime !== undefined))) towerMode = nextMode(towerMode);
   towerSwitched = performance.now();
   towerHeldUntil = towerSwitched + TOWER_HOLD * 1000;
 }
@@ -563,7 +561,7 @@ function frame(now: number) {
     if (over && !s.resultShown) { s.resultShown = true; setResult(true); }
     if (!over && !summaryBox.hidden) setResult(false);
     $<HTMLButtonElement>('result').disabled = !over;
-    updateTowerMode(now, fastestLap(at) < Infinity, hasGridTimes(at));
+    updateTowerMode(now, fastestLap(at) < Infinity);
     renderTower(s, at, order, poses.map((q) => q.status));
     const mini = camMode !== 'all' && followIdx >= 0;
     document.body.classList.toggle('mm', mini);

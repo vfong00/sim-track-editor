@@ -381,6 +381,10 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Tyre wear and temperature, weather that builds, pit stops, team radio, picking your driver.
 
 **Watching**
+- Sector times in the timing tower: split each lap into three sectors (by distance, or at
+  chosen corners), log each car's sector times from the checkpoints the race already records,
+  and add a tower mode for the current lap's sectors (purple = fastest overall, green = the
+  driver's own best), plus sectors in the qualifying panel. S–M
 - Car art or liveries. S–M
 - Phone and tablet layout. M
 - Lap and gap charts: not needed; the timing tower covers it.
