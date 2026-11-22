@@ -517,11 +517,15 @@ function renderStats(s: Session, i: number) {
   const key = `${i}/${statsOpen}`;
   if (key === statsKey) return;
   statsKey = key;
-  const st = statRows(s.race.cars.map((c) => c.entrant), i);
+  // Watching a qualifying run: rank against the race's field, not the one car on track.
+  const field = (qualiBack?.session.race ?? s.race).opts.entrants;
+  const fi = qualiBack ? Math.max(0, field.indexOf(s.race.cars[i].entrant)) : i;
+  const st = statRows(field, fi);
   const rows = (rs: typeof st.driver) => rs.map((r) =>
     `<div class="sr" title="${r.hint}"><span class="lbl">${r.label}</span><span>${r.value}</span><span class="rk${r.rank.startsWith('1st') ? ' top' : ''}">${r.rank}</span></div>`).join('');
   hudStats.innerHTML = `<div class="st"><div class="tg" title="Show or hide the driver and car stats"><span>Driver &amp; car</span><span>${statsOpen ? '▾' : '▸'}</span></div>
-    <div class="prof">${st.profile}</div>
+    ${st.blurb.car === null ? `<div class="prof">${st.blurb.driver}</div>`
+      : `<div class="prof"><span class="pl">Driver:</span> ${st.blurb.driver}</div><div class="prof"><span class="pl">Car:</span> ${st.blurb.car}</div>`}
     ${statsOpen ? `<div class="sub">Driver</div>${rows(st.driver)}<div class="sub">Car</div>${rows(st.car)}` : ''}</div>`;
 }
 

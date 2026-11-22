@@ -59,7 +59,10 @@ describe('follow panel stats', () => {
   it('gives each rating and car value its rank in the field', () => {
     const field = [entrant('A', 0.79, 0.9, 0.3, 90), entrant('B', 0.9, 0.8, 0.5), entrant('C', 0.2, 0.95, 0.7)];
     const st = statRows(field, 0);
-    expect(st.profile).toBe("Very quick, consistent, careful, in a custom car that's the quickest on the straights");
+    expect(st.blurb).toEqual({ driver: 'Very quick, consistent, careful', car: "A custom car that's the quickest on the straights" });
+    // A spec field: no car line.
+    const spec = [entrant('A', 0.79, 0.9, 0.3), entrant('B', 0.9, 0.8, 0.5)];
+    expect(statRows(spec, 0).blurb.car).toBeNull();
     expect(st.driver.map((r) => `${r.label} ${r.value} · ${r.rank}`)).toEqual([
       'Pace 97.9% · 2nd of 3', 'Race pace 94.3% · 1st of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
       'Racecraft 0.84 · 2nd of 3', 'Incident risk ×0.74 · 1st of 3',

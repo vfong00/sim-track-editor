@@ -139,6 +139,10 @@ export interface StatRow {
   hint: string;
 }
 
+const CAR_KEYS = ['topSpeed', 'accel', 'grip', 'brake', 'downforce'] as const;
+const sameCar = (a: CarSpec, b: CarSpec) => a.preset === b.preset && CAR_KEYS.every((k) => Math.abs((a[k] ?? 0) - (b[k] ?? 0)) < 1e-9);
+const capitalise = (t: string) => t[0].toUpperCase() + t.slice(1);
+
 /** The cars car i races: its class (same preset) when there are others in it, else the field. */
 function rivalsOf(cars: CarSpec[], i: number): CarSpec[] {
   const cls = cars.filter((c, k) => k !== i && c.preset === cars[i].preset);
@@ -146,7 +150,7 @@ function rivalsOf(cars: CarSpec[], i: number): CarSpec[] {
 }
 
 /** Rating and car rows for entrant i of the field, each with its rank. */
-export function statRows(field: Entrant[], i: number): { profile: string; driver: StatRow[]; car: StatRow[] } {
+export function statRows(field: Entrant[], i: number): { blurb: { driver: string; car: string | null }; driver: StatRow[]; car: StatRow[] } {
   const rs = field.map(ratingsOf);
   const ds = field.map((e) => e.driver);
   const row = (label: string, vals: number[], fmt: (v: number) => string, hint: string, higher = true): StatRow =>
@@ -154,7 +158,11 @@ export function statRows(field: Entrant[], i: number): { profile: string; driver
   const f2 = (v: number) => v.toFixed(2);
   const cars = field.map((e) => e.car);
   return {
-    profile: `${profile(rs[i], ds[i].pace, racePace(ds[i]))}, in ${carPhrase(cars[i], rivalsOf(cars, i))}`,
+    // A spec field (every car the same): the car says nothing, so only the driver.
+    blurb: {
+      driver: profile(rs[i], ds[i].pace, racePace(ds[i])),
+      car: cars.every((c) => sameCar(c, cars[i])) ? null : capitalise(carPhrase(cars[i], rivalsOf(cars, i))),
+    },
     driver: [
       // The numbers the sim actually uses (DriverSpec), not the scenario's simpler ratings.
       row('Pace', ds.map((d) => d.pace), (v) => `${(v * 100).toFixed(1)}%`, "Share of the car's grip used at the limit, on a qualifying lap (from the speed rating: 90% to 100%)."),
