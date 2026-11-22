@@ -7,6 +7,7 @@ import { ScenarioEditor } from '../editor/scenario-editor';
 import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
 import { RaceAt } from './at';
 import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
+import { type Livery, liveries } from './livery';
 import { drawMinimap } from './minimap';
 import { statRows } from './stats';
 import { drawTimeline, timelineDuration } from './timeline';
@@ -387,6 +388,14 @@ function sectorChips(c: SectorCell): string {
   return `<span class="chips">${chips}</span><span class="st ${c.textColor}">${c.text.replace(/^S\d /, '')}</span>`;
 }
 
+/** Liveries per race (entrants are fixed for a race, so worked out once). */
+const liveryCache = new WeakMap<Race, Livery[]>();
+function liveryOf(r: Race): Livery[] {
+  let l = liveryCache.get(r);
+  if (!l) liveryCache.set(r, (l = liveries(r.opts.entrants)));
+  return l;
+}
+
 /** Safety car state at the viewer clock, from the event log: out, in (no passing yet), or none. */
 function scState(r: Race, t: number): 'out' | 'in' | '' {
   let st: 'out' | 'in' | '' = '';
@@ -568,7 +577,7 @@ function frame(now: number) {
     drawTrack(ctx, s.track, s.cam, s.lanes.line, r.sectorEnds.slice(0, 2));
     for (let p = n - 1; p >= 0; p--) {
       const i = order[p];
-      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx && camMode !== 'all', poses[i].status);
+      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx && camMode !== 'all', poses[i].status, liveryOf(r)[i]);
     }
     if (showNames) drawLabels(s, poses, order, dpr);
     if (scPose) {

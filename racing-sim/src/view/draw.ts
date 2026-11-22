@@ -1,4 +1,5 @@
 import { RUNOFF, STATUS, type Track, type TrackPath, type Vec } from '../core';
+import type { Livery } from './livery';
 
 export interface View {
   scale: number;
@@ -99,8 +100,16 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
   ctx.stroke();
 }
 
-/** Car as an oriented rectangle (world size), at least a few pixels so it stays visible. */
-export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading: number, color: string, len: number, wid: number, outline = false, status = 0): void {
+/** Below this length on screen (px) a car is a plain coloured block: details would be mush. */
+const DETAIL_PX = 14;
+/** From this length on screen (px) the race number shows. */
+const NUMBER_PX = 34;
+
+/**
+ * Car (world size, at least a few pixels so it stays visible): with a livery, its body shape
+ * and paint once it is big enough on screen; else an oriented rectangle.
+ */
+export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading: number, color: string, len: number, wid: number, outline = false, status = 0, livery?: Livery): void {
   if (status === STATUS.cleared) return; // taken away by marshals
   const q = toScreen(v, p);
   const L = Math.max(len * v.scale, 7), W = Math.max(wid * v.scale, 3.5);
@@ -129,10 +138,13 @@ export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading:
   }
   ctx.rotate(-heading);
   ctx.globalAlpha = out ? 0.55 : 1;
-  ctx.fillStyle = color;
-  ctx.fillRect(-L / 2, -W / 2, L, W);
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillRect(L / 2 - L * 0.22, -W / 2, L * 0.22, W);
+  if (livery && L >= DETAIL_PX) drawBody(ctx, L, W, livery);
+  else {
+    ctx.fillStyle = color;
+    ctx.fillRect(-L / 2, -W / 2, L, W);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(L / 2 - L * 0.22, -W / 2, L * 0.22, W);
+  }
   ctx.globalAlpha = 1;
   if (out) {
     // Retired: a red cross over the car.
@@ -150,6 +162,146 @@ export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading:
     ctx.strokeRect(-L / 2 - 2, -W / 2 - 2, L + 4, W + 4);
   }
   ctx.restore();
+}
+
+const TYRE = '#101215';
+const GLASS = 'rgba(20, 26, 36, 0.9)';
+
+/** A rounded rectangle path (x, y = top-left corner). */
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+/**
+ * The car's body in its own frame (pixels; +x forward, centred on the car), filling L × W: the
+ * class's shape, the base colour, the pattern in the accent, glass and wings, and the number.
+ */
+function drawBody(ctx: CanvasRenderingContext2D, L: number, W: number, lv: Livery): void {
+  const hl = L / 2, hw = W / 2;
+  // The body outline, used to fill and then to clip the pattern.
+  const body = () => {
+    if (lv.shape === 'open') {
+      // Nose cone, cockpit, sidepods, engine cover tapering to the gearbox.
+      ctx.beginPath();
+      ctx.moveTo(hl * 0.92, -hw * 0.12);
+      ctx.lineTo(hl * 0.92, hw * 0.12);
+      ctx.lineTo(hl * 0.3, hw * 0.3);
+      ctx.lineTo(hl * 0.1, hw * 0.62);
+      ctx.lineTo(-hl * 0.45, hw * 0.62);
+      ctx.lineTo(-hl * 0.72, hw * 0.3);
+      ctx.lineTo(-hl * 0.72, -hw * 0.3);
+      ctx.lineTo(-hl * 0.45, -hw * 0.62);
+      ctx.lineTo(hl * 0.1, -hw * 0.62);
+      ctx.lineTo(hl * 0.3, -hw * 0.3);
+      ctx.closePath();
+    } else if (lv.shape === 'proto') {
+      roundRect(ctx, -hl, -hw * 0.96, L, W * 0.96, hw * 0.7);
+    } else {
+      roundRect(ctx, -hl * 0.98, -hw * 0.92, L * 0.98, W * 0.92, hw * (lv.shape === 'gt' ? 0.45 : 0.55));
+    }
+  };
+  // Open wheels and wings go under and around the body.
+  if (lv.shape === 'open') {
+    ctx.fillStyle = TYRE;
+    const tw = L * 0.15, th = W * 0.26;
+    for (const x of [hl * 0.56, -hl * 0.62]) for (const y of [-hw, hw - th]) ctx.fillRect(x - tw / 2, y, tw, th);
+    // Front wing (accent) and rear wing (dark, accent endplates).
+    ctx.fillStyle = lv.accent;
+    ctx.fillRect(hl * 0.86, -hw * 0.92, L * 0.07, W * 0.92);
+    ctx.fillStyle = TYRE;
+    ctx.fillRect(-hl, -hw * 0.6, L * 0.09, W * 0.6);
+    ctx.fillStyle = lv.accent;
+    ctx.fillRect(-hl, -hw * 0.6, L * 0.09, W * 0.08);
+    ctx.fillRect(-hl, hw * 0.52, L * 0.09, W * 0.08);
+  }
+  ctx.fillStyle = lv.base;
+  body();
+  ctx.fill();
+  // Pattern, clipped to the body.
+  ctx.save();
+  body();
+  ctx.clip();
+  ctx.fillStyle = lv.accent;
+  switch (lv.pattern) {
+    case 'stripe': ctx.fillRect(-hl, -W * 0.09, L, W * 0.18); break;
+    case 'halves': ctx.fillRect(0, -hw, hl, W); break;
+    case 'tail': ctx.fillRect(-hl, -hw, L * 0.3, W); break;
+    case 'sides': ctx.fillRect(-hl, -hw * 0.78, L, W * 0.1); ctx.fillRect(-hl, hw * 0.68, L, W * 0.1); break;
+    case 'chevron':
+      ctx.beginPath();
+      ctx.moveTo(hl * 0.55, 0);
+      ctx.lineTo(hl * 0.05, -hw);
+      ctx.lineTo(-hl * 0.15, -hw);
+      ctx.lineTo(hl * 0.35, 0);
+      ctx.lineTo(-hl * 0.15, hw);
+      ctx.lineTo(hl * 0.05, hw);
+      ctx.closePath();
+      ctx.fill();
+      break;
+  }
+  ctx.restore();
+  // Glass, wings and details by shape.
+  ctx.fillStyle = GLASS;
+  if (lv.shape === 'open') {
+    // Cockpit opening with the driver's helmet in the accent.
+    roundRect(ctx, -hl * 0.12, -hw * 0.2, L * 0.16, W * 0.4, hw * 0.2);
+    ctx.fill();
+    ctx.fillStyle = lv.accent;
+    ctx.beginPath();
+    ctx.arc(-hl * 0.02, 0, Math.min(hw * 0.16, L * 0.05), 0, 7);
+    ctx.fill();
+  } else if (lv.shape === 'proto') {
+    // Canopy bubble forward of centre, and a full-width rear wing.
+    ctx.beginPath();
+    ctx.ellipse(hl * 0.12, 0, L * 0.14, W * 0.2, 0, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = TYRE;
+    ctx.fillRect(-hl, -hw * 0.9, L * 0.07, W * 0.9);
+  } else {
+    // Windscreen and rear window; a GT gets a wing on stands.
+    const cab = lv.shape === 'gt' ? 0.34 : 0.4;
+    ctx.beginPath();
+    ctx.moveTo(hl * 0.32, -hw * 0.7);
+    ctx.lineTo(hl * 0.32, hw * 0.7);
+    ctx.lineTo(hl * (0.32 - cab * 0.45), hw * 0.62);
+    ctx.lineTo(hl * (0.32 - cab * 0.45), -hw * 0.62);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(-hl * 0.62, -hw * 0.6, L * 0.08, W * 0.6);
+    if (lv.shape === 'gt') {
+      ctx.fillStyle = TYRE;
+      ctx.fillRect(-hl * 0.97, -hw * 0.94, L * 0.06, W * 0.94);
+    }
+  }
+  // Number roundel on the roof or engine cover.
+  if (L >= NUMBER_PX) {
+    const nx = lv.shape === 'open' ? -hl * 0.38 : lv.shape === 'proto' ? -hl * 0.3 : -hl * 0.12;
+    const r = Math.min(hw * 0.5, L * 0.11);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(nx, 0, r, 0, 7);
+    ctx.fill();
+    ctx.save();
+    ctx.translate(nx, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = '#111';
+    ctx.font = `700 ${r * 1.15}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(lv.number), 0, r * 0.06);
+    ctx.restore();
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = 1;
+  body();
+  ctx.stroke();
 }
 
 export const fmtTime = (t: number): string => {

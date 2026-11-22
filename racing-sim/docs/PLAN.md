@@ -325,12 +325,17 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   formation of cars on track together in qualifying (traffic, tows).
 
 **Next, in order**
-1. Car art and effects (Watching). M
-2. Batch baseline: `batch --save` writes a scenario's numbers (passes, DNFs, incidents, stuck
-   time, lap-1 contacts) to a baseline file, and later runs print the change against it. Many
-   checks sit near their thresholds, and this makes a tuning change readable at a glance. S
-3. Then one of the bigger sessions: driving styles with corner lines and lap 1 (with car size
+1. Effects (Watching, under car art). S–M
+2. Then one of the bigger sessions: driving styles with corner lines and lap 1 (with car size
    per preset), marshalling with penalties, or real-map tracks.
+
+**Done: batch baseline.** `batch --save` writes each race's numbers to `baselines/<name>.json`
+(the commit and a hash of the scenario file go with them); later batches print the change,
+paired by seed when the seeds match (* = more than twice its standard error), and say when the
+races are identical. New metric: lap-1 contacts (contacts while the leader is on lap 1).
+Baselines saved for five examples at 16 seeds. They show lap 1 is most of the contact: F1
+constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 Laguna 11.4 of
+18.4, multi-class Nordschleife 7.4 of 10.7. Re-save a baseline when a change is meant to move it.
 
 **Racing and sim (small)**
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
@@ -438,10 +443,13 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Done: throttle and brake on the speed trace (Inputs, `i`). Worked out from the logged speed
   and the car model (`pedals` in `view/trace.ts`), clean air assumed.
 - Car art and effects (bumped up: after sectors). M
-  - Shape by class, top down: open-wheel (exposed wheels, wings), prototype, GT, small sports
-    car. Drawn from the car's size (see car size per preset).
-  - Seeded liveries: team colours plus a pattern (stripe, halves, chevron, tail fade) picked
-    from the team name; the number on the nose or roof. S
+  - Done: shape by class, top down (`view/livery.ts`, `drawBody` in `view/draw.ts`):
+    open-wheel (exposed wheels, wings, helmet), prototype (canopy, rear wing), GT (glass, wing),
+    road car. From the preset, else from downforce. Liveries seeded from the team (car id and
+    colour, so teammates match): stripe, halves, chevron, tail or side stripes in an accent
+    with enough contrast, and a race number from the driver's name (unique in the field,
+    whatever the grid). Below 14 px a car is still a plain block; the number shows from 34 px.
+    Still drawn in the shared 1.8 × 4.0 m footprint (scales with car size per preset).
   - Effects that carry information: brake glow in braking zones, tyre smoke on slides and
     lock-ups, sparks on contact, skid marks that stay on the track (they show where people
     lock up). The viewer can place these from the log's events and the pedal estimate. S–M
