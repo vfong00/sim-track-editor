@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   buildTrack, decodeScenario, driverFromRatings, encodeScenario, formatError, loadScenario, parseScenario, Race,
-  riskTaking, type Scenario, FRAME_STRIDE, STATUS, ScenarioBuildError, scenarioEntrants, scenarioRaceOptions, SHARE_LIMIT, trackKey, LaneSet,
+  riskTaking, type Scenario, FRAME_STRIDE, STATUS, ScenarioBuildError, scenarioEntrants, scenarioRaceOptions, SHARE_LIMIT, trackKey, LaneSet, PACE_MAX, PACE_MIN,
 } from '../src/core';
 import { decodeDataUrl } from '../src/cli/png-node';
 
@@ -179,7 +179,7 @@ describe('Phase 6: replay from seed', () => {
 describe('Phase 6: driver ratings', () => {
   it('speed, consistency and risk map onto the internal ratings; risk-taking equals risk', () => {
     const avg = driverFromRatings('A', { speed: 0.5, consistency: 0.85, risk: 0.5 });
-    expect(avg.pace).toBeCloseTo(0.98, 10);
+    expect(avg.pace).toBeCloseTo((PACE_MIN + PACE_MAX) / 2, 10);
     for (const risk of [0, 0.3, 1]) {
       const d = driverFromRatings('A', { speed: 0.5, consistency: 0.85, risk });
       expect(d.aggression).toBe(risk);
@@ -241,8 +241,9 @@ describe('Phase 6: mid-race events', () => {
     const lee = r.cars.find((c) => r.name(c.idx) === 'Lee')!;
     expect(lee.dnf).toBe(true);
     expect(r.events.find((e) => e.type === 'retire')!.lap).toBe(2);
-    const spin = r.events.find((e) => e.type === 'spin' && r.name(e.cars[0]) === 'Ortiz');
-    expect(spin?.lap).toBe(3);
+    // The scripted one, on lap 3 (Ortiz may also spin by himself earlier).
+    const spins = r.events.filter((e) => e.type === 'spin' && r.name(e.cars[0]) === 'Ortiz');
+    expect(spins.map((e) => e.lap)).toContain(3);
   });
 
   it('incident settings: off makes the edge a wall; the rate scales incidents', () => {

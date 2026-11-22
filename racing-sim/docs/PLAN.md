@@ -178,7 +178,7 @@ ends with the localhost dev server running and showing that phase's visuals (des
 - Share by file or URL; replays from seed.
 - **Checks:** every example scenario validates and runs to completion; invalid files fail with
   clear errors; replay from seed matches the original log.
-- **Done.** Ratings: speed → pace 0.96–1.0 (0.5 = average 0.98); consistency as is; risk →
+- **Done.** Ratings: speed → pace 0.96–1.0 (0.5 = average 0.98; since widened to 0.90–1.0, see the feature map); consistency as is; risk →
   aggression and bravery (so riskTaking = risk); racecraft = mean(speed, consistency). Internal
   ratings stay available as `advanced` overrides. Strict validation (unknown keys are errors with
   "did you mean"; every error names its field), `version` 1. Events fire when the leader starts a
@@ -278,14 +278,16 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   wake check holds again (0.27× without it). Over 16 races: MX-5 Cup 97 passes (was 68), GT3
   42 (43), F1 10 (14) with DNFs 0.5 (1.1). Tried and dropped: starting attacks from 0.6 s back
   (lap-1 pile-ups doubled GT3 DNFs), tow relaxation only on straights (passing fell back).
+- Speed rating widened: speed 0–1 → pace 0.90–1.0 (was 0.96–1.0; the average driver is now
+  0.95). The whole roster spanned ~0.4 s a lap (0.7%), less than it takes to pass, so ability
+  never showed; now ~1.1 s (1.9%). With equal cars from a random grid, the four best drivers
+  average P3.9 and the four weakest P5.1 (was 4.45 vs 4.55). The skill check uses that field
+  (`strong-weak.json`) and average finish, not wins (the top two have the same pace).
+- Lapped and slower-class traffic: LMPs at Silverstone spend ~6 min a race (all six) within
+  0.6 s behind a GT3 they are 15 s a lap faster than, before and after the passing work. A
+  slower-class car defends against them like a rival; blue flags (below) should fix it. S–M
 
 **Next (racing and sim)**
-- Skill check (`batch.test.ts`, `it.fails`): the first eight roster drivers are within ~0.3 s
-  a lap of each other in real race pace, less than it takes to pass, so the best one only wins
-  from near the front, even over 15 laps. Needs a field where ability makes a real pace
-  difference, or a different measure (e.g. places gained against ability). S
-- The speed rating spans little real pace: the whole roster is ~0.7 s a lap apart, and the
-  Ideal lap figure overstates gaps (a "3%" pace gap is 0.94 s there, 0.5 s on track). S–M
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
 
 **Real-map tracks (its own session)** M

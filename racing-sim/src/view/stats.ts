@@ -17,7 +17,7 @@ const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
 /**
  * The simple ratings behind a driver (the inverse of `driverFromRatings`): speed from pace
- * (pace = 0.96 + 0.04 × speed), risk as the mean of aggression and bravery.
+ * (pace = PACE_MIN + (PACE_MAX − PACE_MIN) × speed), risk as the mean of aggression and bravery.
  */
 export function ratingsOf(e: Entrant): Ratings {
   const d = e.driver;

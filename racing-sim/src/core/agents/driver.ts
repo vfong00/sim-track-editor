@@ -17,7 +17,17 @@ export interface DriverSpec {
   bravery: number;
 }
 
-export const AVERAGE_DRIVER: Omit<DriverSpec, 'name'> = { pace: 0.98, consistency: 0.85, aggression: 0.5, racecraft: 0.6, bravery: 0.5 };
+/**
+ * Speed rating → pace (share of the car's grip used), linearly from PACE_MIN (speed 0) to
+ * PACE_MAX (1). Was 0.96–1.0, which put the whole roster within ~0.4 s a lap (0.7%): less than
+ * it takes to pass, so ability couldn't show. 0.90–1.0 spreads it to about 1.1 s (1.9%).
+ */
+export const PACE_MIN = 0.90;
+export const PACE_MAX = 1.0;
+export const paceFromSpeed = (speed: number) => PACE_MIN + (PACE_MAX - PACE_MIN) * speed;
+
+/** The average driver: speed 0.5. */
+export const AVERAGE_DRIVER: Omit<DriverSpec, 'name'> = { pace: paceFromSpeed(0.5), consistency: 0.85, aggression: 0.5, racecraft: 0.6, bravery: 0.5 };
 
 export interface Entrant {
   id: string;
@@ -66,7 +76,7 @@ export function identicalField(n: number, driver: Omit<DriverSpec, 'name'> = AVE
 
 /**
  * The simple driver ratings scenarios expose (Phase 6), each in [0, 1]:
- * - speed → pace, linearly from PACE_MIN (0) to PACE_MAX (1); 0.5 is the average driver's 0.98.
+ * - speed → pace, linearly from PACE_MIN (0) to PACE_MAX (1); 0.5 is the average driver's 0.965.
  * - consistency → consistency, as is.
  * - risk → aggression and bravery, both set to it (so riskTaking(d) = risk).
  * - racecraft comes from experience-like skill: the mean of speed and consistency (a quick,
@@ -79,11 +89,7 @@ export interface SimpleRatings {
   risk: number;
 }
 
-export const PACE_MIN = 0.96;
-export const PACE_MAX = 1.0;
 export const AVERAGE_RATINGS: SimpleRatings = { speed: 0.5, consistency: AVERAGE_DRIVER.consistency, risk: 0.5 };
-
-export const paceFromSpeed = (speed: number) => PACE_MIN + (PACE_MAX - PACE_MIN) * speed;
 
 export function driverFromRatings(name: string, r: SimpleRatings, advanced: Partial<Omit<DriverSpec, 'name'>> = {}): DriverSpec {
   return {

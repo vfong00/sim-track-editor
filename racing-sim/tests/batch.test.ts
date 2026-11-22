@@ -14,20 +14,18 @@ const batchOf = (s: Scenario, seeds: number[]) => {
 };
 
 describe('Phase 7: batch runs', () => {
-  const skill = load('skill-field.json');
+  const skill = load('strong-weak.json');
   const a = batchOf(skill, seedRange(24));
 
-  // KNOWN SOFT SPOT (the check, not passing): the first eight roster drivers are within ~0.3 s a
-  // lap of each other in real race pace (best laps 58.7–59.0 s), less than it takes to pass, so
-  // from a random grid the result still follows the grid, even over 15 laps. Passing works at
-  // bigger gaps (a 3%-pace-faster car, ~0.5 s a lap, gets by within about a lap). Needs a field
-  // where ability makes a real pace difference, or a different measure; then a normal it().
-  it.fails('the most skilled driver wins most often with equal cars', () => {
-    const byAbility = [...a.drivers].sort((x, y) => overallAbility(rosterDriver(y.name)!) - overallAbility(rosterDriver(x.name)!));
-    const top = [...a.drivers].sort((x, y) => y.wins - x.wins)[0];
-    expect(top.name, a.drivers.map((d) => `${d.name} ${d.wins}`).join(', ')).toBe(byAbility[0].name);
-    // …and finishes ahead of the weakest driver in the field on average.
-    expect(byAbility[0].position.mean).toBeLessThan(byAbility[byAbility.length - 1].position.mean);
+  // Average finish, not wins: the top two (Alvarez and Chen) have practically the same pace, so
+  // which of them wins more is a coin toss; the best has the best finish on average.
+  it('skill shows with equal cars: the most skilled driver finishes best on average, the top four ahead of the bottom four', () => {
+    const ability = (name: string) => overallAbility(rosterDriver(name)!);
+    const byAbility = [...a.drivers].sort((x, y) => ability(y.name) - ability(x.name));
+    const best = [...a.drivers].sort((x, y) => x.position.mean - y.position.mean)[0];
+    expect(best.name, a.drivers.map((d) => `${d.name} ${d.position.mean.toFixed(1)}`).join(', ')).toBe(byAbility[0].name);
+    const avg = (ds: typeof a.drivers) => ds.reduce((t, d) => t + d.position.mean, 0) / ds.length;
+    expect(avg(byAbility.slice(4)) - avg(byAbility.slice(0, 4))).toBeGreaterThanOrEqual(1);
   });
 
   it('a rerun over the same seeds gives the same summary', () => {

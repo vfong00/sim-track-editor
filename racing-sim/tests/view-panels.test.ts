@@ -10,7 +10,7 @@ const entrant = (name: string, speed: number, consistency: number, risk: number,
 });
 
 describe('follow panel stats', () => {
-  it('recovers the scenario ratings from a driver (pace = 0.96 + 0.04 × speed)', () => {
+  it('recovers the scenario ratings from a driver (pace from speed, inverted)', () => {
     const r = ratingsOf(entrant('A', 0.79, 0.9, 0.3));
     expect(r.speed).toBeCloseTo(0.79, 9);
     expect(r.consistency).toBe(0.9);
@@ -42,7 +42,7 @@ describe('follow panel stats', () => {
     const st = statRows(field, 0);
     expect(st.profile).toBe('Quick, consistent, careful, in a custom car');
     expect(st.driver.map((r) => `${r.label} ${r.value} · ${r.rank}`)).toEqual([
-      'Pace 99.2% · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
+      'Pace 97.9% · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
       'Racecraft 0.84 · 2nd of 3', 'Incident risk ×0.74 · 1st of 3',
     ]);
     expect(st.car[0]).toMatchObject({ label: 'Top speed', value: '324 km/h', rank: '1st of 3' });

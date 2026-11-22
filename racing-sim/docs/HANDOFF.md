@@ -35,9 +35,6 @@ npm on this Mac: Artifactory may be unreachable. Install with
 
 ## Known soft spots
 
-- The equal-car skill check (`tests/batch.test.ts`) is marked `it.fails`: the roster's ability
-  spread is too small in real pace for the best driver to win from a random grid (see the
-  feature map). Turn it back into a normal `it()` once the check or the field is reworked.
 - A 6%-faster car sometimes spins after contact on a late dive instead of passing.
 - Many Phase 4 checks use 4–8 seeds and sit near their thresholds. Use the batch runner
   (`npm run sim -- batch <scenario> --runs N`) or more seeds before reading a change into them.

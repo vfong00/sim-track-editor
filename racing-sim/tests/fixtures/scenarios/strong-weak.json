@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "Strong and weak",
+  "description": "Identical cars; the roster's four best drivers (A–D) and four weakest (Q–T) on a random grid.",
+  "seed": 1,
+  "track": { "type": "generated", "seed": 3 },
+  "race": { "laps": 8, "gridOrder": "random" },
+  "cars": [ { "id": "standard" } ],
+  "drivers": [
+    { "name": "Alvarez", "car": "standard" }, { "name": "Bianchi", "car": "standard" },
+    { "name": "Chen", "car": "standard" }, { "name": "Dlamini", "car": "standard" },
+    { "name": "Quinn", "car": "standard" }, { "name": "Reyes", "car": "standard" },
+    { "name": "Schmidt", "car": "standard" }, { "name": "Tanaka", "car": "standard" }
+  ]
+}
