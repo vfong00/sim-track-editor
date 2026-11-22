@@ -35,11 +35,9 @@ npm on this Mac: Artifactory may be unreachable. Install with
 
 ## Known soft spots
 
-- Passing at small pace gaps barely works, so two checks are marked `it.fails`: dirty air
-  holding a faster car up (`tests/racing-wake.test.ts`) and the best driver winning most often
-  with equal cars (`tests/batch.test.ts`). The cause is the attack and the gap rule, not dirty
-  air: see "Passing balance" in `PLAN.md` for the findings and options. Turn each back into a
-  normal `it()` once it holds.
+- The equal-car skill check (`tests/batch.test.ts`) is marked `it.fails`: the roster's ability
+  spread is too small in real pace for the best driver to win from a random grid (see the
+  feature map). Turn it back into a normal `it()` once the check or the field is reworked.
 - A 6%-faster car sometimes spins after contact on a late dive instead of passing.
 - Many Phase 4 checks use 4–8 seeds and sit near their thresholds. Use the batch runner
   (`npm run sim -- batch <scenario> --runs N`) or more seeds before reading a change into them.

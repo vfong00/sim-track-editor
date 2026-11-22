@@ -259,33 +259,33 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 - Result panel at the flag (also Race menu → Result, or r): classification, gaps, places
   gained, best laps (fastest in purple), passes and incidents per driver.
 - Dirty air by downforce: `physics.dirtyAir` (default 0.2) is the share of downforce lost right
-  behind another car, plus `DIRTY_MECH` (0.3) of that on mechanical grip. A wingless car loses
-  6% as before (road-car races are bit-identical); F1 at 200 km/h about 16%. The downforce part
+  behind another car, plus `DIRTY_MECH` (0.1) of that on mechanical grip. A wingless car loses
+  2% (6% when this went in, lowered with the passing work below); F1 at 200 km/h about 13%. The downforce part
   fades across the wake's width, and the gap rule brakes with the grip the car has in dirty air.
   Over 16 races: F1 at Silverstone 14 passes a race (was 18), chaos 0.44 (0.56), DNFs 1.1 (0.8);
   GT3 at Laguna 43 passes (48), DNFs 0.9 (1.8).
 - A scripted safety car always deploys (one on track stays out for the scripted laps).
+- Passing: attackers tuck into the leader's tow on its line, where the gap rule lets them close
+  tighter (no reaction margin, same braking as the leader, `TOW_ROOM` 1.5 m nose to tail), then
+  commit to one move: when the run would carry them alongside (`PULL_GAP` + `PULL_TIME` of
+  closing speed), or `PULL_LEAD` 2 s before the braking point within `DIVE_GAP` 12 m. Committed,
+  they move out at `COMMIT_LATERAL` 5 m/s, only their current position counts for the gap rule,
+  and they may take a line within `COMMIT_SLACK` (1.5%) of its braking envelope. Before, an
+  attack started up to 17 m back, drifted off line (losing the tow), and once braking could not
+  leave the leader's line, so it braked with the leader. A wingless car now loses 2% in dirty
+  air (was 6%, which kept a faster road car too far back to use the tow).
+  Over 8 seeds a 3/4.5/6%-faster car is stuck 50/3/0 s a race (was 311/137/47); the dirty-air
+  wake check holds again (0.27× without it). Over 16 races: MX-5 Cup 97 passes (was 68), GT3
+  42 (43), F1 10 (14) with DNFs 0.5 (1.1). Tried and dropped: starting attacks from 0.6 s back
+  (lap-1 pile-ups doubled GT3 DNFs), tow relaxation only on straights (passing fell back).
 
 **Next (racing and sim)**
-- Passing balance (design question first, then M). Findings from batch runs and traces, all
-  on the standard car, generated track 7:
-  - A "3% pace gap" is only ~0.5 s a lap of real race pace (solo laps 61.59 vs 62.10; the
-    Ideal lap figure says 0.94 s). The Phase 4 checks ask a car 0.8% quicker to pass reliably.
-  - The gap rule's reaction margin (`brakeGain` 0.97) settles an in-line follower ~9–12 m
-    behind (≈0.25 s). It can't build a speed advantage in the tow: closing is capped there.
-  - An attack starts up to ~17 m back and sits a car's width off the leader. That is off the
-    racing line through every corner on the way, which costs about as much as a 0.5 s/lap edge,
-    and outside the 2.4 m wake, so the tow is lost too. 54 of 77 attacks by a 3%-faster car end
-    still a car length behind at the apex; none pass. Late braking (bravery) gains only 1–2 m.
-  - Dirty air isn't what holds it up: at 3% the faster car never passes with dirty air off
-    either; at 4.5% stuck time is 66 s with 6% dirty air, 208 s with 3%, 129 s with none.
-  - Tried and reverted: staying tucked in behind until 9 m (the gap rule never lets it get that
-    close) and only pulling out on long straights (mixed). The failing checks:
-    `racing-wake.test.ts` (dirty air) and `batch.test.ts` (best driver wins), both `it.fails`.
-  - Options: (a) let an attacker close inside the gap rule's margin when it has a tow and room
-    to pull out (a real slingshot); (b) start attacks only when close enough at a braking zone,
-    and follow on the line otherwise; (c) accept that sub-1% gaps rarely pass with identical
-    cars and rewrite those checks around bigger real-pace gaps or longer races.
+- Skill check (`batch.test.ts`, `it.fails`): the first eight roster drivers are within ~0.3 s
+  a lap of each other in real race pace, less than it takes to pass, so the best one only wins
+  from near the front, even over 15 laps. Needs a field where ability makes a real pace
+  difference, or a different measure (e.g. places gained against ability). S
+- The speed rating spans little real pace: the whole roster is ~0.7 s a lap apart, and the
+  Ideal lap figure overstates gaps (a "3%" pace gap is 0.94 s there, 0.5 s on track). S–M
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
 
 **Real-map tracks (its own session)** M
