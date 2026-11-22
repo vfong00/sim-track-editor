@@ -337,7 +337,6 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
 18.4, multi-class Nordschleife 7.4 of 10.7. Re-save a baseline when a change is meant to move it.
 
 **Racing and sim (small)**
-- Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
 - Kerbs: let the racing line use a little kerb at the apex and exit (a per-track kerb width
   past the road edge, with a small grip cost), as real lines do. S–M. Drawn already: red and
   white kerbs where the racing line comes within 2.5 m of the edge in a corner tighter than
@@ -353,7 +352,10 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
   plus which Verona and the road width (real, about 7–10 m, or race-track width). Querying OSM
   sends that area and those names to its public service, so do it only with that input.
 - Remap the traced tracks the same way: the PNG traces soften or tighten corners and needed
-  hand-tuned smoothing. Yas: a sharp kink at the top. Silverstone: Brooklands and Luffield
+  hand-tuned smoothing. Yas: the "kink" at the top is not a tracing artefact. The source image
+  draws the chicane before the long back straight as a hard Z step about a road width deep,
+  so the trace has two tight bends (12 and 17 m radius, 60 and 81 km/h in F1), the slowest
+  point of the lap. Smoothing 14 only gets them to 31 and 36 m and softens everything else. Silverstone: Brooklands and Luffield
   ~75 km/h in F1 vs ~110 real. Laguna Seca (from a 300 px silhouette): the Corkscrew is too
   gentle. Nordschleife (800 px for 20.8 km): laps 5–10% quick, no GP section (the 24h layout
   needs it), no elevation.
@@ -458,12 +460,15 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
     the road at speed (puffs on a fixed 0.05 s grid, seeded by car and time, so scrubbing
     shows the same smoke); sparks for 0.4 s at a contact; skid marks that stay for the race
     where a car locked up, ran wide, spun or crashed. About 0.1 ms a frame for 20 cars.
-  - Drift angle: draw a sliding car at an angle. The log has yaw only for spins (cosmetic), so
-    the race would also record a slip angle while a car slides or runs over its limit. S
+  - Done: drift angle. A running car over its grip limit is drawn nose into the turn, up to
+    20° where a spin becomes likely (`RaceCar.drift`, logged in the yaw slot, display only:
+    the baselines are identical race by race).
 - Auto-director camera: follow the closest live battle (cars within ~1 s for a while), cut to
   an incident as it happens and back. A camera mode next to Follow. M
 - Corner names: an optional `corners` list on the track (name, metres along), shown on the map
-  and used in event text ("contact at Copse") and the stewards' room. S
+  and used in event text ("contact at Copse") and the stewards' room. S. Do it with the
+  real-map remap: corner positions move then, and only a few names matter per track. Real
+  sector lines (instead of thirds) follow from the names.
 - Phone and tablet layout. M
 - Lap and gap charts: not needed; the timing tower covers it.
 

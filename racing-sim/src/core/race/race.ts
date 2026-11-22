@@ -176,6 +176,11 @@ export interface RaceCar {
   /** Heading relative to the road while spinning or stopped (rad, cosmetic), and its rate. */
   yaw: number;
   yawRate: number;
+  /**
+   * Cosmetic drift angle while running (rad, nose into the corner): eases toward a target set
+   * by how far over the grip limit the car is. Logged in the yaw slot; changes nothing in the race.
+   */
+  drift: number;
   /** Speed when the spin or crash started (the rotation slows with the car). */
   vSpin: number;
   restartAt: number;
@@ -232,7 +237,16 @@ const CP_BASE = -400;
 /** Race-craft mode codes in `modeLog`. */
 export const MODE = { line: 0, attack: 1, defend: 2 } as const;
 
-/** Frame layout in the state log: per car [s, d, v, yaw, status code (STATUS)]. */
+/**
+ * Display only: the drift angle a sliding car is drawn at (rad, about 20°), and how fast it
+ * builds and settles (1/s).
+ */
+export const DRIFT = { max: 0.35, rise: 12, fall: 5 };
+
+/**
+ * Frame layout in the state log: per car [s, d, v, yaw, status code (STATUS)]. Yaw is relative
+ * to the road: the spin angle while spinning or stopped, the drift angle (`RaceCar.drift`) while running.
+ */
 export const FRAME_STRIDE = 5;
 
 const planCache = new WeakMap<LaneSet, Map<string, LanePlans>>();
@@ -330,7 +344,7 @@ export class Race {
         startDelay: quali ? (rng.next(), 0) : 0.15 + 0.35 * rng.next(),
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
-        status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
+        status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, drift: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
         lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN, outSince: NaN, cleared: false, crossTimes: [],
       };
     });
@@ -689,6 +703,12 @@ export class Race {
       const i = c.idx;
       const excess = c.st.mu > 0 ? c.st.slide / c.st.mu : 0;
       if (c.st.slide > 0) c.lastSlideT = this.t;
+      // Drift angle for the viewer: up to DRIFT.max where a spin becomes likely (square root, so
+      // small slides show too), easing in and out. Pure display: nothing reads it back.
+      if (c.status === 'run') {
+        const target = DRIFT.max * Math.sqrt(Math.min(1, excess / I.spinFrom)) * Math.sign(this.lanes.kappa(c.st.s, c.st.delta));
+        c.drift += (target - c.drift) * Math.min(1, dt * (Math.abs(target) > Math.abs(c.drift) ? DRIFT.rise : DRIFT.fall));
+      } else c.drift = 0;
       if (c.status === 'run' && !c.finished) {
         if (excess > I.slideLog && this.t - c.lastSlideLog > 3) {
           c.lastSlideLog = this.t;
@@ -951,7 +971,7 @@ export class Race {
       f[k] = c.st.s;
       f[k + 1] = c.d;
       f[k + 2] = c.st.v;
-      f[k + 3] = c.yaw;
+      f[k + 3] = c.status === 'run' ? c.drift : c.yaw;
       f[k + 4] = c.cleared ? STATUS.cleared : c.status === 'run' ? (c.offEvent >= 0 ? STATUS.off : STATUS.run) : STATUS[c.status];
     });
     this.frames.push(f);

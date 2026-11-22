@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { loadScenario, Race, type Scenario } from '../src/core';
+import { DRIFT, FRAME_STRIDE, loadScenario, Race, type Scenario, STATUS } from '../src/core';
 import { brakeAt, PUFF_LIFE, puffsAt, SPARK_LIFE, skidMarksAt, sparksAt } from '../src/view/effects';
 
 const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.json', import.meta.url).pathname, 'utf8')) as Scenario;
@@ -39,6 +39,24 @@ describe('effects from the logs', () => {
     // Just after it, none from it (unless another contact happens to be live then).
     const later = e.t + SPARK_LIFE + 0.05;
     if (!race.events.some((x) => x.type === 'contact' && x.t <= later && later - x.t <= SPARK_LIFE)) expect(sparksAt(race, later)).toEqual([]);
+  });
+
+  it('a sliding car is drawn at a drift angle, nose into the turn, within DRIFT.max', () => {
+    let seen = 0;
+    const xy = (k: number, i: number) => race.track.toXY(race.frames[k][i * FRAME_STRIDE], race.frames[k][i * FRAME_STRIDE + 1]);
+    for (let k = 20; k < race.frames.length - 20; k++) {
+      for (let i = 0; i < race.cars.length; i++) {
+        const o = i * FRAME_STRIDE, f = race.frames[k];
+        if (f[o + 4] !== STATUS.run || Math.abs(f[o + 3]) < 0.05) continue;
+        expect(Math.abs(f[o + 3])).toBeLessThanOrEqual(DRIFT.max + 1e-6);
+        const a = xy(k - 10, i), b = xy(k, i), c = xy(k + 10, i);
+        let turn = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x);
+        turn -= 2 * Math.PI * Math.round(turn / (2 * Math.PI));
+        expect(Math.sign(turn)).toBe(Math.sign(f[o + 3]));
+        seen++;
+      }
+    }
+    expect(seen).toBeGreaterThan(10);
   });
 
   it('brake lights come on into corners, not while accelerating', () => {
