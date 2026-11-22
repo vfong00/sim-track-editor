@@ -1,4 +1,4 @@
-import { type Entrant, PACE_MAX, PACE_MIN } from '../core';
+import { CAR_PRESETS, type CarSpec, type Entrant, incidentScale, PACE_MAX, PACE_MIN, STANDARD_CAR } from '../core';
 
 /**
  * Driver and car stats for the follow panel (no DOM, so it can be tested): the scenario-style
@@ -69,6 +69,18 @@ export function profile(r: Ratings): string {
   return `${pace}, ${cons}, ${risk}`;
 }
 
+const CAR_NAMES: Record<keyof typeof CAR_PRESETS, string> = {
+  f1: 'an F1 car', lmp: 'an LMP', gt3: 'a GT3 car', road: 'a sports car', mx5: 'an MX-5 Cup car', civilian: 'a civilian car',
+};
+
+/** "an F1 car", "a modified GT3 car" (a preset with values changed), "the standard car", "a custom car". */
+export function carPhrase(c: CarSpec): string {
+  const keys = ['topSpeed', 'accel', 'grip', 'brake', 'downforce'] as const;
+  const same = (b: Partial<CarSpec>) => keys.every((k) => Math.abs((c[k] ?? 0) - (b[k] ?? 0)) < 1e-9);
+  if (c.preset) return same(CAR_PRESETS[c.preset]) ? CAR_NAMES[c.preset] : CAR_NAMES[c.preset].replace(/^an? /, 'a modified ');
+  return same(STANDARD_CAR) ? 'the standard car' : 'a custom car';
+}
+
 export interface StatRow {
   label: string;
   value: string;
@@ -80,18 +92,23 @@ export interface StatRow {
 /** Rating and car rows for entrant i of the field, each with its rank. */
 export function statRows(field: Entrant[], i: number): { profile: string; driver: StatRow[]; car: StatRow[] } {
   const rs = field.map(ratingsOf);
+  const ds = field.map((e) => e.driver);
   const row = (label: string, vals: number[], fmt: (v: number) => string, hint: string, higher = true): StatRow =>
     ({ label, value: fmt(vals[i]), rank: rankText(rankIn(vals, i, higher, 1e-6)), hint });
   const f2 = (v: number) => v.toFixed(2);
   const cars = field.map((e) => e.car);
   return {
-    profile: profile(rs[i]),
+    profile: `${profile(rs[i])}, in ${carPhrase(cars[i])}`,
     driver: [
-      row('Speed', rs.map((r) => r.speed), f2, "Share of the car's grip used on a normal lap: 0 = 96%, 1 = 100%. Sets the ideal lap."),
-      row('Consistency', rs.map((r) => r.consistency), f2, 'How rarely they lock up or run wide, and how well they catch a slide.'),
-      // The "risk" rating. Not better or worse: rank 1st = the most willing.
-      row('Attacking', rs.map((r) => r.risk), f2, 'How readily they try a pass (and from how far back), and how late they brake in a fight. Also how hard they push on through a slide, so more spins.'),
-      row('Defending', rs.map((r) => r.racecraft), f2, 'Chance to cover the inside when someone attacks. Comes from speed and consistency (their mean).'),
+      // The numbers the sim actually uses (DriverSpec), not the scenario's simpler ratings.
+      row('Pace', ds.map((d) => d.pace), (v) => `${(v * 100).toFixed(1)}%`, "Share of the car's grip used on a normal lap (from the speed rating: 96% to 100%). Sets the ideal lap."),
+      row('Consistency', ds.map((d) => d.consistency), f2, 'Mistake rate: an average driver (0.85) locks up or runs wide about once every 20–25 laps, far more often when sliding over the limit.'),
+      // Not better or worse: rank 1st = the most willing.
+      row('Aggression', ds.map((d) => d.aggression), f2, 'How readily they try a pass: the urge to attack, and how far back they start (14 m, up to 20 m at 1).'),
+      row('Bravery', ds.map((d) => d.bravery), f2, 'How much later they brake when fighting for a corner: up to 4% less braking margin at 1.'),
+      row('Racecraft', ds.map((d) => d.racecraft), f2, 'Defending: chance to cover the inside when attacked (up to 60%). From speed and consistency (their mean) unless set.'),
+      // Lower is safer: rank 1st = the least incident-prone.
+      row('Incident risk', ds.map(incidentScale), (v) => `×${v.toFixed(2)}`, 'How likely a slide or contact ends in a spin or crash, from consistency and aggression + bravery. 1 = an average driver.', false),
     ],
     car: [
       row('Top speed', cars.map((c) => c.topSpeed), (v) => `${(v * 3.6).toFixed(0)} km/h`, 'Top speed on a long straight (drag balances the engine there).'),

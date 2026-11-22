@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { driverFromRatings, type Entrant, loadScenario, Race, type Scenario, STANDARD_CAR } from '../src/core';
+import { CAR_PRESETS, driverFromRatings, type Entrant, loadScenario, Race, type Scenario, STANDARD_CAR } from '../src/core';
 import { RaceAt } from '../src/view/at';
-import { ordinal, profile, rankIn, rankText, ratingsOf, statRows } from '../src/view/stats';
+import { carPhrase, ordinal, profile, rankIn, rankText, ratingsOf, statRows } from '../src/view/stats';
 import { nextMode, TOWER_MODES, towerCell } from '../src/view/tower';
 
 const entrant = (name: string, speed: number, consistency: number, risk: number, topSpeed = STANDARD_CAR.topSpeed): Entrant => ({
@@ -40,9 +40,10 @@ describe('follow panel stats', () => {
   it('gives each rating and car value its rank in the field', () => {
     const field = [entrant('A', 0.79, 0.9, 0.3, 90), entrant('B', 0.9, 0.8, 0.5), entrant('C', 0.2, 0.95, 0.7)];
     const st = statRows(field, 0);
-    expect(st.profile).toBe('Quick, consistent, careful');
+    expect(st.profile).toBe('Quick, consistent, careful, in a custom car');
     expect(st.driver.map((r) => `${r.label} ${r.value} · ${r.rank}`)).toEqual([
-      'Speed 0.79 · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Attacking 0.30 · 3rd of 3', 'Defending 0.84 · 2nd of 3',
+      'Pace 99.2% · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
+      'Racecraft 0.84 · 2nd of 3', 'Incident risk ×0.74 · 1st of 3',
     ]);
     expect(st.car[0]).toMatchObject({ label: 'Top speed', value: '324 km/h', rank: '1st of 3' });
     expect(st.car[2].rank).toBe('all equal');
@@ -89,5 +90,14 @@ describe('timing tower modes', () => {
       if (best.purple) purple++;
     });
     expect(purple).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('car phrase', () => {
+  it('names the preset, a modified preset, the standard car or a custom car', () => {
+    expect(carPhrase({ id: 'a', ...CAR_PRESETS.f1, preset: 'f1' })).toBe('an F1 car');
+    expect(carPhrase({ id: 'a', ...CAR_PRESETS.gt3, grip: 1.5, preset: 'gt3' })).toBe('a modified GT3 car');
+    expect(carPhrase({ ...STANDARD_CAR })).toBe('the standard car');
+    expect(carPhrase({ ...STANDARD_CAR, topSpeed: 90 })).toBe('a custom car');
   });
 });

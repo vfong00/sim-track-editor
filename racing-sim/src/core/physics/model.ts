@@ -25,6 +25,8 @@ export interface CarSpec {
   brake: number;
   /** Extra grip per (m/s)² from aerodynamic downforce, in g (0 = none). */
   downforce?: number;
+  /** The preset it was built from, if any (for display; the numbers above are what count). */
+  preset?: CarPreset;
 }
 
 export const STANDARD_CAR: CarSpec = { id: 'standard', topSpeed: 85, accel: 11, grip: 1.0, brake: 1.0 };

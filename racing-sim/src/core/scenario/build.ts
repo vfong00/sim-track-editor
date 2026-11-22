@@ -78,6 +78,7 @@ export function carSpecs(s: Scenario): Map<string, CarSpec> {
       grip: c.grip ?? base.grip,
       brake: c.brake ?? base.brake,
       downforce: c.downforce ?? base.downforce ?? 0,
+      ...(c.preset ? { preset: c.preset } : {}),
     }];
   }));
 }

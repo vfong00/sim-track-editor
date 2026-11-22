@@ -45,7 +45,7 @@ describe('car presets', () => {
   it('a scenario car takes its preset values unless it overrides them', () => {
     const car = loadScenario({ ...read('equal-field.json'), cars: [{ id: 'standard', preset: 'gt3', topSpeed: 70 }] }).options.entrants[0].car;
     const { label: _, ...gt3 } = CAR_PRESETS.gt3;
-    expect(car).toEqual({ id: 'standard', ...gt3, topSpeed: 70 });
+    expect(car).toEqual({ id: 'standard', ...gt3, topSpeed: 70, preset: 'gt3' });
   });
 });
 
