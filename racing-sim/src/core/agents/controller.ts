@@ -45,7 +45,21 @@ export interface TrafficDecision {
  *  - longitudinal: never close on a car ahead in your lane faster than you could brake to its
  *    speed before reaching it (the same-lane gap rule: you can't drive through a car).
  */
-export function trafficControls(me: DriverView, near: Near[], wantDelta: number, vPlan: number, brakeGain = 0.97): TrafficDecision {
+/**
+ * Race craft's say in the gap rule, for the car being attacked (entrant index, -1 = none):
+ *  - `tow`: closing up in its slipstream to go by. No reaction margin and TOW_ROOM nose to tail,
+ *    so the attacker can carry more speed than the leader into the pull-out (the slingshot);
+ *  - `commit`: pulling out to pass it. Only where the car is counts, not where it's heading, so
+ *    once out of line it brakes for its own line, not the leader's.
+ */
+export interface GapRuleRelax {
+  tow?: number;
+  commit?: number;
+}
+/** Nose-to-tail margin (m) an attacker keeps while closing up in the tow. */
+export const TOW_ROOM = 1.5;
+
+export function trafficControls(me: DriverView, near: Near[], wantDelta: number, vPlan: number, brakeGain = 0.97, relax: GapRuleRelax = {}): TrafficDecision {
   const { st, lanes } = me;
   const lineD = lanes.lineD(st.s);
   let lo = -Infinity, hi = Infinity, loBy = -1, hiBy = -1;
@@ -87,7 +101,8 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     // A hazard is judged where I'll be when I reach it (my lane and my target lane at its s): the
     // racing line can sweep across the road on the way, so a wreck beside the line further on
     // is in my path even when it's far to the side of me now.
-    let dist = Math.min(Math.abs(o.d - me.d), Math.abs(o.d - targetD));
+    const attacked = !hazard && (o.j === relax.tow || o.j === relax.commit);
+    let dist = o.j === relax.commit && !hazard ? Math.abs(o.d - me.d) : Math.min(Math.abs(o.d - me.d), Math.abs(o.d - targetD));
     if (hazard) {
       const at = st.s + o.gap;
       dist = Math.min(dist, Math.abs(o.d - lanes.dOf(at, st.delta)), Math.abs(o.d - lanes.dOf(at, deltaTarget)));
@@ -95,9 +110,12 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     const overlap = dist < HIT_W + 0.2;
     if (!overlap) continue;
     const bo = me.model.maxBrake(o.v, 0);
-    const room = o.gap - HIT_LEN - 1.0 - 0.03 * st.v;
-    const bb = hazard ? bHaz : b;
-    let vAllowed = room > 0 ? Math.sqrt(o.v * o.v * (bb / bo) + 2 * bb * room) : Math.max(0, o.v - 2 + room);
+    const room = attacked ? o.gap - HIT_LEN - TOW_ROOM : o.gap - HIT_LEN - 1.0 - 0.03 * st.v;
+    const bb = hazard ? bHaz : attacked ? b / brakeGain : b;
+    // An attacker counts on braking as well as the leader: in the tow it brakes a little worse
+    // (less drag), and holding that against it kept it ~10 m back at speed, too far to pull out.
+    const ratio = attacked ? 1 : bb / bo;
+    let vAllowed = room > 0 ? Math.sqrt(o.v * o.v * ratio + 2 * bb * room) : Math.max(0, o.v - 2 + room);
     // Stopped behind a car that isn't moving, but heading for a clear line beside it: creep
     // forward so the car can turn out; while still in line with it, only as far as the room left.
     if (Math.abs(o.d - targetD) >= HIT_W + 0.2 && o.gap > HIT_LEN) {

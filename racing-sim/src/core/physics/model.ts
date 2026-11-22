@@ -68,11 +68,12 @@ export const DEFAULT_PHYSICS: PhysicsParams = { g: G, gripLevel: 1, drag: true, 
 
 /**
  * Mechanical grip lost in dirty air, as a share of the downforce lost (`dirtyAir`). With the
- * default dirtyAir of 0.2 a wingless car loses 6% of its grip right behind another, as every car
- * did before dirty air went by downforce; an F1 car at 200 km/h (over half its grip from
- * downforce) loses about 16%. (At 0.3, F1 lost 22% and its DNFs more than doubled.)
+ * default dirtyAir of 0.2 a wingless car loses 2% of its grip right behind another (it used to
+ * be 6% for every car, which kept a faster road car too far back to use the tow); an F1 car at
+ * 200 km/h (over half its grip from downforce) loses about 13%. (At dirtyAir 0.3, F1 lost
+ * about 22% and its DNFs more than doubled.)
  */
-export const DIRTY_MECH = 0.3;
+export const DIRTY_MECH = 0.1;
 
 /** Per-tick modifiers from traffic (slipstream, dirty air). Planner uses NO_EFFECTS. */
 export interface Effects {

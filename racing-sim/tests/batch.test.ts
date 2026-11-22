@@ -17,9 +17,11 @@ describe('Phase 7: batch runs', () => {
   const skill = load('skill-field.json');
   const a = batchOf(skill, seedRange(24));
 
-  // KNOWN SOFT SPOT (passing balance): with equal cars the result follows the grid (chaos
-  // ≈ 0.16, ~2 passes a race), so the best driver only wins from near the front. Expected to
-  // fail until passing is tuned; then turn it back into a normal it().
+  // KNOWN SOFT SPOT (the check, not passing): the first eight roster drivers are within ~0.3 s a
+  // lap of each other in real race pace (best laps 58.7–59.0 s), less than it takes to pass, so
+  // from a random grid the result still follows the grid, even over 15 laps. Passing works at
+  // bigger gaps (a 3%-pace-faster car, ~0.5 s a lap, gets by within about a lap). Needs a field
+  // where ability makes a real pace difference, or a different measure; then a normal it().
   it.fails('the most skilled driver wins most often with equal cars', () => {
     const byAbility = [...a.drivers].sort((x, y) => overallAbility(rosterDriver(y.name)!) - overallAbility(rosterDriver(x.name)!));
     const top = [...a.drivers].sort((x, y) => y.wins - x.wins)[0];

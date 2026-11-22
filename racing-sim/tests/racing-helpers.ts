@@ -13,5 +13,7 @@ export function paceGapRace(gap: number, seed: number, physics?: Partial<Physics
 
 /** Passes after the opening lap (lap-1 shuffles come from the start, not race craft). */
 export const passesAfterLap1 = (r: Race) => r.events.filter((e) => e.type === 'pass' && e.lap >= 2).length;
+/** …not counting a car going by one in trouble (spun, off, after a mistake): racing passes only. */
+export const racingPassesAfterLap1 = (r: Race) => r.events.filter((e) => e.type === 'pass' && e.lap >= 2 && !/ after /.test(e.text)).length;
 
 export const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;

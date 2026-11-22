@@ -9,9 +9,9 @@ const loss = (s: typeof STANDARD_CAR, r: number) => {
 };
 
 describe('dirty air by downforce', () => {
-  it('a wingless car loses 6% of its grip right behind another (as before)', () => {
+  it('a wingless car loses only 2% of its grip right behind another', () => {
     const m = new CarModel(STANDARD_CAR);
-    expect(m.gripLimit({ ...dirtyEffects(DEFAULT_PHYSICS.dirtyAir, 1), drag: 1 }, 50) / m.gripLimit(undefined, 50)).toBeCloseTo(0.94, 10);
+    expect(m.gripLimit({ ...dirtyEffects(DEFAULT_PHYSICS.dirtyAir, 1), drag: 1 }, 50) / m.gripLimit(undefined, 50)).toBeCloseTo(0.98, 10);
   });
 
   it('hurts winged cars far more in fast corners: F1 over twice a road car, GT3 in between', () => {

@@ -224,7 +224,8 @@ describe('Phase 6: mid-race events', () => {
     expect(ev.text).toBe('Rain: track grip 80%');
     expect(ev.lap).toBe(2);
     r.cars.forEach((c, i) => {
-      expect(c.model.mu).toBeCloseTo(before[i].mu * 0.8, 9);
+      // Against the car's own spec now: contact before lap 2 can have damaged it (less grip).
+      expect(c.model.mu).toBeCloseTo(c.model.spec.grip * r.physics.g * 0.8, 9);
       expect(c.plans).not.toBe(before[i].plans);
       expect(c.plans.lapTime).toBeGreaterThan(before[i].lap * 1.05);
     });

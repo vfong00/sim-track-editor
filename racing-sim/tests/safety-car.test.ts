@@ -43,7 +43,9 @@ function runSC(s: Scenario): { r: Race; w: Window } {
 
 describe('Phase 6: safety car', () => {
   const seeds = [4, 5, 6, 7];
-  const runs = seeds.map((seed) => runSC({ ...BASE, seed }));
+  // The scripted safety car on its own: with 'auto' on, a car stopping later brings out a second
+  // one, which these checks of the first window would count as its own (it has a test below).
+  const runs = seeds.map((seed) => runSC({ ...BASE, seed, race: { ...BASE.race, safetyCar: 'off' } }));
 
   it('comes out on the lap set, stays out for the laps set, and the race finishes', () => {
     for (const { r, w } of runs) {
@@ -87,7 +89,7 @@ describe('Phase 6: safety car', () => {
   });
 
   it('same seed gives the same race, safety car included', () => {
-    const a = runSC({ ...BASE, seed: 4 }).r, b = runs[0].r;
+    const a = runSC({ ...BASE, seed: 4, race: { ...BASE.race, safetyCar: 'off' } }).r, b = runs[0].r;
     expect(a.frames.length).toBe(b.frames.length);
     for (let k = 0; k < a.frames.length; k += 7) expect(Buffer.from(a.frames[k].buffer).equals(Buffer.from(b.frames[k].buffer))).toBe(true);
     expect(a.events).toEqual(b.events);

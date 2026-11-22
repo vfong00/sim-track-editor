@@ -785,7 +785,10 @@ export class Race {
           const toC = c ? ((c.apex * this.track.ds - pc.st.s) % L + L) % L : Infinity;
           const where = !c ? '' : toC < 150 ? ` into ${c.name}` : toC > L - 150 ? ` at ${c.name}` : ' on the straight';
           const pd = this.cars[passed];
-          const why = pd.status !== 'run' ? ' after a spin' : pd.offEvent >= 0 ? ' after an off' : pd.craft.mistake ? ' after a mistake' : '';
+          // Still recovering from an off if it rejoined only just now (the pass is confirmed
+          // 1.5 s after the swap, by which time a car crawling out of the gravel may be back on).
+          const offRecently = pd.offEvent >= 0 || this.events.some((e) => e.type === 'rejoin' && e.cars[0] === passed && this.t - e.t < 5);
+          const why = pd.status !== 'run' ? ' after a spin' : offRecently ? ' after an off' : pd.craft.mistake ? ' after a mistake' : '';
           this.emit('pass', [passer, passed], `P${pos} ${this.name(passer)} passes ${this.name(passed)}${where}${why}`);
         }
       }
