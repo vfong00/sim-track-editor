@@ -112,9 +112,10 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     const bo = me.model.maxBrake(o.v, 0);
     const room = attacked ? o.gap - HIT_LEN - TOW_ROOM : o.gap - HIT_LEN - 1.0 - 0.03 * st.v;
     const bb = hazard ? bHaz : attacked ? b / brakeGain : b;
-    // An attacker counts on braking as well as the leader: in the tow it brakes a little worse
-    // (less drag), and holding that against it kept it ~10 m back at speed, too far to pull out.
-    const ratio = attacked ? 1 : bb / bo;
+    // An attacker doesn't hold the tow's lower drag against its braking (that alone kept it
+    // ~10 m back at speed, too far to pull out), but does count the grip dirty air costs it: a
+    // winged car tucked in at 1.5 m into a 300 km/h braking zone otherwise ran into the leader.
+    const ratio = attacked ? Math.min(1, me.model.maxBrake(st.v, 0, { ...fx, drag: 1 }) / bo) : bb / bo;
     let vAllowed = room > 0 ? Math.sqrt(o.v * o.v * ratio + 2 * bb * room) : Math.max(0, o.v - 2 + room);
     // Stopped behind a car that isn't moving, but heading for a clear line beside it: creep
     // forward so the car can turn out; while still in line with it, only as far as the room left.

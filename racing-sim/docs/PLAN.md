@@ -208,8 +208,8 @@ ends with the localhost dev server running and showing that phase's visuals (des
   them), and per race passes, contacts, incidents, spins, DNFs, stuck time and train share, each
   ± its standard error. Chaos score: mean |finish − grid| as a share of a random order's (0 =
   processional, 1 = the grid means nothing). About 0.3 s a race on the lab field, 1–8 s on the
-  real tracks. The skill check is marked `it.fails`: with equal cars the result follows the grid
-  (see "Passing balance" below). No in-browser button yet.
+  real tracks. The skill check measures average finish in a best-four/worst-four field (see the
+  feature map). No in-browser button yet.
 
 ### Nice to haves (pick and choose)
 - Observable tuning: a panel to adjust a driver or car (ratings, grip, power, brakes) and see what
@@ -262,7 +262,7 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   behind another car, plus `DIRTY_MECH` (0.1) of that on mechanical grip. A wingless car loses
   2% (6% when this went in, lowered with the passing work below); F1 at 200 km/h about 13%. The downforce part
   fades across the wake's width, and the gap rule brakes with the grip the car has in dirty air.
-  Over 16 races: F1 at Silverstone 14 passes a race (was 18), chaos 0.44 (0.56), DNFs 1.1 (0.8);
+  Over 16 races: F1 spec at Silverstone 14 passes a race (was 18), chaos 0.44 (0.56), DNFs 1.1 (0.8);
   GT3 at Laguna 43 passes (48), DNFs 0.9 (1.8).
 - A scripted safety car always deploys (one on track stays out for the scripted laps).
 - Passing: attackers tuck into the leader's tow on its line, where the gap rule lets them close
@@ -283,6 +283,13 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   never showed; now ~1.1 s (1.9%). With equal cars from a random grid, the four best drivers
   average P3.9 and the four weakest P5.1 (was 4.45 vs 4.55). The skill check uses that field
   (`strong-weak.json`) and average finish, not wins (the top two have the same pace).
+- F1 constructors at Yas Marina (`f1-constructors-yas.json`): ten invented teams of two, cars
+  1.5 s a lap apart first to last with different trade-offs (downforce vs top speed), drivers
+  mostly but not strictly better at better teams, rating grid, ten laps, incidentRate 0.5 (at 1,
+  a 20-car F1 field averaged ~4 DNFs, nearly all lap-1 contact at T1/T4/T5). The old F1 example
+  is now "F1 spec at Silverstone". Schema grip limit raised to 3 (the F1 preset itself is 2.1).
+- Lap-1 pile-ups in big winged fields: 20 F1 cars at Yas average ~4 DNFs a race at the default
+  incident rate (was ~9 before the passing work), mostly contact into T1. S–M
 - Lapped and slower-class traffic: LMPs at Silverstone spend ~6 min a race (all six) within
   0.6 s behind a GT3 they are 15 s a lap faster than, before and after the passing work. A
   slower-class car defends against them like a rival; blue flags (below) should fix it. S–M

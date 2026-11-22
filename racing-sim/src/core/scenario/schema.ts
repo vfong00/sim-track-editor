@@ -244,7 +244,7 @@ export const RANGES = {
   pngLength: [300, 30000],
   topSpeed: [20, 150],
   accel: [2, 30],
-  grip: [0.3, 2],
+  grip: [0.3, 3],
   brake: [0.3, 2],
   downforce: [0, 0.002],
   rating: [0, 1],

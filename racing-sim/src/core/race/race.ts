@@ -788,7 +788,9 @@ export class Race {
           // Still recovering from an off if it rejoined only just now (the pass is confirmed
           // 1.5 s after the swap, by which time a car crawling out of the gravel may be back on).
           const offRecently = pd.offEvent >= 0 || this.events.some((e) => e.type === 'rejoin' && e.cars[0] === passed && this.t - e.t < 5);
-          const why = pd.status !== 'run' ? ' after a spin' : offRecently ? ' after an off' : pd.craft.mistake ? ' after a mistake' : '';
+          // Likewise a car pulling away from a standstill after a spin.
+          const spunRecently = pd.status !== 'run' || this.events.some((e) => e.type === 'spin' && e.cars[0] === passed && this.t - e.t < 10);
+          const why = spunRecently ? ' after a spin' : offRecently ? ' after an off' : pd.craft.mistake ? ' after a mistake' : '';
           this.emit('pass', [passer, passed], `P${pos} ${this.name(passer)} passes ${this.name(passed)}${where}${why}`);
         }
       }

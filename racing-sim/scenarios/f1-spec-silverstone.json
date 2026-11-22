@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "name": "F1 at Silverstone",
-  "description": "Silverstone traced from gb.png (dark line on white), scaled to 5,891 m and driven clockwise from the Hamilton Straight. Twelve roster drivers in F1 cars, quickest on pole, five laps.",
+  "name": "F1 spec at Silverstone",
+  "description": "Silverstone traced from gb.png (dark line on white), scaled to 5,891 m and driven clockwise from the Hamilton Straight. Twelve roster drivers in identical F1 cars, quickest on pole, five laps.",
   "seed": 1,
   "track": {
     "type": "png",

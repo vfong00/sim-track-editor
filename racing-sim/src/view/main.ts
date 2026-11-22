@@ -771,7 +771,7 @@ function resetZoom() {
 }
 
 /** The example the viewer opens on when the URL asks for nothing else. */
-const DEFAULT_EXAMPLE = 'f1-silverstone';
+const DEFAULT_EXAMPLE = 'f1-spec-silverstone';
 
 /** First scenario: a shared link (#s=...), an example (?scenario=name), the URL parameters, else the default example. */
 async function initial(): Promise<Scenario> {

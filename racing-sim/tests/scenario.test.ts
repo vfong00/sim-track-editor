@@ -100,7 +100,7 @@ describe('Phase 6: invalid files fail with clear errors', () => {
     ['unknown car', (s) => { s.drivers[1].car = 'rockit'; return s; }, ['drivers[1].car: no car with id "rockit" (did you mean "rocket"?)']],
     ['duplicate driver', (s) => { s.drivers[1].name = 'Ortiz'; return s; }, ['drivers[1].name: "Ortiz" is used by another driver']],
     ['duplicate car', (s) => { s.cars[1].id = 'standard'; return s; }, ['cars[1].id: "standard" is used by another car']],
-    ['car spec out of range', (s) => { s.cars[0].grip = 5; return s; }, ['cars[0].grip: must be between 0.3 and 2 (got 5)']],
+    ['car spec out of range', (s) => { s.cars[0].grip = 5; return s; }, ['cars[0].grip: must be between 0.3 and 3 (got 5)']],
     ['bad advanced rating', (s) => { s.drivers[0].advanced = { bravry: 1 }; return s; }, ['drivers[0].advanced.bravry: unknown key (did you mean "bravery"?)']],
     ['unknown track type', (s) => { s.track = { type: 'oval' }; return s; }, ['track.type: must be one of "generated", "drawn", "png" (got string "oval")']],
     ['too few drawn points', (s) => { s.track = { type: 'drawn', points: [[0, 0], [100, 0]] }; return s; }, ['track.points: needs at least 3 entries (got 2)']],
