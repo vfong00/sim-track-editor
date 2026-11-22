@@ -298,13 +298,31 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   `batch`). On a mixed-grid Nordschleife (LMPs and MX-5s) the worst 10% of LMP laps lost 21 s
   instead of 30 s and DNFs halved; most of what is left is the lap-1 pack on a narrow road.
   Still to do: lapped cars of the same class (blue flags, below).
-- Qualifying grid (`gridOrder: "qualifying"`, now the examples' default): one seeded lap each,
-  the solver's ideal lap plus a half-normal loss that grows as consistency falls (~0.3% for an
-  average driver, 0.15% for the steadiest) and an occasional blunder (0.8–2.5%). Close drivers
-  swap from seed to seed (spec F1 at Silverstone: Alvarez on pole 29 times in 40, Chen 11).
-  Rating and qualifying grids keep each entrant's `gridTime`; the tower opens on a "Grid time"
-  column (pole's lap, then gaps) and the result table has a Quali column. Race-day form (the
-  same idea applied to the race itself) is not done.
+- Qualifying at the limit, races under it. `pace` (speed rating, 0.90–1.0 of the car's grip) is
+  now the limit. Races plan at `racePace`: 2.5% grip under it plus 12% per point of
+  inconsistency, about 1% (steady) to 2% (erratic) off the limit lap on the traced circuits
+  (lap time moves ~0.3–0.4% per 1% grip). `Race.paceOf` is the one place that picks the pace.
+  Batch, 16 seeds: racing passes after lap 1 rose (GT3 Laguna 4.8 → 6.7, MX-5 12.3 → 14.8,
+  F1 Yas 9.5 → 11.7); spins and lap-1 contact fell (F1 Yas DNFs 3.2 → 1.2, spec F1 Silverstone
+  incidents 4.4 → 2.2), so fewer passes come from cars in trouble. Incident odds were left as
+  they are: racing under the limit is meant to be safer, and qualifying carries the risk. (A
+  higher base mistake rate barely moved them; at incidentRate 1 the F1 Yas example is back to
+  ~3 DNFs, so it keeps 0.5.) The car presets still match real lap times, as push laps.
+- Qualifying session (`gridOrder: "qualifying"`, the examples' default): each car alone, a
+  flying start 350 m back, two timed laps, best counts (`qualifyingRun`, `session:
+  'qualifying'`). Full pace, bravery's late braking into every corner, and each corner driven a
+  little over or under the limit (`PUSH_SPREAD` 0.8% plus `PUSH_PER_INCONSISTENCY` 7% per point
+  of inconsistency): overdriving slides, and the usual mistake and spin odds follow. Spec F1 at
+  Silverstone, 20 seeds: Alvarez on pole 12 times, Chen 8. About 5% of runs have a moment (32%
+  on the Nordschleife). A 20-car Nordschleife grid takes ~1.5 s to build. No time (out on the
+  first lap) = back of the grid. Entrants keep `gridTime` and `quali` (seed, laps, note).
+- Viewer: Race ▾ → Qualifying (`q`) lists every run (both laps, best, gap, what happened); Watch
+  re-runs that car's session from its seed (identical lap times) as its own session, and "Back
+  to race" returns to the race where it was left. The HUD shows the ideal race lap and the ideal
+  push lap; the stats add a Race pace row.
+- Still open: drivers stepping up to the limit when attacking or defending (deferred on
+  purpose), lap-to-lap variation in races (only qualifying has per-corner variation), and a
+  formation of cars on track together in qualifying (traffic, tows).
 
 **Next (racing and sim)**
 - Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S

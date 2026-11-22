@@ -23,6 +23,8 @@ npm on this Mac: Artifactory may be unreachable. Install with
   defend, slipstream (`WAKE_RANGE` or `WAKE_TIME` back) and dirty air (`DIRTY_RANGE`).
 - **Drivers**: the fixed roster (`src/core/agents/roster.ts`), named A–T by overall ability;
   a test keeps the order. Scenarios use speed / consistency / risk (`driverFromRatings`).
+  `pace` is the limit (qualifying); races run at `racePace` (a margin set by consistency) via
+  `Race.paceOf`. Qualifying grids run each car's session (`src/core/race/qualifying.ts`).
 - **Scenarios** (`src/core/scenario/`): strict validation; PNG tracks take `reverse` and
   `start` (metres along the trace to the start line). Examples shown in the viewer live in
   `scenarios/` and can change freely; the checks use their own copies in

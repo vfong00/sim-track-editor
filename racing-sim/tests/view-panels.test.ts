@@ -42,7 +42,7 @@ describe('follow panel stats', () => {
     const st = statRows(field, 0);
     expect(st.profile).toBe('Quick, consistent, careful, in a custom car');
     expect(st.driver.map((r) => `${r.label} ${r.value} · ${r.rank}`)).toEqual([
-      'Pace 97.9% · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
+      'Pace 97.9% · 2nd of 3', 'Race pace 94.3% · 1st of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
       'Racecraft 0.84 · 2nd of 3', 'Incident risk ×0.74 · 1st of 3',
     ]);
     expect(st.car[0]).toMatchObject({ label: 'Top speed', value: '324 km/h', rank: '1st of 3' });

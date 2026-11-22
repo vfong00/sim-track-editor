@@ -1,4 +1,4 @@
-import { CAR_PRESETS, type CarSpec, type Entrant, incidentScale, PACE_MAX, PACE_MIN, STANDARD_CAR } from '../core';
+import { CAR_PRESETS, type CarSpec, type Entrant, incidentScale, PACE_MAX, PACE_MIN, racePace, STANDARD_CAR } from '../core';
 
 /**
  * Driver and car stats for the follow panel (no DOM, so it can be tested): the scenario-style
@@ -101,7 +101,8 @@ export function statRows(field: Entrant[], i: number): { profile: string; driver
     profile: `${profile(rs[i])}, in ${carPhrase(cars[i])}`,
     driver: [
       // The numbers the sim actually uses (DriverSpec), not the scenario's simpler ratings.
-      row('Pace', ds.map((d) => d.pace), (v) => `${(v * 100).toFixed(1)}%`, "Share of the car's grip used on a normal lap (from the speed rating: 96% to 100%). Sets the ideal lap."),
+      row('Pace', ds.map((d) => d.pace), (v) => `${(v * 100).toFixed(1)}%`, "Share of the car's grip used at the limit, on a qualifying lap (from the speed rating: 90% to 100%)."),
+      row('Race pace', ds.map(racePace), (v) => `${(v * 100).toFixed(1)}%`, 'Share of the grip used in a race: the limit less a margin of 2.5% plus 12% per point of inconsistency (about 1% to 2% off the qualifying lap).'),
       row('Consistency', ds.map((d) => d.consistency), f2, 'Mistake rate: an average driver (0.85) locks up or runs wide about once every 20–25 laps, far more often when sliding over the limit.'),
       // Not better or worse: rank 1st = the most willing.
       row('Aggression', ds.map((d) => d.aggression), f2, 'How readily they try a pass: the urge to attack, and how far back they start (14 m, up to 20 m at 1).'),

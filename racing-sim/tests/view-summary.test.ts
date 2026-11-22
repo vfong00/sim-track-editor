@@ -55,3 +55,19 @@ describe('end-of-race summary', () => {
     expect(summaryHtml('t', q)).toContain('Quali');
   });
 });
+
+describe('qualifying panel', () => {
+  it('lists each run in grid order with laps, the best marked, pole as a time and the rest as gaps', async () => {
+    const { qualiSummary, qualiHtml } = await import('../src/view/quali');
+    const data = scenario('random-field.json');
+    const r = new Race(loadScenario({ ...data, race: { ...data.race, laps: 1, gridOrder: 'qualifying' } }).options);
+    const q = qualiSummary(r.opts.entrants)!;
+    expect(q.rows).toHaveLength(r.cars.length);
+    expect(q.rows[0].pole).toBe(true);
+    for (const x of q.rows.slice(1)) expect(x.result).toMatch(/^\+\d+\.\d{3}$|^No time$/);
+    for (const x of q.rows) if (x.laps.length) expect(x.laps.filter((l) => l.best).length).toBeGreaterThanOrEqual(1);
+    expect(qualiHtml('t', q).match(/data-watch=/g)).toHaveLength(r.cars.length);
+    // An untimed grid has no session to show.
+    expect(qualiSummary(new Race(loadScenario(data).options).opts.entrants)).toBeNull();
+  });
+});

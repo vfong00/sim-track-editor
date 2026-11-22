@@ -117,26 +117,26 @@
       .ed-run { position: sticky; bottom: -8px; background: rgba(20,22,26,.97); padding: 6px 0 2px; }
       button.primary { background: #2f7a46; border-color: #3d9a5a; width: 100%; padding: 6px; }
       button:disabled { opacity: .45; cursor: not-allowed; }
-      #summary { top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3; max-width: calc(100vw - 32px); max-height: calc(100vh - 200px); overflow: auto; padding: 8px 12px 10px; background: rgba(20,22,26,.96); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-      #summary[hidden] { display: none; }
-      #summary .hd { display: flex; justify-content: space-between; align-items: center; gap: 16px; font-weight: 600; font-size: 14px; padding-bottom: 6px; border-bottom: 1px solid #2a2f38; }
-      #summary .hd .x { padding: 0 8px; font-size: 14px; }
-      #summary .facts { margin: 6px 0 8px; opacity: .85; line-height: 1.55; }
-      #summary table { border-collapse: collapse; width: 100%; }
-      #summary th { font-weight: 400; opacity: .55; font-size: 11px; text-align: left; padding: 0 6px 3px; }
-      #summary td { padding: 2px 6px; white-space: nowrap; }
-      #summary .n { text-align: right; }
-      #summary td.p { text-align: right; opacity: .7; width: 2ch; }
-      #summary td.car { opacity: .7; }
-      #summary tbody tr { cursor: pointer; }
-      #summary tbody tr:hover { background: #22262d; }
-      #summary tr.out { opacity: .55; }
-      #summary tr.out td:nth-last-child(4) { color: #ff6b6b; }
-      #summary .sw { display: inline-block; width: 6px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
-      #summary .purple { color: #c58cff; font-weight: 600; }
-      #summary .up { color: #9fd18b; }
-      #summary .dn { color: #ef7d6f; }
-      #summary .eq { opacity: .4; }
+      #summary, #quali { top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3; max-width: calc(100vw - 32px); max-height: calc(100vh - 200px); overflow: auto; padding: 8px 12px 10px; background: rgba(20,22,26,.96); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+      #summary[hidden], #quali[hidden] { display: none; }
+      #summary .hd, #quali .hd { display: flex; justify-content: space-between; align-items: center; gap: 16px; font-weight: 600; font-size: 14px; padding-bottom: 6px; border-bottom: 1px solid #2a2f38; }
+      #summary .hd .x, #quali .hd .x { padding: 0 8px; font-size: 14px; }
+      #summary .facts, #quali .facts { margin: 6px 0 8px; opacity: .85; line-height: 1.55; }
+      #summary table, #quali table { border-collapse: collapse; width: 100%; }
+      #summary th, #quali th { font-weight: 400; opacity: .55; font-size: 11px; text-align: left; padding: 0 6px 3px; }
+      #summary td, #quali td { padding: 2px 6px; white-space: nowrap; }
+      #summary .n, #quali .n { text-align: right; }
+      #summary td.p, #quali td.p { text-align: right; opacity: .7; width: 2ch; }
+      #summary td.car, #quali td.car { opacity: .7; }
+      #summary tbody tr, #quali tbody tr { cursor: pointer; }
+      #summary tbody tr:hover, #quali tbody tr:hover { background: #22262d; }
+      #summary tr.out, #quali tr.out { opacity: .55; }
+      #summary tr.out td:nth-last-child(4), #quali tr.out td:nth-last-child(3) { color: #ff6b6b; }
+      #summary .sw, #quali .sw { display: inline-block; width: 6px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+      #summary .purple, #quali .purple { color: #c58cff; font-weight: 600; }
+      #summary .up, #quali .up { color: #9fd18b; }
+      #summary .dn, #quali .dn { color: #ef7d6f; }
+      #summary .eq, #quali .eq { opacity: .4; }
     </style>
   </head>
   <body>
@@ -151,9 +151,11 @@
           <button id="reseed" role="menuitem" title="Same scenario, next seed">New seed</button>
           <button id="restart" role="menuitem" title="Back to the start of this race (same seed: identical) (Home)">Replay</button>
           <button id="result" role="menuitem" title="Classification, gaps, fastest laps, passes and incidents (r); available once the race is over">Result</button>
+          <button id="qualiBtn" role="menuitem" title="Each car's qualifying run, and watch any of them (q)">Qualifying</button>
         </div>
       </div>
       <button id="close" hidden>Close loop</button>
+      <button id="backRace" hidden title="Back to the race, where you left it">◀ Back to race</button>
       <span id="info"></span>
     </div>
     <div id="tower" class="panel"></div>
@@ -167,6 +169,7 @@
     </div>
     <div id="editor" class="panel" hidden></div>
     <div id="summary" class="panel" hidden></div>
+    <div id="quali" class="panel" hidden></div>
     <canvas id="c"></canvas>
     <div id="tlbar">
       <button id="pause" title="Pause / play (space)">⏸</button>

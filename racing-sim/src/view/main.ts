@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import {
-  buildTrack, CAR_LENGTH, CAR_WIDTH, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, LaneSet, parseScenario, Race,
-  type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
+  buildTrack, CAR_LENGTH, CAR_WIDTH, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, lanePlansFor, LaneSet, parseScenario,
+  qualifyingRun, Race, type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
 } from '../core';
 import { ScenarioEditor } from '../editor/scenario-editor';
 import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
@@ -13,6 +13,7 @@ import { drawTimeline, timelineDuration } from './timeline';
 import { hasGridTimes, nextMode, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
 import { drawSpeedTrace } from './trace';
 import { raceOver, raceSummary, summaryHtml } from './summary';
+import { qualiHtml, qualiSummary } from './quali';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('c');
@@ -146,6 +147,9 @@ async function runScenario(s: Scenario): Promise<boolean> {
     showErrors(e instanceof ScenarioBuildError ? e.errors.map(formatError) : [(e as Error).message]);
     return false;
   }
+  qualiBack = null;
+  $('backRace').hidden = true;
+  setQuali(false);
   feedKey = '';
   towerKey = '';
   // A timed grid opens on the grid times (pole and the gaps), then rotates as usual.
@@ -181,6 +185,61 @@ function setResult(open: boolean) {
   if (open && s && over) summaryBox.innerHTML = summaryHtml(s.label, raceSummary(s.race));
   summaryBox.hidden = !(open && over);
   $('result').classList.toggle('on', !summaryBox.hidden);
+}
+
+/** Watching a qualifying run: the race session to go back to, and who was followed there. */
+let qualiBack: { session: Session; follow: number; cam: CamMode } | null = null;
+const qualiBox = $('quali');
+
+/** The race (not a qualifying run being watched). */
+const raceSession = () => qualiBack?.session ?? S;
+
+/** Show or hide the qualifying panel (each car's run, from the race's grid). */
+function setQuali(open: boolean) {
+  const s = raceSession();
+  if (open && s) qualiBox.innerHTML = qualiHtml(s.label, qualiSummary(s.race.opts.entrants));
+  qualiBox.hidden = !(open && s);
+  $('qualiBtn').classList.toggle('on', !qualiBox.hidden);
+}
+
+/**
+ * Watch entrant i's qualifying run: re-run it from its seed (deterministic, so it is the lap that
+ * set the time) and show it as its own session on the same track, until "Back to race".
+ */
+function watchQuali(i: number) {
+  const base = raceSession();
+  const e = base?.race.opts.entrants[i];
+  if (!base || !e?.quali) return;
+  const sc = base.scenario;
+  const race = qualifyingRun({ lanes: base.lanes, entrant: e, seed: e.quali.seed, physics: sc.physics, incidents: sc.race.incidents ?? true, incidentRate: sc.race.incidentRate ?? 1 });
+  if (!qualiBack) qualiBack = { session: base, follow: followIdx, cam: camMode };
+  S = { ...base, race, clock: 0, watched: 0, label: `Qualifying · ${e.driver.name}`, resultShown: true };
+  followIdx = 0;
+  setCam('follow');
+  setQuali(false);
+  setResult(false);
+  feedKey = '';
+  towerKey = '';
+  statsKey = '';
+  towerMode = 'last';
+  $('backRace').hidden = false;
+  info.textContent = `Qualifying · ${e.driver.name} · ${e.quali.laps.map((t) => fmtTime(t)).join(' / ') || 'no time'}${e.quali.note ? ` · ${e.quali.note}` : ''}`;
+}
+
+/** Leave a qualifying run: the race comes back where it was left. */
+function backToRace() {
+  if (!qualiBack) return;
+  S = qualiBack.session;
+  followIdx = qualiBack.follow;
+  setCam(qualiBack.cam);
+  qualiBack = null;
+  $('backRace').hidden = true;
+  feedKey = '';
+  towerKey = '';
+  statsKey = '';
+  towerMode = 'gap';
+  const sc = S.scenario;
+  info.textContent = `${sc.name} · ${S.track.length.toFixed(0)} m · ${S.race.cars.length} cars · ${sc.race.laps} laps · seed ${sc.seed}`;
 }
 
 /** Run a modified copy of the current scenario. */
@@ -379,10 +438,25 @@ function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
     <div class="row"><span class="lbl">This lap</span><span>${fmtTime(cur)}</span></div>
     <div class="row"><span class="lbl">Last lap</span><span>${laps.length ? fmtTime(laps[laps.length - 1]) : '–'}</span></div>
     <div class="row"><span class="lbl">Best lap</span><span>${laps.length ? fmtTime(Math.min(...laps)) : '–'}</span></div>
-    <div class="row" title="The best this driver and car can do in clean air, using ${(c.entrant.driver.pace * 100).toFixed(1)}% of the car's grip (their speed rating)"><span class="lbl">Ideal lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>
+    ${idealRows(s, at, i)}
     ${damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(damage * 100).toFixed(1)}% grip</span></div>` : ''}
     ${at.out(i) ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
   renderStats(s, i);
+}
+
+/**
+ * Clean-air ideal laps: at the limit (a push lap, the driver's speed rating) and, in a race, at
+ * race pace (a margin under it, from consistency).
+ */
+function idealRows(s: Session, at: RaceAt, i: number): string {
+  const e = s.race.cars[i].entrant;
+  const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+  const quali = s.race.opts.session === 'qualifying';
+  const limit = quali ? at.plans(i).lapTime : lanePlansFor(s.lanes, e.car, e.driver.pace, { ...s.race.physics, gripLevel: at.gripLevel }).plans.lapTime;
+  const push = `<div class="row" title="Clean air at the limit, using ${pct(e.driver.pace)} of the car's grip (their speed rating): a qualifying lap"><span class="lbl">Ideal push lap</span><span>${fmtTime(limit)}</span></div>`;
+  if (quali) return push;
+  const pace = s.race.paceOf(e);
+  return `<div class="row" title="Clean air at race pace, using ${pct(pace)} of the car's grip: their limit less a margin that is bigger for a less consistent driver"><span class="lbl">Ideal race lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>${push}`;
 }
 
 /** Driver ratings and car spec of the followed car, each ranked in the field (only re-rendered when it changes). */
@@ -636,7 +710,7 @@ function buildControls() {
   addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
     // Escape closes the menu and the scenario panel, even from a field inside the panel.
-    if (e.key === 'Escape') { setRaceMenu(false); setEditor(false); setResult(false); return; }
+    if (e.key === 'Escape') { setRaceMenu(false); setEditor(false); setResult(false); setQuali(false); return; }
     if (el.closest?.('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
     if (k === 'ArrowUp') stepFollow(-1);
@@ -646,6 +720,7 @@ function buildControls() {
     else if (k === 'Home') seek(0);
     else if (k === 'n') toggleNames();
     else if (k === 'r') setResult(summaryBox.hidden);
+    else if (k === 'q') setQuali(qualiBox.hidden);
     else if (k === '+' || k === '=') zoomBy(1.25);
     else if (k === '-' || k === '_') zoomBy(1 / 1.25);
     else if (k === '0') resetZoom();
@@ -675,6 +750,17 @@ function buildControls() {
   $('gen').onclick = () => rerun((s) => { s.track = { type: 'generated', seed: Math.floor(Math.random() * 1e6), width: s.track.width ?? WIDTH }; });
   $('edit').onclick = () => setEditor(editorBox.hidden);
   $('result').onclick = () => setResult(summaryBox.hidden);
+  $('qualiBtn').onclick = () => setQuali(qualiBox.hidden);
+  $('backRace').onclick = () => backToRace();
+  // Qualifying panel: × closes it; Watch plays that run; a row follows that driver in the race.
+  qualiBox.addEventListener('click', (e) => {
+    const el = e.target as HTMLElement;
+    if (el.closest('.x')) { setQuali(false); return; }
+    const w = el.closest<HTMLElement>('[data-watch]');
+    if (w) { watchQuali(Number(w.dataset.watch)); return; }
+    const row = el.closest<HTMLElement>('tr[data-i]');
+    if (row && !qualiBack) { followIdx = Number(row.dataset.i); if (camMode === 'all') setCam('follow'); towerKey = ''; statsKey = ''; }
+  });
   // Result panel: × closes it; a row follows that driver.
   summaryBox.addEventListener('click', (e) => {
     const el = e.target as HTMLElement;
