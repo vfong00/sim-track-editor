@@ -9,13 +9,18 @@ import { Track } from './track';
  * branches. Here stray spurs are pruned first (a closed track has no endpoints, so peeling
  * endpoints until none remain removes only spurs), and the walk must close into a loop or
  * we throw. Smoothing is a periodic Gaussian instead of `splprep`, which does not wrap.
- * Coordinates stay in image space (x = column, y = row, y down), like the notebook.
+ * Image rows run down but the world's y runs up (the viewer draws y up), so rows are negated:
+ * the track appears the way it looks in the image instead of mirrored top to bottom.
  */
 export interface PngImportOptions {
   /** Pixels with gray value <= this count as track (notebook: 200, inverted binary threshold). */
   threshold?: number;
   /** Gaussian smoothing sigma in skeleton pixels (replaces the notebook's spline smoothing factor). */
   smoothing?: number;
+  /** Drive the trace the other way round (the trace's own direction is arbitrary). */
+  reverse?: boolean;
+  /** Where the start/finish line is: metres along the trace (after `reverse`) from where it begins. */
+  start?: number;
 }
 
 export function trackFromPng(image: ImageData, lengthMeters: number, width = 14, opts: PngImportOptions = {}): Track {
@@ -30,6 +35,7 @@ export function trackFromPng(image: ImageData, lengthMeters: number, width = 14,
   skeletonize(mask, w, h);
   pruneSpurs(mask, w, h);
   const loop = walkLoop(mask, w, h);
+  if (opts.reverse) loop.reverse();
   const smoothed = smoothClosed(loop, opts.smoothing ?? 6);
   // Scale so the resampled track has exactly the requested length.
   let px = 0;
@@ -38,7 +44,16 @@ export function trackFromPng(image: ImageData, lengthMeters: number, width = 14,
     px += Math.hypot(b.x - a.x, b.y - a.y);
   }
   const k = lengthMeters / px;
-  return Track.fromPolyline(smoothed.map((p) => ({ x: p.x * k, y: p.y * k })), width);
+  // Begin the loop at the start/finish line (the trace begins wherever its first pixel was).
+  let i0 = 0;
+  const startPx = ((((opts.start ?? 0) % lengthMeters) + lengthMeters) % lengthMeters) / k;
+  for (let i = 0, run = 0; i < smoothed.length; i++) {
+    if (run >= startPx) { i0 = i; break; }
+    const a = smoothed[i], b = smoothed[(i + 1) % smoothed.length];
+    run += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  const loop2 = [...smoothed.slice(i0), ...smoothed.slice(0, i0)];
+  return Track.fromPolyline(loop2.map((p) => ({ x: p.x * k, y: -p.y * k })), width);
 }
 
 /** Zhang–Suen thinning, in place. */

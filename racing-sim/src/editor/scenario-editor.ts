@@ -1,4 +1,4 @@
-import { formatError, parseScenario, RANGES, type Scenario, type ScenarioError } from '../core';
+import { CAR_PRESETS, CAR_PRESET_IDS, formatError, parseScenario, RANGES, STANDARD_CAR, type Scenario, type ScenarioError } from '../core';
 
 /**
  * Scenario editor panel (Phase 6): a form over a draft scenario object, kept in sync with a raw
@@ -14,6 +14,8 @@ export interface EditorHooks {
   share(s: Scenario): Promise<string>;
   save(s: Scenario): void;
   open(): Promise<unknown | null>;
+  /** Close the panel (the ✕ in its top bar). */
+  close?(): void;
 }
 
 type Path = (string | number)[];
@@ -73,13 +75,19 @@ export class ScenarioEditor {
     }
     track += this.row('Width (m)', this.num(['track', 'width'], t.width, RANGES.width, '0.5', '14'));
 
-    const cars = s.cars.map((c, i) => `<tr>
+    const presetOpts: [string, string][] = [['', 'Custom'], ...CAR_PRESET_IDS.map((k): [string, string] => [k, CAR_PRESETS[k].label])];
+    const cars = s.cars.map((c, i) => {
+      // Blank fields fall back to the preset (shown as the placeholder).
+      const b = c.preset ? CAR_PRESETS[c.preset] : STANDARD_CAR;
+      return `<tr>
       <td>${this.text(['cars', i, 'id'], c.id)}</td>
-      <td>${this.num(['cars', i, 'topSpeed'], c.topSpeed, RANGES.topSpeed, '1', '85')}</td>
-      <td>${this.num(['cars', i, 'accel'], c.accel, RANGES.accel, '0.5', '11')}</td>
-      <td>${this.num(['cars', i, 'grip'], c.grip, RANGES.grip, '0.01', '1')}</td>
-      <td>${this.num(['cars', i, 'brake'], c.brake, RANGES.brake, '0.01', '1')}</td>
-      <td><button class="x" data-act="del" data-path="cars.${i}" title="Remove">✕</button></td></tr>`).join('');
+      <td>${this.select(['cars', i, 'preset'], c.preset ?? '', presetOpts, true)}</td>
+      <td>${this.num(['cars', i, 'topSpeed'], c.topSpeed, RANGES.topSpeed, '1', String(b.topSpeed))}</td>
+      <td>${this.num(['cars', i, 'accel'], c.accel, RANGES.accel, '0.5', String(b.accel))}</td>
+      <td>${this.num(['cars', i, 'grip'], c.grip, RANGES.grip, '0.01', String(b.grip))}</td>
+      <td>${this.num(['cars', i, 'brake'], c.brake, RANGES.brake, '0.01', String(b.brake))}</td>
+      <td><button class="x" data-act="del" data-path="cars.${i}" title="Remove">✕</button></td></tr>`;
+    }).join('');
 
     const drivers = (s.drivers ?? []).map((d, i) => `<tr>
       <td><input type="color" data-path="drivers.${i}.color" data-kind="str" value="${esc(d.color ?? '#cccccc')}"></td>
@@ -107,6 +115,7 @@ export class ScenarioEditor {
       <div class="ed-top">
         <select data-act="example">${exampleOpts.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select>
         <button data-act="open">Open…</button><button data-act="save">Save</button><button data-act="share">Share link</button>
+        <button class="x" data-act="close" title="Close (Esc)">✕</button>
       </div>
       <div class="ed-msg" id="ed-msg"></div>
       <section><h4>Scenario</h4>
@@ -128,14 +137,14 @@ export class ScenarioEditor {
         ${this.row('Dirty air', this.num(['physics', 'dirtyAir'], s.physics?.dirtyAir, RANGES.dirtyAir, '0.01', '0.06'))}
       </section>
       <section><h4>Cars</h4>
-        <table><tr><th>id</th><th>top m/s</th><th>accel</th><th>grip</th><th>brake</th><th></th></tr>${cars}</table>
+        <table><tr><th>id</th><th>type</th><th>top m/s</th><th>accel</th><th>grip</th><th>brake</th><th></th></tr>${cars}</table>
         <button data-act="add-car">+ Car</button>
       </section>
       <section><h4>Drivers <em>speed · consistency · risk, 0–1</em></h4>
         <table><tr><th></th><th>name</th><th>car</th><th>speed</th><th>cons.</th><th>risk</th><th></th></tr>${drivers}</table>
         <button data-act="add-driver">+ Driver</button>
-        ${this.row('Generated field', this.num(['field', 'count'], f?.count, RANGES.fieldCount, '1', 'none'), 'extra drivers')}
-        ${f ? this.row('Field car', this.select(['field', 'car'], f.car, carOpts)) + this.row('Field spread', this.num(['field', 'spread'], f.spread, [0, 1], '0.1', '1'), '0 = all average') : ''}
+        ${this.row('Roster drivers', this.num(['field', 'count'], f?.count, RANGES.fieldCount, '1', 'none'), 'from the fixed roster')}
+        ${f ? this.row('Field car', this.select(['field', 'car'], f.car, carOpts)) + this.row('Rating spread', this.num(['field', 'spread'], f.spread, [0, 1], '0.1', '1'), '0 = all average, 1 = as rostered') : ''}
       </section>
       <section><h4>Mid-race events <em>when the leader starts the lap</em></h4>
         <table><tr><th>lap</th><th>type</th><th>value</th><th>note</th><th></th></tr>${events}</table>
@@ -238,6 +247,9 @@ export class ScenarioEditor {
     if (!b?.dataset.act) return;
     const s = this.draft;
     switch (b.dataset.act) {
+      case 'close':
+        this.hooks.close?.();
+        return;
       case 'run':
         if (!this.errors.length) this.hooks.run(structuredClone(s));
         return;

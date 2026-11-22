@@ -57,15 +57,7 @@ export class LaneSet {
         this.paths.push(this.line);
         continue;
       }
-      const d = new Float64Array(track.n);
-      for (let j = 0; j < track.n; j++) d[j] = clamp(this.line.d[j] + off, -this.lim, this.lim);
-      // Clamping leaves kinks where the shifted line meets the edge, which would read as tight
-      // corners. Two passes of a moving average (an average of in-bounds values stays in bounds)
-      // round them off.
-      const half = Math.round(15 / track.ds);
-      smoothPeriodic(d, half);
-      smoothPeriodic(d, half);
-      this.paths.push(pathFromOffsets(track, d));
+      this.paths.push(pathFromOffsets(track, shiftedLane(this.line.d, off, this.lim, Math.round(LANE_EASE / track.ds))));
     }
   }
 
@@ -174,6 +166,44 @@ export class LanePlans {
 }
 
 /** In-place periodic moving average over ±half samples. */
+/**
+ * Distance (m) over which a lane eases away from the road edge where the shifted racing line
+ * would cross it. Short eases are tight kinks: being one lane off line then cost ~12 km/h at
+ * an apex instead of the ~3 km/h the narrower road accounts for.
+ */
+export const LANE_EASE = 40;
+
+/**
+ * The racing line shifted by `off`, kept within ±lim. Where the shifted line would leave the
+ * road, the correction (how far it must come back in) is spread out instead of clamped: a
+ * running min (or max) over 2·r, then two moving averages over r. Each averaged value is no
+ * larger in size than the correction needed at that point, so the lane stays on the road, and
+ * it eases in and out over ~4·r instead of kinking.
+ */
+function shiftedLane(line: Float64Array, off: number, lim: number, r: number): Float64Array {
+  const n = line.length;
+  const d = new Float64Array(n);
+  const over = new Float64Array(n);
+  for (let j = 0; j < n; j++) {
+    d[j] = line[j] + off;
+    over[j] = d[j] > lim ? lim - d[j] : d[j] < -lim ? -lim - d[j] : 0;
+  }
+  const sign = off > 0 ? -1 : 1; // corrections all point back toward the centre
+  const spread = new Float64Array(n);
+  for (let j = 0; j < n; j++) {
+    let m = 0;
+    for (let k = -2 * r; k <= 2 * r; k++) {
+      const v = over[(j + k + n) % n] * sign;
+      if (v > m) m = v;
+    }
+    spread[j] = m * sign;
+  }
+  smoothPeriodic(spread, r);
+  smoothPeriodic(spread, r);
+  for (let j = 0; j < n; j++) d[j] = clamp(d[j] + spread[j], -lim, lim);
+  return d;
+}
+
 function smoothPeriodic(a: Float64Array, half: number): void {
   const n = a.length;
   const src = Float64Array.from(a);

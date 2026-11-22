@@ -68,7 +68,7 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   // leaves over (Phase 5: hitting one is no longer just a bump).
   const slow = Math.max(6, 0.5 * st.v);
   const aCorner = Math.abs(st.v * st.v * lanes.kappa(st.s, st.delta));
-  const bHaz = brakeGain * me.model.maxBrake(st.v, Math.min(aCorner, 0.95 * me.model.mu));
+  const bHaz = brakeGain * me.model.maxBrake(st.v, Math.min(aCorner, 0.95 * me.model.gripLimit(undefined, st.v)));
   for (const o of near) {
     const hazard = o.v < slow;
     if (o.gap <= 0 || o.gap > (hazard ? 40 + 4 * st.v : look)) continue;

@@ -6,9 +6,14 @@ import type { Corner } from '../track/corners';
 import { ALONGSIDE, avoidSlowCar, type Near, SIDE_GAP, trafficControls } from './controller';
 import type { DriverSpec } from './driver';
 
-/** Range (m) and lateral window (m) of the wake behind a car. */
+/** Range (m) of the wake behind a car… */
 export const WAKE_RANGE = 40;
+/** …or this many seconds behind at speed, whichever is further. */
+export const WAKE_TIME = 1.0;
+/** Lateral window (m) of the wake. */
 export const WAKE_WIDTH = 2.4;
+/** An attacker going for the inside heads for the inside edge from this far before the apex (m). */
+export const DIVE_FROM = 150;
 /** Dirty air reaches this far behind a car (m). */
 export const DIRTY_RANGE = 30;
 
@@ -78,14 +83,17 @@ function distTo(lanes: LaneSet, s: number, apex: number): number {
  *  - dirty air cuts grip by up to `physics.dirtyAir`, fading with distance.
  */
 export function wakeEffects(me: CraftCar, near: Near[], ctx: CraftContext): { grip: number; drag: number; source: number } {
+  // The tow reaches WAKE_RANGE metres, or WAKE_TIME seconds back at speed (a car half a second
+  // behind on a fast straight is 40 m back and still well in it).
+  const range = Math.max(WAKE_RANGE, me.st.v * WAKE_TIME);
   let best: Near | null = null;
   for (const o of near) {
-    if (o.gap <= HIT_LEN || o.gap > WAKE_RANGE || Math.abs(o.dd) > WAKE_WIDTH || o.v < 10) continue;
+    if (o.gap <= HIT_LEN || o.gap > range || Math.abs(o.dd) > WAKE_WIDTH || o.v < 10) continue;
     if (!best || o.gap < best.gap) best = o;
   }
   if (!best) return { grip: 1, drag: 1, source: -1 };
   const straight = Math.abs(ctx.lanes.kappa(me.st.s, me.st.delta)) < 1 / 300;
-  const slip = straight ? ctx.physics.slipstream * (1 - best.gap / WAKE_RANGE) : 0;
+  const slip = straight ? ctx.physics.slipstream * (1 - best.gap / range) : 0;
   const dirty = best.gap < DIRTY_RANGE ? ctx.physics.dirtyAir * (1 - best.gap / DIRTY_RANGE) : 0;
   return { grip: 1 - dirty, drag: 1 - slip, source: best.j };
 }
@@ -127,11 +135,11 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     // Chance per second grows with how hard the driver is pushing and how far over the limit.
     // Base rate: an average driver (consistency 0.85) slips about once every 20–25 laps.
     // Beyond the limit (sliding: braking too late, dirty air, a lunge) the rate climbs steeply.
-    const excess = st.slide / me.model.mu;
+    const excess = st.slide / me.model.gripLimit(undefined, st.v);
     const rate = (1 - drv.consistency) * (0.004 + 4 * excess);
     if (me.rng.next() < rate * dt && st.v > 15) {
       const braking = st.aLong < -3 && toCorner < 200;
-      const cornering = Math.abs(st.aLat) > 0.5 * me.model.mu;
+      const cornering = Math.abs(st.aLat) > 0.5 * me.model.gripLimit(undefined, st.v);
       if (braking || cornering) {
         cr.mistake = { kind: braking ? 'lockup' : 'wide', until: ctx.t + (braking ? 0.9 : 1.6), corner: ci };
         started = cr.mistake;
@@ -192,8 +200,10 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       // Prefer the inside of the next corner, else the other side, if there's room.
       const inside = corner ? corner.dir : 1;
       for (const side of [inside, -inside]) {
-        const d = target.d + side * (SIDE_GAP + 0.3);
-        if (Math.abs(d) > lim) continue;
+        // The inside is open if the leader isn't covering it (the racing line approaches from
+        // the outside, so usually it is); the outside needs room beside the leader now.
+        const open = corner && side === corner.dir ? side * lim - side * target.d >= SIDE_GAP : Math.abs(target.d + side * (SIDE_GAP + 0.3)) <= lim;
+        if (!open) continue;
         if (side > 0 ? leftBusy : rightBusy) continue;
         cr.mode = 'attack';
         cr.other = front.j;
@@ -221,7 +231,11 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       // alongside (the side-spacing rule then leaves room) instead of chasing the attacker out wide.
       const committed = o.gap < ALONGSIDE + 6;
       if (!committed && !room(cr.side) && room(-cr.side) && !busy(-cr.side)) cr.side = -cr.side;
-      wantDelta = clamp(o.d + cr.side * (SIDE_GAP + 0.3), -lim, lim) - lineD;
+      // Into the corner on the inside: dive for the inside edge (the leader's line sweeps across
+      // from the outside, so sitting a car's width off the leader would be squeezed onto the same
+      // edge behind it). Elsewhere, sit a car's width off the leader.
+      const dive = corner && ci === cr.corner && cr.side === corner.dir && toCorner < DIVE_FROM && room(cr.side);
+      wantDelta = (dive ? cr.side * lim : clamp(o.d + cr.side * (SIDE_GAP + 0.3), -lim, lim)) - lineD;
       // Brave: brake later while fighting for the corner (not a higher cornering speed). The
       // planned braking leaves a margin (BRAKE_USE ≈ 3% of speed); an average driver uses about
       // two thirds of it, the bravest a little more than all of it (and may overshoot).

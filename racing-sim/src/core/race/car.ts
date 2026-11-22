@@ -60,7 +60,7 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
   const f = off > 0 ? { grip: f0.grip * (1 - off * (1 - RUNOFF_GRIP)), drag: f0.drag } : f0;
   // Gravel drag grows with speed: it stops a fast car but lets a crawling one drive out.
   const roll = off * RUNOFF_DRAG * Math.min(1, st.v / 15);
-  const mu = model.gripLimit(f);
+  const mu = model.gripLimit(f, st.v);
   st.mu = mu;
   const kappa = lanes.kappa(st.s, st.delta);
   const v0 = st.v;

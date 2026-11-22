@@ -1,0 +1,67 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import {
+  CAR_PRESET_IDS, CAR_PRESETS, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, ROSTER, type Scenario, simulateLap,
+} from '../src/core';
+
+const read = (f: string) => JSON.parse(readFileSync(new URL(`../scenarios/${f}`, import.meta.url).pathname, 'utf8')) as Scenario;
+
+describe('car presets', () => {
+  const track = generateTrack({ seed: 7 });
+  const lanes = new LaneSet(track);
+  const laps = Object.fromEntries(CAR_PRESET_IDS.map((id) => {
+    const model = new CarModel({ id, ...CAR_PRESETS[id] });
+    const plans = new LanePlans(lanes, model);
+    const lap = simulateLap(lanes, plans, model);
+    return [id, { solver: plans.lapTime, stepped: lap.lapTime, usage: lap.maxUsage }];
+  }));
+
+  it.each(CAR_PRESET_IDS)('%s: the time-stepped lap matches the planned one (one physics model, with downforce)', (id) => {
+    expect(Math.abs(laps[id].stepped / laps[id].solver - 1)).toBeLessThan(0.01);
+    expect(laps[id].usage).toBeLessThan(1.01);
+  });
+
+  it('rank by class: F1 < LMP < GT3 < road car < MX-5', () => {
+    const order = ['f1', 'lmp', 'gt3', 'road', 'mx5'].map((id) => laps[id].solver);
+    for (let i = 1; i < order.length; i++) expect(order[i]).toBeGreaterThan(order[i - 1]);
+  });
+
+  it('downforce helps most in fast corners', () => {
+    const plain = new CarModel({ id: 'a', ...CAR_PRESETS.f1, downforce: 0 });
+    const winged = new CarModel({ id: 'b', ...CAR_PRESETS.f1 });
+    const gain = (r: number) => winged.cornerSpeed(1 / r) / plain.cornerSpeed(1 / r);
+    expect(gain(200)).toBeGreaterThan(gain(20));
+    expect(gain(20)).toBeGreaterThan(1);
+  });
+
+  it('a scenario car takes its preset values unless it overrides them', () => {
+    const car = loadScenario({ ...read('equal-field.json'), cars: [{ id: 'standard', preset: 'gt3', topSpeed: 70 }] }).options.entrants[0].car;
+    const { label: _, ...gt3 } = CAR_PRESETS.gt3;
+    expect(car).toEqual({ id: 'standard', ...gt3, topSpeed: 70 });
+  });
+});
+
+describe('fixed roster', () => {
+  const ratingsOf = (s: Scenario, name: string) => {
+    const e = loadScenario(s).options.entrants.find((x) => x.driver.name === name)!;
+    return { pace: e.driver.pace, consistency: e.driver.consistency, aggression: e.driver.aggression, color: e.color };
+  };
+
+  it('a driver keeps the same ratings and colour on every seed and in every scenario', () => {
+    const a = read('random-field.json');
+    const base = ratingsOf(a, 'Sato');
+    expect(ratingsOf({ ...a, seed: 99 }, 'Sato')).toEqual(base);
+    expect(ratingsOf(read('safety-car.json'), 'Sato')).toEqual(base);
+  });
+
+  it('generated fields are the roster, in order', () => {
+    const names = loadScenario(read('random-field.json')).options.entrants.map((e) => e.driver.name);
+    expect([...names].sort()).toEqual(ROSTER.slice(0, 12).map((d) => d.name).sort());
+  });
+
+  it('a listed driver with a roster name brings their own ratings', () => {
+    const s = read('random-field.json');
+    const listed: Scenario = { ...s, drivers: [{ name: 'Lee', car: 'standard' }], field: { ...s.field!, count: 3 } };
+    expect(ratingsOf(listed, 'Lee')).toEqual(ratingsOf(s, 'Lee'));
+  });
+});

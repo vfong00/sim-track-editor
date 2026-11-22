@@ -1,6 +1,7 @@
-import { AVERAGE_RATINGS, DRIVER_COLORS, DRIVER_NAMES, driverFromRatings, type Entrant } from '../agents/driver';
+import { AVERAGE_RATINGS, DRIVER_COLORS, driverFromRatings, type Entrant } from '../agents/driver';
+import { ROSTER, rosterDriver } from '../agents/roster';
 import { polylineSelfIntersects, type Vec } from '../math';
-import { STANDARD_CAR, type CarSpec } from '../physics/model';
+import { CAR_PRESETS, STANDARD_CAR, type CarSpec } from '../physics/model';
 import { LaneSet } from '../race/lanes';
 import { lanePlansFor, type RaceOptions, type ScriptedEvent } from '../race/race';
 import { makeRng } from '../rng';
@@ -13,7 +14,7 @@ import { type Scenario, type ScenarioError, type TrackSpec, parseScenario } from
  * Bumped whenever the code that turns a track spec into a Track changes, so a cached track
  * (rule 5) built by older code is never reused.
  */
-export const TRACK_CODE_VERSION = 1;
+export const TRACK_CODE_VERSION = 2;
 
 export const DEFAULT_WIDTH = 14;
 
@@ -22,7 +23,7 @@ export function normalizeTrack(t: TrackSpec): Required<TrackSpec> {
   const width = t.width ?? DEFAULT_WIDTH;
   if (t.type === 'generated') return { type: 'generated', seed: t.seed, width, complexity: t.complexity ?? 0.6 };
   if (t.type === 'drawn') return { type: 'drawn', points: t.points, width };
-  return { type: 'png', image: t.image, length: t.length, width, threshold: t.threshold ?? 200, smoothing: t.smoothing ?? 6 };
+  return { type: 'png', image: t.image, length: t.length, width, threshold: t.threshold ?? 200, smoothing: t.smoothing ?? 6, reverse: t.reverse ?? false, start: t.start ?? 0 };
 }
 
 /**
@@ -59,25 +60,29 @@ export function buildTrack(spec: TrackSpec, image?: ImageData): Track {
       return track;
     }
     if (!image) throw new Error('the PNG image has not been decoded');
-    return trackFromPng(image, t.length, t.width, { threshold: t.threshold, smoothing: t.smoothing });
+    return trackFromPng(image, t.length, t.width, { threshold: t.threshold, smoothing: t.smoothing, reverse: t.reverse, start: t.start });
   } catch (e) {
     if (e instanceof ScenarioBuildError) throw e;
     throw new ScenarioBuildError([{ path: 'track', message: (e as Error).message }]);
   }
 }
 
-/** Car specs by id, with defaults from the standard car. */
-function carSpecs(s: Scenario): Map<string, CarSpec> {
-  return new Map(s.cars.map((c) => [c.id, {
-    id: c.id,
-    topSpeed: c.topSpeed ?? STANDARD_CAR.topSpeed,
-    accel: c.accel ?? STANDARD_CAR.accel,
-    grip: c.grip ?? STANDARD_CAR.grip,
-    brake: c.brake ?? STANDARD_CAR.brake,
-  }]));
+/** Car specs by id, with defaults from the car's preset, or else the standard car. */
+export function carSpecs(s: Scenario): Map<string, CarSpec> {
+  return new Map(s.cars.map((c) => {
+    const base: Omit<CarSpec, 'id'> = c.preset ? CAR_PRESETS[c.preset] : STANDARD_CAR;
+    return [c.id, {
+      id: c.id,
+      topSpeed: c.topSpeed ?? base.topSpeed,
+      accel: c.accel ?? base.accel,
+      grip: c.grip ?? base.grip,
+      brake: c.brake ?? base.brake,
+      downforce: c.downforce ?? base.downforce ?? 0,
+    }];
+  }));
 }
 
-/** Ratings spread of a generated field (at spread 1), around AVERAGE_RATINGS. */
+/** Ratings spread of drivers made up past the end of the roster (at spread 1), around AVERAGE_RATINGS. */
 const FIELD_SPREAD = { speed: 0.3, consistency: 0.12, risk: 0.4 };
 
 /**
@@ -91,23 +96,34 @@ export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
   const list: Entrant[] = [];
   const used = new Set((s.drivers ?? []).map((d) => d.name));
   (s.drivers ?? []).forEach((d) => {
-    const ratings = { speed: d.speed ?? AVERAGE_RATINGS.speed, consistency: d.consistency ?? AVERAGE_RATINGS.consistency, risk: d.risk ?? AVERAGE_RATINGS.risk };
+    // A roster name brings that driver's own ratings and colour unless the entry overrides them.
+    const base = rosterDriver(d.name) ?? { ...AVERAGE_RATINGS, color: undefined };
+    const ratings = { speed: d.speed ?? base.speed, consistency: d.consistency ?? base.consistency, risk: d.risk ?? base.risk };
     list.push({
       id: d.name,
-      color: d.color ?? DRIVER_COLORS[list.length % DRIVER_COLORS.length],
+      color: d.color ?? base.color ?? DRIVER_COLORS[(DRIVER_COLORS.length - 1 - list.length + 40 * DRIVER_COLORS.length) % DRIVER_COLORS.length],
       car: cars.get(d.car)!,
       driver: driverFromRatings(d.name, ratings, d.advanced),
     });
   });
   if (s.field) {
     const f = s.field;
-    const rng = makeRng(f.seed ?? s.seed);
     const spread = f.spread ?? 1;
+    // Roster drivers in roster order (the same people every time), their ratings pulled toward
+    // the average by `spread` (0 = all average). Only past the end of the roster are drivers
+    // made up, from the field seed.
+    const toward = (avg: number, x: number) => avg + (x - avg) * spread;
+    const free = ROSTER.filter((d) => !used.has(d.name));
+    const rng = makeRng(f.seed ?? s.seed);
     const r = (base: number, x: number) => Math.max(0, Math.min(1, base + (rng.next() * 2 - 1) * x * spread));
-    const free = DRIVER_NAMES.filter((n) => !used.has(n));
     for (let k = 0; k < f.count; k++) {
-      let name = free[k % free.length] ?? `Driver ${k + 1}`;
-      if (k >= free.length) name = `${name} ${Math.floor(k / free.length) + 1}`;
+      const rd = free[k];
+      if (rd) {
+        const ratings = { speed: toward(AVERAGE_RATINGS.speed, rd.speed), consistency: toward(AVERAGE_RATINGS.consistency, rd.consistency), risk: toward(AVERAGE_RATINGS.risk, rd.risk) };
+        list.push({ id: rd.name, color: rd.color, car: cars.get(f.car)!, driver: driverFromRatings(rd.name, ratings) });
+        continue;
+      }
+      const name = `${free[k % Math.max(1, free.length)]?.name ?? 'Driver'} ${Math.floor(k / Math.max(1, free.length)) + 1}`;
       const ratings = { speed: r(AVERAGE_RATINGS.speed, FIELD_SPREAD.speed), consistency: r(AVERAGE_RATINGS.consistency, FIELD_SPREAD.consistency), risk: r(AVERAGE_RATINGS.risk, FIELD_SPREAD.risk) };
       list.push({ id: name, color: DRIVER_COLORS[list.length % DRIVER_COLORS.length], car: cars.get(f.car)!, driver: driverFromRatings(name, ratings) });
     }

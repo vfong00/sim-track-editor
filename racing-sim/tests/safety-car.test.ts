@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { loadScenario, Race, type Scenario } from '../src/core';
+import { AVERAGE_DRIVER, CAR_LENGTH, dWall, identicalField, loadScenario, Race, type Scenario } from '../src/core';
+import { lanes7, track7 } from './racing-helpers';
 
 const BASE = JSON.parse(readFileSync(new URL('../scenarios/safety-car.json', import.meta.url).pathname, 'utf8')) as Scenario;
 
@@ -112,12 +113,27 @@ describe('Phase 6: safety car', () => {
 
 describe('Phase 5 fix: a beached car retires', () => {
   it('a car stuck in the run-off against a wreck retires instead of holding up the finish for ever', () => {
-    // Seed 5 of the safety-car example, with no safety car: Silva spins into the run-off on lap 1
-    // and stops nose-in behind Moreau's wreck at the barrier.
-    const r = new Race(loadScenario({ ...BASE, seed: 5, events: [], race: { laps: 3 } }).options).run();
+    // Staged (organic beachings depend on one exact crash, which any physics change moves): Ortiz
+    // wrecked against the outside barrier, Lee stopped nose-to-tail behind it in the run-off and
+    // Novak wrecked alongside Lee, so Lee has no way out.
+    const r = new Race({ track: track7, lanes: lanes7, entrants: identicalField(4, AVERAGE_DRIVER), laps: 2, seed: 1 });
+    while (r.t < 8) r.step();
+    const [wreck, lee, wreck2] = [r.cars[0], r.cars[1], r.cars[2]];
+    const s0 = (wreck.st.s + 400) % track7.length;
+    const wall = dWall(track7);
+    for (const [c, s, d] of [[wreck, s0, wall], [lee, s0 - CAR_LENGTH - 0.3, wall], [wreck2, s0 - CAR_LENGTH - 0.3, wall - 2.2]] as const) {
+      c.st.dist += s - c.st.s;
+      c.st.s = s;
+      c.st.v = 0;
+      c.st.vDelta = 0;
+      c.st.delta = d - lanes7.lineD(s);
+    }
+    r.retire(0);
+    r.retire(2);
+    while (!r.finished && r.t < 600) r.step();
     expect(r.finished).toBe(true);
     const stuck = r.events.find((e) => e.type === 'retire' && /is stuck at .* and retires/.test(e.text));
-    expect(stuck?.text).toMatch(/^Silva/);
+    expect(stuck?.text).toMatch(/^Lee/);
     expect(r.events[stuck!.cause!].type).toBe('off');
   });
 });

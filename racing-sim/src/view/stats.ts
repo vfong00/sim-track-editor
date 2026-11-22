@@ -96,6 +96,8 @@ export function statRows(field: Entrant[], i: number): { profile: string; driver
       row('Accel', cars.map((c) => c.accel), (v) => `${v.toFixed(1)} m/s²`),
       row('Grip', cars.map((c) => c.grip), f2),
       row('Brakes', cars.map((c) => c.brake), f2),
+      // Extra grip from downforce at 250 km/h (69.4 m/s), in g.
+      row('Downforce', cars.map((c) => (c.downforce ?? 0) * 69.4 * 69.4), (v) => `+${v.toFixed(1)} g @250`),
     ],
   };
 }

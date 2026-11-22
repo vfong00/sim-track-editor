@@ -9,6 +9,8 @@
  * with no sign why. Optional fields have documented defaults (see `normalizeScenario`).
  */
 
+import { CAR_PRESET_IDS, type CarPreset } from '../physics/model';
+
 export const SCENARIO_VERSION = 1;
 
 export type GridOrder = 'as-listed' | 'rating' | 'reverse-rating' | 'random';
@@ -18,11 +20,13 @@ export type TrackSpec =
   /** Control points of a closed spline, in metres. */
   | { type: 'drawn'; points: [number, number][]; width?: number }
   /** A PNG data URL of a dark track line on a light background, scaled to `length` metres. */
-  | { type: 'png'; image: string; length: number; width?: number; threshold?: number; smoothing?: number };
+  | { type: 'png'; image: string; length: number; width?: number; threshold?: number; smoothing?: number; reverse?: boolean; start?: number };
 
 export interface CarEntry {
   id: string;
-  /** m/s; default 85. */
+  /** A quick configuration (f1, lmp, gt3, road, mx5) whose values are the defaults for the rest. */
+  preset?: CarPreset;
+  /** m/s; default 85 (or the preset's). */
   topSpeed?: number;
   /** m/s²; default 11. */
   accel?: number;
@@ -30,6 +34,8 @@ export interface CarEntry {
   grip?: number;
   /** Braking relative to grip; default 1. */
   brake?: number;
+  /** Extra grip per (m/s)² from downforce, in g; default 0 (or the preset's). */
+  downforce?: number;
 }
 
 /** Internal ratings, for when the simple three are not enough. Any given here win. */
@@ -56,13 +62,13 @@ export interface DriverEntry {
   advanced?: AdvancedRatings;
 }
 
-/** Generated drivers added after the listed ones: ratings around the average. */
+/** Drivers from the fixed roster added after the listed ones (in roster order, skipping listed names). */
 export interface FieldEntry {
   count: number;
   car: string;
-  /** 0 = all average, 1 (default) = the usual spread. */
+  /** How far each roster driver's ratings are from the average: 0 = all average, 1 (default) = as rostered. */
   spread?: number;
-  /** Seed for the ratings; default the scenario seed. */
+  /** Seed for drivers made up past the end of the roster (20); default the scenario seed. */
   seed?: number;
 }
 
@@ -240,6 +246,7 @@ export const RANGES = {
   accel: [2, 30],
   grip: [0.3, 2],
   brake: [0.3, 2],
+  downforce: [0, 0.002],
   rating: [0, 1],
   pace: [0.8, 1],
   gripLevel: [0.3, 1.5],
@@ -280,7 +287,7 @@ function validateTrack(v: V, path: string, t: unknown): void {
       });
     }
   } else {
-    if (!object(v, path, t, ['type', 'image', 'length'], ['width', 'threshold', 'smoothing'])) return;
+    if (!object(v, path, t, ['type', 'image', 'length'], ['width', 'threshold', 'smoothing', 'reverse', 'start'])) return;
     if (str(v, join(path, 'image'), t.image, { max: 8_000_000 }) && !/^data:image\/png;base64,/.test(t.image as string)) {
       err(v, join(path, 'image'), 'must be a PNG data URL ("data:image/png;base64,...")');
     }
@@ -288,6 +295,8 @@ function validateTrack(v: V, path: string, t: unknown): void {
     num(v, join(path, 'width'), t.width, w[0], w[1], { optional: true });
     num(v, join(path, 'threshold'), t.threshold, 0, 255, { optional: true });
     num(v, join(path, 'smoothing'), t.smoothing, 0, 50, { optional: true });
+    bool(v, join(path, 'reverse'), t.reverse);
+    num(v, join(path, 'start'), t.start, 0, RANGES.pngLength[1], { optional: true });
   }
 }
 
@@ -323,12 +332,13 @@ export function validateScenario(x: unknown): ScenarioError[] {
   if (array(v, 'cars', x.cars, 1, MAX_CARS)) {
     (x.cars as unknown[]).forEach((c, i) => {
       const p = `cars[${i}]`;
-      if (!object(v, p, c, ['id'], ['topSpeed', 'accel', 'grip', 'brake'])) return;
+      if (!object(v, p, c, ['id'], ['preset', 'topSpeed', 'accel', 'grip', 'brake', 'downforce'])) return;
+      if (c.preset !== undefined) oneOf(v, `${p}.preset`, c.preset, CAR_PRESET_IDS);
       if (str(v, `${p}.id`, c.id, { max: 40 })) {
         if (carIds.has(c.id as string)) err(v, `${p}.id`, `"${c.id}" is used by another car`);
         carIds.add(c.id as string);
       }
-      for (const k of ['topSpeed', 'accel', 'grip', 'brake'] as const) num(v, `${p}.${k}`, c[k], RANGES[k][0], RANGES[k][1], { optional: true });
+      for (const k of ['topSpeed', 'accel', 'grip', 'brake', 'downforce'] as const) num(v, `${p}.${k}`, c[k], RANGES[k][0], RANGES[k][1], { optional: true });
     });
   } else if (x.cars === undefined) { /* reported as required */ }
 

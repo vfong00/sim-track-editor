@@ -45,26 +45,31 @@ export function centerlinePath(track: Track): TrackPath {
 }
 
 /**
- * Racing-line heuristic: start on the centerline and repeatedly pull each point sideways
- * toward the midpoint of its neighbours (an elastic band, i.e. minimum curvature), clamped
- * to the road minus `margin`. That straightens the path through each corner, which puts it
- * outside → apex → outside. Coarse-to-fine neighbour spacing makes long corners converge fast.
+ * Racing line: the minimum-curvature path within the road minus `margin`. Each point moves
+ * sideways toward where a smooth curve through its neighbours would put it, which drives the
+ * path's second differences toward zero: p_i → (4(p_{i−h} + p_{i+h}) − (p_{i−2h} + p_{i+2h})) / 6.
+ * That puts the line outside → apex → outside and uses the whole road through long corners.
+ *
+ * (Pulling each point to the plain midpoint of its neighbours, as before, minimises path
+ * length instead: the shortest path hugs the inside of every corner from entry to exit, and
+ * cost ~7% of lap time.) Coarse-to-fine neighbour spacing makes long corners converge fast.
  */
 export function racingLine(track: Track, margin = LINE_MARGIN): TrackPath {
   const n = track.n;
   const lim = Math.max(0, track.width / 2 - margin);
   const d = new Float64Array(n);
   const { xs: cx, ys: cy, nx, ny } = track;
-  const schedule: [number, number][] = [[96, 30], [48, 30], [24, 40], [12, 40], [6, 50], [3, 60], [1, 80]];
-  for (const [hm, iters] of schedule) {
+  const X = (i: number) => cx[i] + nx[i] * d[i];
+  const Y = (i: number) => cy[i] + ny[i] * d[i];
+  for (const hm of [192, 96, 48, 24, 12, 6, 3]) {
     const h = Math.max(1, Math.round(hm / track.ds));
-    for (let it = 0; it < iters; it++) {
+    for (let it = 0; it < 300; it++) {
       for (let i = 0; i < n; i++) {
-        const a = (i - h + n) % n, b = (i + h) % n;
-        const mx = (cx[a] + nx[a] * d[a] + cx[b] + nx[b] * d[b]) / 2;
-        const my = (cy[a] + ny[a] * d[a] + cy[b] + ny[b] * d[b]) / 2;
-        const px = cx[i] + nx[i] * d[i], py = cy[i] + ny[i] * d[i];
-        let v = d[i] + (mx - px) * nx[i] + (my - py) * ny[i];
+        const a = (i - h + n) % n, b = (i + h) % n, a2 = (i - 2 * h + n) % n, b2 = (i + 2 * h) % n;
+        const tx = (4 * (X(a) + X(b)) - (X(a2) + X(b2))) / 6;
+        const ty = (4 * (Y(a) + Y(b)) - (Y(a2) + Y(b2))) / 6;
+        // Half steps: a full step on this stencil overshoots and oscillates.
+        let v = d[i] + 0.5 * ((tx - X(i)) * nx[i] + (ty - Y(i)) * ny[i]);
         if (v > lim) v = lim;
         else if (v < -lim) v = -lim;
         d[i] = v;

@@ -157,7 +157,13 @@ async function runScenario(s: Scenario): Promise<boolean> {
 function showErrors(errs: string[]) {
   info.textContent = `Scenario not run: ${errs[0]}${errs.length > 1 ? ` (+${errs.length - 1} more)` : ''}`;
   console.warn('[racing-sim] scenario errors:\n' + errs.join('\n'));
-  editorBox.hidden = false;
+  setEditor(true);
+}
+
+/** Show or hide the scenario editor panel (and light its menu item while open). */
+function setEditor(open: boolean) {
+  editorBox.hidden = !open;
+  $('edit').classList.toggle('on', open);
 }
 
 /** Run a modified copy of the current scenario. */
@@ -190,6 +196,7 @@ const editorBox = $('editor');
 const editor = new ScenarioEditor(editorBox, {
   examples: EXAMPLES,
   run: (s) => void runScenario(s),
+  close: () => setEditor(false),
   async pickPng() {
     const f = await pickFile('image/png');
     if (!f) return null;
@@ -603,6 +610,8 @@ function buildControls() {
   // o/f/b camera, n names, space pause.
   addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
+    // Escape closes the menu and the scenario panel, even from a field inside the panel.
+    if (e.key === 'Escape') { setRaceMenu(false); setEditor(false); return; }
     if (el.closest?.('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
     if (k === 'ArrowUp') stepFollow(-1);
@@ -618,7 +627,6 @@ function buildControls() {
     else if (k === 'f') setCam('follow');
     else if (k === 'b') setCam('battle');
     else if (k === ' ') { paused = !paused; sync(); if (el instanceof HTMLButtonElement) el.blur(); }
-    else if (k === 'Escape') setRaceMenu(false);
     else return;
     e.preventDefault();
   });
@@ -639,7 +647,7 @@ function buildControls() {
   tlCanvas.addEventListener('pointercancel', () => { seeking = false; });
   $('reseed').onclick = () => rerun((s) => { s.seed = (s.seed + 1) >>> 0; });
   $('gen').onclick = () => rerun((s) => { s.track = { type: 'generated', seed: Math.floor(Math.random() * 1e6), width: s.track.width ?? WIDTH }; });
-  $('edit').onclick = () => { editorBox.hidden = !editorBox.hidden; $('edit').classList.toggle('on', !editorBox.hidden); };
+  $('edit').onclick = () => setEditor(editorBox.hidden);
   drawBtn.onclick = () => setDrawing(!drawing);
   closeBtn.onclick = () => {
     if (clicks.length < 3) { info.textContent = 'Need at least 3 points'; return; }
