@@ -33,6 +33,13 @@ export const PULL_LEAD = 2.0;
 export const COMMIT_SLACK = 0.985;
 /** Sideways speed (m/s) of a committed pull-out: one decisive move, not a drift out of the tow. */
 export const COMMIT_LATERAL = 5;
+/**
+ * Qualifying (push): each corner is driven a little over or under the limit, a speed factor drawn
+ * per corner around 1 with this spread (base, plus per point of inconsistency). Over the limit the
+ * car slides, and the mistake and spin odds (from how far over it is) do the rest.
+ */
+export const PUSH_SPREAD = 0.008;
+export const PUSH_PER_INCONSISTENCY = 0.07;
 /** Dirty air reaches this far behind a car (m). */
 export const DIRTY_RANGE = 30;
 /**
@@ -71,10 +78,13 @@ export interface Craft {
   swapped: boolean;
   /** Next time (s) the driver reconsiders attacking (decisions aren't made every tick). */
   nextThink: number;
+  /** Qualifying: the corner the push factor was drawn for, and the factor (speed vs the plan). */
+  pushCorner: number;
+  push: number;
   mistake: Mistake | null;
 }
 
-export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, mistake: null });
+export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, mistake: null });
 
 export interface CraftContext {
   t: number;
@@ -85,6 +95,8 @@ export interface CraftContext {
   physics: PhysicsParams;
   /** Safety car (Phase 6): no attacking or defending. */
   neutral?: boolean;
+  /** Qualifying: at the limit, braking late (bravery) into every corner, not only in a fight. */
+  push?: boolean;
 }
 
 export interface CraftCar {
@@ -161,6 +173,14 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   // How deep in the tow and in dirty air (0 = clean, 1 = full): plan braking for it.
   const depth = { tow: wake.tow, dirty: wake.dirty };
   let vEnv = plans.envelope(ahead, st.delta, depth.tow, depth.dirty);
+  if (ctx.push) {
+    // A fresh go at each corner: how close to (or past) the limit this one is driven.
+    if (ci !== cr.pushCorner) {
+      cr.pushCorner = ci;
+      cr.push = 1 + me.rng.normal() * (PUSH_SPREAD + PUSH_PER_INCONSISTENCY * (1 - drv.consistency));
+    }
+    vEnv *= cr.push;
+  }
   // In the run-off: corner speed ∝ √grip, and the driver's only aim is to get back on the road.
   const off = offShare(lanes.track, me.d);
   if (off > 0) vEnv *= Math.sqrt(1 - off * (1 - RUNOFF_GRIP));
@@ -270,7 +290,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     }
   }
 
-  let brave = 1;
+  let brave = ctx.push ? 1 + 0.04 * drv.bravery : 1;
   const relax: GapRuleRelax = {};
   if (cr.mode === 'attack') {
     let o: Near | undefined;

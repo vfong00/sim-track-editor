@@ -51,6 +51,8 @@ export interface Entrant {
   driver: DriverSpec;
   /** The lap that set the grid (s): a qualifying lap, or the ideal lap for a rating grid. Absent for other grids. */
   gridTime?: number;
+  /** Qualifying grid: the run's seed (to re-run and watch it), its timed laps and what happened. */
+  quali?: { seed: number; laps: number[]; note: string };
 }
 
 const NAMES = ['Nakamura', 'Alvarez', 'Garcia', 'Chen', 'Reyes', 'Petrov', 'Jovanovic', 'Schmidt', 'Eriksen', 'Murphy', 'Ito',

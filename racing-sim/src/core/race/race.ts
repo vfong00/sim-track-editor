@@ -39,7 +39,16 @@ export interface RaceOptions {
    * the race on or beside the road. 'off' (default): only scripted deployments.
    */
   safetyCar?: 'off' | 'auto';
+  /**
+   * 'race' (default): a grid start, driven at race pace (a margin under the limit).
+   * 'qualifying': each car starts QUALI_RUNUP m behind the line at speed, on the racing line, and
+   * drives at the limit (full pace, bravery's late braking in every braking zone).
+   */
+  session?: 'race' | 'qualifying';
 }
+
+/** Qualifying: the flying run-up to the line (m). Within CP_BASE, so the checkpoints cover it. */
+export const QUALI_RUNUP = 350;
 
 /**
  * A scripted mid-race event. It fires when the leader starts lap `lap` (lap 1 = at the start):
@@ -297,17 +306,19 @@ export class Race {
     this.gripLog.push({ t: 0, level: this.physics.gripLevel });
     this.corners = findCorners(this.lanes.line);
     this.nextCorner = nextCornerTable(track.n, this.corners);
+    const quali = opts.session === 'qualifying';
     this.cars = entrants.map((e, idx) => {
       const { model, plans } = this.plansFor(e, 0);
-      // Staggered two-wide grid behind the line.
-      const s0 = -5 - 7 * idx;
+      // Race: a staggered two-wide grid behind the line. Qualifying: on the racing line, at speed,
+      // QUALI_RUNUP m back (further cars a run-up apart).
+      const s0 = quali ? -QUALI_RUNUP * (idx + 1) : -5 - 7 * idx;
       const s = ((s0 % track.length) + track.length) % track.length;
-      const d = (idx % 2 === 0 ? 1 : -1) * Math.min(3.2, this.lanes.lim - 1);
-      const st = newCarState(s, d - this.lanes.lineD(s), 0, s0);
+      const d = quali ? this.lanes.lineD(s) : (idx % 2 === 0 ? 1 : -1) * Math.min(3.2, this.lanes.lim - 1);
+      const st = newCarState(s, d - this.lanes.lineD(s), quali ? plans.speed(s, 0) : 0, s0);
       const rng = this.rng.fork();
       return {
         idx, entrant: e, model, plans, st, d, rng,
-        startDelay: 0.15 + 0.35 * rng.next(),
+        startDelay: quali ? (rng.next(), 0) : 0.15 + 0.35 * rng.next(),
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
         status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
@@ -316,7 +327,7 @@ export class Race {
     });
     for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
     this.log();
-    this.emit('start', [], 'Lights out');
+    this.emit('start', [], quali ? 'Qualifying: on a flying lap' : 'Lights out');
   }
 
   /** Car model and lane plans for an entrant with `damage` grip loss (shared across races on the lanes). */
@@ -327,7 +338,7 @@ export class Race {
 
   /** Share of the car's grip a driver uses in this session: a margin under the limit in a race. */
   paceOf(e: Entrant): number {
-    return racePace(e.driver);
+    return this.opts.session === 'qualifying' ? e.driver.pace : racePace(e.driver);
   }
 
   get track(): Track {
@@ -376,7 +387,7 @@ export class Race {
       c.following = dec.following;
       return dec.ctl;
     }
-    const ctx: CraftContext = { t: this.t, dt: this.dt, lanes: this.lanes, corners: this.corners, nextCorner: this.nextCorner, physics: this.physics, neutral: this.sc !== null };
+    const ctx: CraftContext = { t: this.t, dt: this.dt, lanes: this.lanes, corners: this.corners, nextCorner: this.nextCorner, physics: this.physics, neutral: this.sc !== null, push: this.opts.session === 'qualifying' };
     const dec = raceCraft(this.views[i], near, this.views, ctx);
     c.following = dec.following;
     c.wake = dec.ctl.effects && (dec.ctl.effects.drag < 1 || dec.ctl.effects.grip < 1) ? 1 : -1;
@@ -868,7 +879,8 @@ export class Race {
           c.finished = true;
           c.finishTime = tc;
           c.finishLaps = k;
-          if (!this.leaderFinished) this.emit('finish', [c.idx], `${c.entrant.driver.name} wins!`);
+          if (this.opts.session === 'qualifying') this.emit('finish', [c.idx], `Chequered flag for ${c.entrant.driver.name}`);
+          else if (!this.leaderFinished) this.emit('finish', [c.idx], `${c.entrant.driver.name} wins!`);
           else this.emit('finish', [c.idx], `${c.entrant.driver.name} finishes`);
           this.leaderFinished = true;
         }

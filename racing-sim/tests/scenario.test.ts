@@ -210,30 +210,40 @@ describe('Phase 6: driver ratings', () => {
     expect(draws.size).toBeGreaterThan(1);
   });
 
-  it('qualifying: one seeded lap each, never quicker than the ideal lap, steadier drivers closer to it', () => {
+  it('qualifying: each car runs its own session; best lap sets the grid; close drivers swap pole', () => {
     const s = read('equal-field.json');
     const lanes = new LaneSet(buildTrack(s.track));
-    // Two drivers with the same pace: one steady, one erratic.
-    const base = { ...s, drivers: [{ name: 'Steady', car: s.cars[0].id, speed: 0.5, consistency: 0.95 }, { name: 'Erratic', car: s.cars[0].id, speed: 0.5, consistency: 0.72 }], field: undefined };
+    // Chen's ideal lap is a hair quicker; Alvarez is far steadier (their roster ratings).
+    const base = { ...s, drivers: [{ name: 'Chen', car: s.cars[0].id }, { name: 'Alvarez', car: s.cars[0].id }], field: undefined };
     const grid = (seed: number) => scenarioEntrants({ ...base, seed, race: { ...s.race, gridOrder: 'qualifying' } }, lanes);
-    const ideal = scenarioEntrants({ ...base, race: { ...s.race, gridOrder: 'rating' } }, lanes)[0].gridTime!;
     expect(grid(3)).toEqual(grid(3));
-    const loss = { Steady: [] as number[], Erratic: [] as number[] };
-    let steadyPoles = 0;
-    for (let seed = 1; seed <= 40; seed++) {
+    const poles = { Chen: 0, Alvarez: 0 };
+    for (let seed = 1; seed <= 16; seed++) {
       const g = grid(seed);
       expect(g[0].gridTime!).toBeLessThanOrEqual(g[1].gridTime!);
-      for (const e of g) {
-        expect(e.gridTime!).toBeGreaterThanOrEqual(ideal);
-        loss[e.driver.name as 'Steady' | 'Erratic'].push(e.gridTime! / ideal - 1);
-      }
-      if (g[0].driver.name === 'Steady') steadyPoles++;
+      for (const e of g) expect(e.gridTime).toBe(Math.min(...e.quali!.laps));
+      poles[g[0].driver.name as 'Chen' | 'Alvarez']++;
     }
-    const avg = (x: number[]) => x.reduce((a, b) => a + b, 0) / x.length;
-    expect(avg(loss.Steady)).toBeLessThan(avg(loss.Erratic));
-    // Close drivers swap: the steady one is usually on pole, but not always.
-    expect(steadyPoles).toBeGreaterThan(20);
-    expect(steadyPoles).toBeLessThan(40);
+    expect(poles.Chen).toBeGreaterThan(0);
+    expect(poles.Alvarez).toBeGreaterThan(0);
+  });
+
+  // A crash on the second lap still leaves a time from the first, so look for a first-lap one.
+  it('qualifying: a car that sets no time starts at the back', () => {
+    const s = read('equal-field.json');
+    const lanes = new LaneSet(buildTrack({ type: 'generated', seed: 7 }));
+    const wild = { name: 'Wild', car: s.cars[0].id, speed: 0.5, consistency: 0, risk: 1 };
+    const base = { ...s, drivers: [wild, { name: 'A', car: s.cars[0].id }, { name: 'B', car: s.cars[0].id }], field: undefined };
+    let found = false;
+    for (let seed = 1; seed <= 150 && !found; seed++) {
+      const g = scenarioEntrants({ ...base, seed, race: { ...s.race, gridOrder: 'qualifying', incidentRate: 4 } }, lanes);
+      const out = g.findIndex((e) => e.gridTime === undefined);
+      if (out < 0) continue;
+      found = true;
+      expect(out).toBe(g.length - 1);
+      expect(g[out].quali!.note).toMatch(/Crashes out|retires/);
+    }
+    expect(found).toBe(true);
   });
 });
 
