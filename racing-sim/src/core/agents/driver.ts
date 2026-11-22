@@ -26,8 +26,8 @@ export interface Entrant {
   driver: DriverSpec;
 }
 
-const NAMES = ['Ortiz', 'Lee', 'Novak', 'Haddad', 'Sato', 'Okafor', 'Brandt', 'Rossi', 'Kaur', 'Dubois', 'Silva', 'Moreau',
-  'Jensen', 'Abe', 'Costa', 'Ivanova', 'Walsh', 'Mensah', 'Park', 'Fischer'];
+const NAMES = ['Nakamura', 'Alvarez', 'Garcia', 'Chen', 'Reyes', 'Petrov', 'Jovanovic', 'Schmidt', 'Eriksen', 'Murphy', 'Ito',
+  'Hughes', 'Dlamini', 'Bianchi', 'Quinn', 'Fontaine', 'Olsen', 'Laurent', 'Kowalski', 'Tanaka'];
 const COLORS = ['#ff5a36', '#36a2ff', '#ffd23f', '#3ddc84', '#c77dff', '#ff8fab', '#00d1c1', '#f4a261', '#e9ecef', '#8ac926',
   '#ff006e', '#4cc9f0', '#b5838d', '#ffbe0b', '#90be6d', '#adb5bd', '#e63946', '#a8dadc', '#fb8500', '#7209b7'];
 

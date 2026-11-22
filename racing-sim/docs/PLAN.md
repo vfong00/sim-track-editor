@@ -213,49 +213,47 @@ ends with the localhost dev server running and showing that phase's visuals (des
 - Dropped from the earlier "FIFA layer": rating cards, generated rosters, seasons and standings,
   broadcast replays and commentary.
 
-## Open questions
+## Open questions (answered)
 
-- Car sprites and art style: rectangles, simple top-down shapes or generated liveries?
-- Track width: constant first, varying later?
-- Do we want any player input (e.g. "team radio" orders like "push now" or "hold position"), or
-  is it pure watching?
-- Where will it run? Static site (e.g. GitHub Pages) or local only?
+- Car art: still rectangles; open.
+- Track width: constant; varying width is in the feature map.
+- Player input: not now. Pure simming first; team radio and a campaign belong with a later
+  "playability" revamp.
+- Where it runs: local only. Sharing is not a goal (the share link can go).
 
-## Ideas inventory (after Phase 6, before Phase 7)
+## Feature map (after the racing line, presets and roster work)
 
 Size: S = an hour or two, M = a session, L = a phase of its own.
 
+**Done since Phase 6**
+- Viewer: one-row toolbar with a Race menu, playback in the timeline bar, camera controls over
+  the canvas, minimap, rotating timing tower (gap, interval, last, best), driver and car stats
+  with field ranks in the follow panel, closable scenario panel.
+- Racing line is truly minimum curvature (it used to hug the inside: shortest path). Lanes ease
+  off the road edge instead of kinking. Inside attacks dive for the inside edge; slipstream
+  reaches 1 s back at speed.
+- Car presets with downforce: F1, LMP, GT3, sports car, MX-5 Cup, civilian car (Yas laps
+  1:24.9, 1:43.5, 1:57.0, 2:10.4, 2:18.1, 2:45.4).
+- Fixed roster of 20 drivers, named A–T by overall ability (Alvarez best, Tanaka weakest).
+- PNG import: no longer mirrored; `reverse` and `start` options; Yas runs anticlockwise from
+  its pit straight.
+
+**Next (racing and sim)**
+- Passing balance: dirty air no longer measurably holds a faster car up (its check is marked
+  `it.fails`), and a late dive can end in contact. Needs batch stats to tune. M
+- Dirty air by downforce: it should hurt winged cars far more than road cars. S–M
+- End-of-race summary: classification, gaps, fastest laps, passes, incidents. S
+- Batch runs (old Phase 7): win %, positions, passes and incidents over N seeds, per track.
+  Mainly a tuning tool now. M
+- Yas trace: a sharp kink at the top of the image (about 40 km/h) may be a tracing artefact. S
+
+**Later (a "racing revamp" with playability)**
+- Tyre wear and temperature, weather that builds, pit stops, safety car extras (clearing
+  wrecks, virtual safety car, red flag), team radio, picking your driver.
+
 **Watching**
-- Timeline scrubber and rewind (the state log is complete; the viewer only plays forward). Click a feed line to jump to that moment. S–M
-- Driver name labels over cars, and car numbers. S
-- Lap chart (positions by lap) and gap chart after or during the race. M
-- Mini-map of the whole track when zoomed in. S
-- Car art: top-down shapes or generated liveries (open question). S–M
+- Car art or liveries. S–M
 - Phone and tablet layout. M
+- Lap and gap charts: not needed; the timing tower covers it.
 
-**Playing**
-- Team radio: orders to one driver ("push", "hold position", "let them by", "save the car"), changing pace, risk or consistency for a while. Turns watching into playing (open question). M
-- Pick your driver before the start and get their view by default. S
-
-**Racing and sim**
-- Safety car extras: clear wrecks under it (they stay for ever today), lapped cars unlapping, a virtual safety car (a speed limit with no queue), a red flag. S–M each
-- Tyres: wear and temperature that cost grip, so pushing or sliding costs later in a stint. M–L
-- Gradual weather: a drying line or rain that builds over laps (events are step changes today). S
-- Track width that varies along the lap (open question). M
-- Pit stops: not a focus.
-
-**Tuning and soft spots**
-- First-lap T1 pile-ups are common (the random field loses 2 on lap 1). M
-- A 3%-faster car rarely gets past when dirty air is on. M
-- Slipstream helps less with incidents on (~15% versus the 30% bar). M
-- Observable tuning panel: change a driver or car and see where it gains or loses. M
-- These three soft spots are easier to judge with Phase 7's batch stats.
-
-**Sharing and running**
-- Hosting: a static site such as GitHub Pages, or local only (open question). S
-- PNG tracks can differ between Node and Chrome in the last float digits. S if it matters
-
-**Phase 7 (batch runs and stats)**
-- CLI: run a scenario N times and report win %, finishing positions, overtakes and incidents per race, and a processional-to-chaotic score. "Simulate 100" in the browser with charts.
-
-**Dropped**: rating cards, rosters, seasons, broadcast replays, commentary.
+**Dropped**: sharing and hosting, rating cards, seasons, broadcast replays, commentary.

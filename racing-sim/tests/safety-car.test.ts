@@ -113,15 +113,15 @@ describe('Phase 6: safety car', () => {
 
 describe('Phase 5 fix: a beached car retires', () => {
   it('a car stuck in the run-off against a wreck retires instead of holding up the finish for ever', () => {
-    // Staged (organic beachings depend on one exact crash, which any physics change moves): Ortiz
-    // wrecked against the outside barrier, Lee stopped nose-to-tail behind it in the run-off and
-    // Novak wrecked alongside Lee, so Lee has no way out.
+    // Staged (organic beachings depend on one exact crash, which any physics change moves): car 0
+    // wrecked against the outside barrier, car 1 stopped nose-to-tail behind it in the run-off and
+    // car 2 wrecked alongside car 1, so car 1 has no way out.
     const r = new Race({ track: track7, lanes: lanes7, entrants: identicalField(4, AVERAGE_DRIVER), laps: 2, seed: 1 });
     while (r.t < 8) r.step();
-    const [wreck, lee, wreck2] = [r.cars[0], r.cars[1], r.cars[2]];
+    const [wreck, stuckCar, wreck2] = [r.cars[0], r.cars[1], r.cars[2]];
     const s0 = (wreck.st.s + 400) % track7.length;
     const wall = dWall(track7);
-    for (const [c, s, d] of [[wreck, s0, wall], [lee, s0 - CAR_LENGTH - 0.3, wall], [wreck2, s0 - CAR_LENGTH - 0.3, wall - 2.2]] as const) {
+    for (const [c, s, d] of [[wreck, s0, wall], [stuckCar, s0 - CAR_LENGTH - 0.3, wall], [wreck2, s0 - CAR_LENGTH - 0.3, wall - 2.2]] as const) {
       c.st.dist += s - c.st.s;
       c.st.s = s;
       c.st.v = 0;
@@ -133,7 +133,7 @@ describe('Phase 5 fix: a beached car retires', () => {
     while (!r.finished && r.t < 600) r.step();
     expect(r.finished).toBe(true);
     const stuck = r.events.find((e) => e.type === 'retire' && /is stuck at .* and retires/.test(e.text));
-    expect(stuck?.text).toMatch(/^Lee/);
+    expect(stuck?.text.startsWith(r.name(1))).toBe(true);
     expect(r.events[stuck!.cause!].type).toBe('off');
   });
 });

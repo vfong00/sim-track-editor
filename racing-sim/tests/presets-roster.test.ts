@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CAR_PRESET_IDS, CAR_PRESETS, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, ROSTER, type Scenario, simulateLap,
+  CAR_PRESET_IDS, CAR_PRESETS, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, overallAbility, ROSTER, type Scenario, simulateLap,
 } from '../src/core';
 
 const read = (f: string) => JSON.parse(readFileSync(new URL(`../scenarios/${f}`, import.meta.url).pathname, 'utf8')) as Scenario;
@@ -57,9 +57,14 @@ describe('fixed roster', () => {
 
   it('a driver keeps the same ratings and colour on every seed and in every scenario', () => {
     const a = read('random-field.json');
-    const base = ratingsOf(a, 'Sato');
-    expect(ratingsOf({ ...a, seed: 99 }, 'Sato')).toEqual(base);
-    expect(ratingsOf(read('safety-car.json'), 'Sato')).toEqual(base);
+    const base = ratingsOf(a, 'Reyes');
+    expect(ratingsOf({ ...a, seed: 99 }, 'Reyes')).toEqual(base);
+    expect(ratingsOf(read('safety-car.json'), 'Reyes')).toEqual(base);
+  });
+
+  it('names run A, B, C… from the best driver down (overall ability, ties to the faster one)', () => {
+    const ranked = [...ROSTER].sort((a, b) => overallAbility(b) - overallAbility(a) || b.speed - a.speed);
+    expect(ranked.map((d) => d.name[0]).join('')).toBe('ABCDEFGHIJKLMNOPQRST');
   });
 
   it('generated fields are the roster, in order', () => {
@@ -69,7 +74,7 @@ describe('fixed roster', () => {
 
   it('a listed driver with a roster name brings their own ratings', () => {
     const s = read('random-field.json');
-    const listed: Scenario = { ...s, drivers: [{ name: 'Lee', car: 'standard' }], field: { ...s.field!, count: 3 } };
-    expect(ratingsOf(listed, 'Lee')).toEqual(ratingsOf(s, 'Lee'));
+    const listed: Scenario = { ...s, drivers: [{ name: 'Alvarez', car: 'standard' }], field: { ...s.field!, count: 3 } };
+    expect(ratingsOf(listed, 'Alvarez')).toEqual(ratingsOf(s, 'Alvarez'));
   });
 });

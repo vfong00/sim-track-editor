@@ -10,17 +10,17 @@
   "race": { "laps": 4 },
   "cars": [ { "id": "standard" } ],
   "drivers": [
-    { "name": "Ortiz", "car": "standard", "speed": 0.7 },
-    { "name": "Haddad", "car": "standard", "speed": 0.65 },
-    { "name": "Moreau", "car": "standard", "speed": 0.6 },
-    { "name": "Silva", "car": "standard", "speed": 0.55 },
-    { "name": "Park", "car": "standard", "speed": 0.5 },
-    { "name": "Walsh", "car": "standard", "speed": 0.45 },
-    { "name": "Abe", "car": "standard", "speed": 0.4 },
-    { "name": "Costa", "car": "standard", "speed": 0.35 }
+    { "name": "Nakamura", "car": "standard", "speed": 0.7 },
+    { "name": "Chen", "car": "standard", "speed": 0.65 },
+    { "name": "Hughes", "car": "standard", "speed": 0.6 },
+    { "name": "Ito", "car": "standard", "speed": 0.55 },
+    { "name": "Kowalski", "car": "standard", "speed": 0.5 },
+    { "name": "Olsen", "car": "standard", "speed": 0.45 },
+    { "name": "Bianchi", "car": "standard", "speed": 0.4 },
+    { "name": "Quinn", "car": "standard", "speed": 0.35 }
   ],
   "events": [
-    { "lap": 2, "type": "retire", "driver": "Haddad", "note": "engine" },
-    { "lap": 3, "type": "spin", "driver": "Moreau", "note": "oil" }
+    { "lap": 2, "type": "retire", "driver": "Chen", "note": "engine" },
+    { "lap": 3, "type": "spin", "driver": "Hughes", "note": "oil" }
   ]
 }
