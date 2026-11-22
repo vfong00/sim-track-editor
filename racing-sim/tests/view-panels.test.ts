@@ -101,3 +101,20 @@ describe('car phrase', () => {
     expect(carPhrase({ ...STANDARD_CAR, topSpeed: 90 })).toBe('a custom car');
   });
 });
+
+describe('pedals from the log', () => {
+  it('reads full throttle, full brake and a lift from the car model', async () => {
+    const { pedals } = await import('../src/view/trace');
+    const { CarModel, CAR_PRESETS } = await import('../src/core');
+    const m = new CarModel({ ...CAR_PRESETS.gt3, id: 'gt3' });
+    const v = 50;
+    expect(pedals(m, v, m.maxDrive(v, 0), 0).throttle).toBeCloseTo(1, 6);
+    expect(pedals(m, v, -m.maxBrake(v, 0), 0).brake).toBeCloseTo(1, 6);
+    const lift = pedals(m, v, -m.cd * v * v, 0);
+    expect(lift.throttle).toBeCloseTo(0, 6);
+    expect(lift.brake).toBe(0);
+    // Half the braking force beyond drag reads as half brake.
+    const half = pedals(m, v, -m.cd * v * v - 0.5 * (m.maxBrake(v, 0) - m.cd * v * v), 0);
+    expect(half.brake).toBeCloseTo(0.5, 6);
+  });
+});

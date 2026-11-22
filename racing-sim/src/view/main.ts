@@ -11,7 +11,7 @@ import { drawMinimap } from './minimap';
 import { statRows } from './stats';
 import { drawTimeline, timelineDuration } from './timeline';
 import { nextMode, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, towerCell } from './tower';
-import { drawSpeedTrace } from './trace';
+import { drawSpeedTrace, pedals, type TracePoint } from './trace';
 import { raceOver, raceSummary, summaryHtml } from './summary';
 import { qualiHtml, qualiSummary } from './quali';
 
@@ -578,13 +578,25 @@ function frame(now: number) {
       const fp = poses[followIdx];
       renderHud(s, at, followIdx, fp.v, order.indexOf(followIdx) + 1);
       const c = r.cars[followIdx];
-      const actual: { s: number; v: number }[] = [];
+      const actual: TracePoint[] = [];
       const lastX = at.lastCross(followIdx);
       const from = isFinite(lastX) ? Math.ceil(lastX / r.dt) : 0;
-      for (let kk = from; kk <= k; kk += 3) actual.push({ s: r.frames[kk][followIdx * F], v: r.frames[kk][followIdx * F + 2] });
+      const o = followIdx * F;
+      for (let kk = from; kk <= k; kk += 3) {
+        const f = r.frames[kk];
+        const p: TracePoint = { s: f[o], v: f[o + 2] };
+        if (showInputs) {
+          // Acceleration over ±3 ticks (the log's speeds), and the cornering load from the lane's curvature.
+          const a0 = Math.max(0, kk - 3), a1 = Math.min(k, kk + 3);
+          const acc = a1 > a0 ? (r.frames[a1][o + 2] - r.frames[a0][o + 2]) / ((a1 - a0) * r.dt) : 0;
+          const delta = f[o + 1] - s.lanes.lineD(f[o]);
+          Object.assign(p, pedals(c.model, p.v, acc, p.v * p.v * Math.abs(s.lanes.kappa(f[o], delta))));
+        }
+        actual.push(p);
+      }
       // Before the first crossing the car is on the grid behind the line: skip those points.
       const lap = from ? actual : actual.filter((p) => p.s < s.track.length / 2);
-      drawSpeedTrace(tctx, traceCanvas.width, traceCanvas.height, at.plans(followIdx).profiles[s.lanes.zero].v, s.track.length, lap, fp.sPos, c.entrant.color);
+      drawSpeedTrace(tctx, traceCanvas.width, traceCanvas.height, at.plans(followIdx).profiles[s.lanes.zero].v, s.track.length, lap, fp.sPos, c.entrant.color, showInputs);
     }
     drawTimeline(tlctx, tlCanvas.width, tlCanvas.height, r, s.clock, s.watched, devicePixelRatio || 1);
   }
@@ -704,7 +716,7 @@ function buildControls() {
   });
   // Keys (not while typing in the editor): ↑/↓ the car ahead/behind in the running order,
   // ←/→ back/forward 5 s (with shift 30 s), Home to the start, +/− zoom, 0 reset zoom,
-  // o/f/b camera, n names, r result (once the race is over), space pause.
+  // o/f/b camera, n names, i throttle and brake on the speed trace, r result (once the race is over), space pause.
   addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
     // Escape closes the menu and the scenario panel, even from a field inside the panel.
@@ -717,6 +729,7 @@ function buildControls() {
     else if (k === 'ArrowRight') seek((S?.clock ?? 0) + (e.shiftKey ? 30 : 5));
     else if (k === 'Home') seek(0);
     else if (k === 'n') toggleNames();
+    else if (k === 'i') toggleInputs();
     else if (k === 'r') setResult(summaryBox.hidden);
     else if (k === 'q') setQuali(qualiBox.hidden);
     else if (k === '+' || k === '=') zoomBy(1.25);
@@ -732,6 +745,8 @@ function buildControls() {
   $('skip').onclick = () => { if (S) S.clock += 30; };
   $('names').onclick = () => toggleNames();
   $('names').classList.toggle('on', showNames);
+  $('inputs').onclick = () => toggleInputs();
+  $('inputs').classList.toggle('on', showInputs);
   // Replay: back to the start of the same race (same scenario and seed: identical by design).
   $('restart').onclick = () => seek(0);
   // Timeline: click or drag to seek.
@@ -801,6 +816,13 @@ function buildControls() {
 /** Dragging on the timeline (the clock is held while seeking). */
 let seeking = false;
 let showNames = params.get('names') !== '0';
+/** Throttle and brake on the speed trace (remembered between visits). */
+let showInputs = localStorage.getItem('racing-sim.inputs') === '1';
+function toggleInputs() {
+  showInputs = !showInputs;
+  localStorage.setItem('racing-sim.inputs', showInputs ? '1' : '0');
+  $('inputs').classList.toggle('on', showInputs);
+}
 
 function toggleNames() {
   showNames = !showNames;
