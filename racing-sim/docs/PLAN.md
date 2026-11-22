@@ -325,8 +325,7 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   formation of cars on track together in qualifying (traffic, tows).
 
 **Next, in order**
-1. Effects (Watching, under car art). S–M
-2. Then one of the bigger sessions: driving styles with corner lines and lap 1 (with car size
+1. One of the bigger sessions: driving styles with corner lines and lap 1 (with car size
    per preset), marshalling with penalties, or real-map tracks.
 
 **Done: batch baseline.** `batch --save` writes each race's numbers to `baselines/<name>.json`
@@ -450,9 +449,11 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
     with enough contrast, and a race number from the driver's name (unique in the field,
     whatever the grid). Below 14 px a car is still a plain block; the number shows from 34 px.
     Still drawn in the shared 1.8 × 4.0 m footprint (scales with car size per preset).
-  - Effects that carry information: brake glow in braking zones, tyre smoke on slides and
-    lock-ups, sparks on contact, skid marks that stay on the track (they show where people
-    lock up). The viewer can place these from the log's events and the pedal estimate. S–M
+  - Done: effects (`view/effects.ts`), all read from the logs: brake lights from the logged
+    deceleration; tyre smoke from lock-ups, run-wides, slides, spins and crashes, and dust off
+    the road at speed (puffs on a fixed 0.05 s grid, seeded by car and time, so scrubbing
+    shows the same smoke); sparks for 0.4 s at a contact; skid marks that stay for the race
+    where a car locked up, ran wide, spun or crashed. About 0.1 ms a frame for 20 cars.
   - Drift angle: draw a sliding car at an angle. The log has yaw only for spins (cosmetic), so
     the race would also record a slip angle while a car slides or runs over its limit. S
 - Auto-director camera: follow the closest live battle (cars within ~1 s for a while), cut to

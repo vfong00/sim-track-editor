@@ -109,7 +109,7 @@ const NUMBER_PX = 34;
  * Car (world size, at least a few pixels so it stays visible): with a livery, its body shape
  * and paint once it is big enough on screen; else an oriented rectangle.
  */
-export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading: number, color: string, len: number, wid: number, outline = false, status = 0, livery?: Livery): void {
+export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading: number, color: string, len: number, wid: number, outline = false, status = 0, livery?: Livery, brake = 0): void {
   if (status === STATUS.cleared) return; // taken away by marshals
   const q = toScreen(v, p);
   const L = Math.max(len * v.scale, 7), W = Math.max(wid * v.scale, 3.5);
@@ -146,6 +146,20 @@ export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading:
     ctx.fillRect(L / 2 - L * 0.22, -W / 2, L * 0.22, W);
   }
   ctx.globalAlpha = 1;
+  if (brake > 0 && !out) {
+    // Brake lights: two red glows at the tail, brighter the harder the braking.
+    const r = Math.max(1, W * 0.085);
+    ctx.save();
+    ctx.shadowColor = '#ff2a2a';
+    ctx.shadowBlur = Math.max(4, W * 0.9) * brake;
+    ctx.fillStyle = `rgba(255, ${70 - 40 * brake}, ${60 - 40 * brake}, ${0.5 + 0.5 * brake})`;
+    for (const y of [-W * 0.3, W * 0.3]) {
+      ctx.beginPath();
+      ctx.arc(-L / 2 + r * 0.6, y, r, 0, 7);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
   if (out) {
     // Retired: a red cross over the car.
     ctx.strokeStyle = '#ff4d4d';
