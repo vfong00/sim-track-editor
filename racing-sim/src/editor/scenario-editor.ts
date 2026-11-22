@@ -1,4 +1,4 @@
-import { CAR_PRESETS, CAR_PRESET_IDS, formatError, parseScenario, RANGES, STANDARD_CAR, type Scenario, type ScenarioError } from '../core';
+import { type CarPreset, CAR_PRESETS, CAR_PRESET_IDS, formatError, parseScenario, RANGES, STANDARD_CAR, type Scenario, type ScenarioError } from '../core';
 
 /**
  * Scenario editor panel (Phase 6): a form over a draft scenario object, kept in sync with a raw
@@ -55,13 +55,21 @@ export class ScenarioEditor {
     return `<select data-path="${path.join('.')}" data-kind="sel"${rerender ? ' data-rerender="1"' : ''}>${options.map(([v, l]) =>
       `<option value="${esc(v)}"${v === value ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   }
+  /**
+   * A driver's (or the field's) car: the scenario's cars, then every preset as a new car. Picking
+   * a preset adds that car (or reuses an unmodified one already there) and assigns it in one go.
+   */
+  private carSelect(path: Path, value: string) {
+    const own = this.draft.cars.map((c) => `<option value="${esc(c.id)}"${c.id === value ? ' selected' : ''}>${esc(c.id)}</option>`).join('');
+    const presets = CAR_PRESET_IDS.map((k) => `<option value="${PRESET_PICK}${k}">${esc(CAR_PRESETS[k].label)}</option>`).join('');
+    return `<select data-path="${path.join('.')}" data-kind="sel" data-rerender="1"><optgroup label="In this scenario">${own}</optgroup><optgroup label="New car">${presets}</optgroup></select>`;
+  }
   private row(label: string, input: string, hint = '') {
     return `<label class="row"><span>${label}</span>${input}${hint ? `<em>${hint}</em>` : ''}</label>`;
   }
 
   render() {
     const s = this.draft;
-    const carOpts = s.cars.map((c): [string, string] => [c.id, c.id]);
     const t = s.track;
     let track = this.row('Type', this.select(['track', 'type'], t.type, [['generated', 'Generated'], ['drawn', 'Drawn'], ['png', 'PNG image']], true));
     if (t.type === 'generated') {
@@ -92,7 +100,7 @@ export class ScenarioEditor {
     const drivers = (s.drivers ?? []).map((d, i) => `<tr>
       <td><input type="color" data-path="drivers.${i}.color" data-kind="str" value="${esc(d.color ?? '#cccccc')}"></td>
       <td>${this.text(['drivers', i, 'name'], d.name)}</td>
-      <td>${this.select(['drivers', i, 'car'], d.car, carOpts)}</td>
+      <td>${this.carSelect(['drivers', i, 'car'], d.car)}</td>
       <td>${this.num(['drivers', i, 'speed'], d.speed, RANGES.rating, '0.05', '0.5')}</td>
       <td>${this.num(['drivers', i, 'consistency'], d.consistency, RANGES.rating, '0.05', '0.85')}</td>
       <td>${this.num(['drivers', i, 'risk'], d.risk, RANGES.rating, '0.05', '0.5')}</td>
@@ -144,7 +152,7 @@ export class ScenarioEditor {
         <table><tr><th></th><th>name</th><th>car</th><th>speed</th><th>cons.</th><th>risk</th><th></th></tr>${drivers}</table>
         <button data-act="add-driver">+ Driver</button>
         ${this.row('Roster drivers', this.num(['field', 'count'], f?.count, RANGES.fieldCount, '1', 'none'), 'from the fixed roster')}
-        ${f ? this.row('Field car', this.select(['field', 'car'], f.car, carOpts)) + this.row('Rating spread', this.num(['field', 'spread'], f.spread, [0, 1], '0.1', '1'), '0 = all average, 1 = as rostered') : ''}
+        ${f ? this.row('Field car', this.carSelect(['field', 'car'], f.car)) + this.row('Rating spread', this.num(['field', 'spread'], f.spread, [0, 1], '0.1', '1'), '0 = all average, 1 = as rostered') : ''}
       </section>
       <section><h4>Mid-race events <em>when the leader starts the lap</em></h4>
         <table><tr><th>lap</th><th>type</th><th>value</th><th>note</th><th></th></tr>${events}</table>
@@ -205,15 +213,31 @@ export class ScenarioEditor {
   private onChange(e: Event) {
     const el = e.target as HTMLSelectElement;
     if (el.dataset.act === 'example') {
+      // Load into the form only: tweak it, then Run.
       const ex = this.hooks.examples[el.value];
-      if (ex) { this.set(ex); this.hooks.run(this.draft); }
+      if (ex) { this.set(ex); this.message(`Loaded "${ex.name}". Edit it, then ▶ Run.`); }
       return;
     }
     if (el.tagName === 'SELECT' && el.dataset.path) this.onInput(e);
+    // A renamed car: redraw so the car menus show the new name (not on every keystroke, which
+    // would lose the text box's focus).
+    else if (el.dataset.path && /^cars\.\d+\.id$/.test(el.dataset.path)) this.render();
   }
 
   private setPath(path: string[], v: unknown) {
     const s = this.draft as unknown as Record<string, unknown>;
+    if (path[0] === 'cars' && path[2] === 'id') {
+      // Renaming a car takes its drivers (and the field) with it, unless another car still has
+      // the old name (two cars briefly sharing one while typing).
+      const car = this.draft.cars[Number(path[1])];
+      const old = car.id;
+      car.id = (v as string | undefined) ?? '';
+      if (this.draft.cars.some((c) => c !== car && c.id === old)) return;
+      for (const d of this.draft.drivers ?? []) if (d.car === old) d.car = car.id;
+      if (this.draft.field?.car === old) this.draft.field.car = car.id;
+      return;
+    }
+    if (typeof v === 'string' && v.startsWith(PRESET_PICK)) v = this.carForPreset(v.slice(PRESET_PICK.length) as CarPreset);
     if (path[0] === 'track' && path[1] === 'type') {
       const width = this.draft.track.width;
       this.draft.track = v === 'generated' ? { type: 'generated', seed: 7, width }
@@ -240,6 +264,16 @@ export class ScenarioEditor {
     else o[last] = v;
     // Drop empty optional groups so the JSON stays tidy.
     if (path[0] === 'physics' && this.draft.physics && !Object.keys(this.draft.physics).length) delete this.draft.physics;
+  }
+
+  /** The id of an unmodified car of this preset, adding one if the scenario has none. */
+  private carForPreset(k: CarPreset): string {
+    const plain = this.draft.cars.find((c) => c.preset === k && Object.keys(c).every((f) => f === 'id' || f === 'preset'));
+    if (plain) return plain.id;
+    const ids = this.draft.cars.map((c) => c.id);
+    const id = ids.includes(k) ? uniq(k, ids) : k;
+    this.draft.cars.push({ id, preset: k });
+    return id;
   }
 
   private async onClick(e: Event) {
@@ -294,13 +328,16 @@ export class ScenarioEditor {
         const res = parseScenario(data);
         if (!res.ok) { this.message(`Can't open: ${res.errors.slice(0, 3).map(formatError).join('; ')}${res.errors.length > 3 ? ` (+${res.errors.length - 3} more)` : ''}`, 'err'); return; }
         this.set(res.scenario);
-        this.hooks.run(this.draft);
+        this.message(`Opened "${res.scenario.name}". Edit it, then ▶ Run.`);
         return;
       }
     }
     this.render();
   }
 }
+
+/** Option value prefix for "a new car of this preset" in the car menus. */
+const PRESET_PICK = 'preset:';
 
 const uniq = (base: string, used: string[]) => {
   for (let k = used.length + 1; ; k++) if (!used.includes(`${base} ${k}`)) return `${base} ${k}`;
