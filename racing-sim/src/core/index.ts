@@ -12,6 +12,7 @@ export * from './race/car';
 export * from './race/lap';
 export * from './race/race';
 export * from './race/collide';
+export * from './race/batch';
 export * from './agents/driver';
 export * from './agents/controller';
 export * from './track/corners';

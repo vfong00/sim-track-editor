@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "Equal cars, real drivers",
+  "description": "Identical cars and the first eight roster drivers at full spread, on a random grid: skill, not the car or the grid slot, decides the result.",
+  "seed": 1,
+  "track": { "type": "generated", "seed": 3 },
+  "race": { "laps": 6, "gridOrder": "random" },
+  "cars": [ { "id": "standard" } ],
+  "field": { "count": 8, "car": "standard" }
+}
