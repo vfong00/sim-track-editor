@@ -586,11 +586,10 @@ function frame(now: number) {
         const f = r.frames[kk];
         const p: TracePoint = { s: f[o], v: f[o + 2] };
         if (showInputs) {
-          // Acceleration over ±3 ticks (the log's speeds), and the cornering load from the lane's curvature.
+          // Acceleration over ±3 ticks of the log's speeds.
           const a0 = Math.max(0, kk - 3), a1 = Math.min(k, kk + 3);
           const acc = a1 > a0 ? (r.frames[a1][o + 2] - r.frames[a0][o + 2]) / ((a1 - a0) * r.dt) : 0;
-          const delta = f[o + 1] - s.lanes.lineD(f[o]);
-          Object.assign(p, pedals(c.model, p.v, acc, p.v * p.v * Math.abs(s.lanes.kappa(f[o], delta))));
+          Object.assign(p, pedals(c.model, p.v, acc));
         }
         actual.push(p);
       }

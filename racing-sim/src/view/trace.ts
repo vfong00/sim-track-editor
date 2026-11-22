@@ -11,17 +11,19 @@ export interface TracePoint {
 /**
  * Pedals recovered from the log (it stores speed, not inputs): the tyre force behind the car's
  * acceleration `a` at speed v, beyond what drag alone does, as a share of what the engine
- * (throttle) or brakes could give there while cornering at `alat`. Clean air assumed, so a tow
- * can read a little over full throttle (clamped) and a lift reads as neither.
+ * (throttle) or brakes could give there in a straight line. So braking that tapers off as the
+ * car turns in (the tyres share their grip between braking and cornering: trail braking) reads
+ * as the pedal coming up, and throttle fed in out of a corner as the pedal going down. Clean air
+ * assumed, so a tow can read a little over full throttle (clamped); a lift reads as neither.
  */
-export function pedals(model: CarModel, v: number, a: number, alat: number): { throttle: number; brake: number } {
+export function pedals(model: CarModel, v: number, a: number): { throttle: number; brake: number } {
   const coast = -model.cd * v * v;
   const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
   if (a >= coast) {
-    const room = model.maxDrive(v, alat) - coast;
+    const room = model.maxDrive(v, 0) - coast;
     return { throttle: room > 1e-6 ? clamp01((a - coast) / room) : a > coast ? 1 : 0, brake: 0 };
   }
-  const room = model.maxBrake(v, alat) + coast;
+  const room = model.maxBrake(v, 0) + coast;
   return { throttle: 0, brake: room > 1e-6 ? clamp01((coast - a) / room) : 1 };
 }
 
@@ -57,8 +59,8 @@ export function drawSpeedTrace(
   ctx.fillText(`km/h vs distance · grey = solver plan, colour = this lap${inputs ? ' · green = throttle, red = brake' : ''}`, padL, h - 4 * dpr);
 
   if (inputs && actual.length > 1) {
-    // Pedal band: the lower 40% of the plot, throttle rising from its middle, brake falling.
-    const bandH = 0.4 * (h - padT - padB);
+    // Pedal band: the lower 70% of the plot, throttle rising from its middle, brake falling.
+    const bandH = 0.7 * (h - padT - padB);
     const mid = h - padB - bandH / 2;
     const area = (key: 'throttle' | 'brake', sign: number, fill: string) => {
       ctx.fillStyle = fill;
