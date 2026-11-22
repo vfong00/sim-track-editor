@@ -72,6 +72,7 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
     ctx.setLineDash([]);
   }
   // Sector lines: dashed, across the road and a little into the run-off on both sides.
+  ctx.save();
   ctx.strokeStyle = 'rgba(255, 210, 80, 0.75)';
   ctx.lineWidth = Math.max(1.5, 0.5 * v.scale);
   ctx.setLineDash([Math.max(3, 1.2 * v.scale), Math.max(3, 1.2 * v.scale)]);
@@ -90,7 +91,7 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
     ctx.stroke();
     ctx.fillText(`S${k + 1}`, X(a.x + ux * (ext + 4)), Y(a.y + uy * (ext + 4)));
   });
-  ctx.setLineDash([]);
+  ctx.restore(); // dash, font and text alignment back as they were (labels drawn later rely on it)
   const a = t.edge(0, 1), b = t.edge(0, -1);
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = Math.max(2, 0.8 * v.scale);
@@ -136,6 +137,19 @@ export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading:
     ctx.stroke();
     ctx.setLineDash([]);
   }
+  if (outline && !livery) {
+    // The safety car: its box.
+  } else if (outline) {
+    // The followed car: a soft light on the road under it.
+    const r = Math.max(L * 0.9, 10);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.22)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, 7);
+    ctx.fill();
+  }
   ctx.rotate(-heading);
   ctx.globalAlpha = out ? 0.55 : 1;
   if (livery && L >= DETAIL_PX) drawBody(ctx, L, W, livery);
@@ -170,7 +184,7 @@ export function drawCar(ctx: CanvasRenderingContext2D, v: View, p: Vec, heading:
     ctx.moveTo(-r, r); ctx.lineTo(r, -r);
     ctx.stroke();
   }
-  if (outline) {
+  if (outline && !livery) {
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(-L / 2 - 2, -W / 2 - 2, L + 4, W + 4);

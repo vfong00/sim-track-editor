@@ -330,6 +330,9 @@ function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos
   return { p, heading, v: a[o + 2] + (b[o + 2] - a[o + 2]) * u, sPos, d, status };
 }
 
+/** What the camera showed last frame, to ease from it when the followed car or mode changes. */
+let camFrom: { session: Session | null; follow: number; mode: string } = { session: null, follow: -1, mode: '' };
+
 let towerKey = '';
 /** What the tower's time column shows; rotates every TOWER_ROTATE s unless the user picked one recently. */
 let towerMode: TowerMode = 'gap';
@@ -358,10 +361,13 @@ function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) 
     const out = status[i] >= STATUS.crash;
     const fin = at.finished(i);
     const tag = out ? '' : incidentTag(status[i]) || craftTag(at.mode(i), fin);
-    return `<div class="tr${i === followIdx ? ' sel' : camMode === 'battle' && battle.includes(i) ? ' bt' : ''}${fin ? ' fin' : ''}${out ? ' out' : ''}" data-i="${i}">
-      <span class="p">${out ? '' : p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
-      <span>${c.entrant.driver.name}${tag}</span>${cell(i, p, out)}</div>`;
-  }).join('');
+    return {
+      cls: `tr${i === followIdx ? ' sel' : camMode === 'battle' && battle.includes(i) ? ' bt' : ''}${fin ? ' fin' : ''}${out ? ' out' : ''}`,
+      i,
+      inner: `<span class="p">${out ? '' : p + 1}</span><span class="sw" style="background:${c.entrant.color}"></span>
+      <span>${c.entrant.driver.name}${tag}</span>${cell(i, p, out)}`,
+    };
+  });
   function cell(i: number, p: number, out: boolean): string {
     if (out && (towerMode === 'gap' || towerMode === 'interval' || towerMode === 'sectors')) return '<span class="gap">DNF</span>';
     if (board) return `<span class="gap">${sectorChips(sectorCell(board, i))}</span>`;
@@ -375,13 +381,32 @@ function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) 
   const wx = grip === 1 ? '' : `<span class="grip" title="Track grip">${grip < 1 ? 'Wet' : 'Grip'} ${(grip * 100).toFixed(0)}%</span>`;
   const sc = scState(r, s.clock);
   const banner = sc ? `<div class="scb">${sc === 'out' ? 'SAFETY CAR' : 'SAFETY CAR IN THIS LAP'}</div>` : '';
-  const html = `<div class="hd"><span>${at.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}${modeBtn}</div>${banner}${rows}`;
-  if (html !== towerKey) {
-    tower.classList.toggle('sec', towerMode === 'sectors');
-    tower.innerHTML = html;
-    towerKey = html;
+  const head = `<div class="hd"><span>${at.leaderFinished ? 'Finished' : `Lap ${lap} / ${r.laps}`}</span>${wx}${modeBtn}</div>${banner}`;
+  const key = head + rows.map((x) => x.cls + x.i + x.inner).join('');
+  if (key === towerKey) return;
+  towerKey = key;
+  tower.classList.toggle('sec', towerMode === 'sectors');
+  // Patch in place: the row elements stay, so the one under the pointer keeps its hover (replacing
+  // the whole tower every frame made it flicker).
+  const top = tower.querySelector<HTMLElement>('.top');
+  const els = tower.querySelectorAll<HTMLElement>('.tr');
+  if (!top || els.length !== rows.length) {
+    tower.innerHTML = `<div class="top">${head}</div>${rows.map((x) => `<div class="${x.cls}" data-i="${x.i}">${x.inner}</div>`).join('')}`;
+    return;
   }
+  const set = (el: HTMLElement, html: string) => {
+    if (towerHtml.get(el) !== html) { el.innerHTML = html; towerHtml.set(el, html); }
+  };
+  set(top, head);
+  rows.forEach((x, k) => {
+    const el = els[k];
+    if (el.className !== x.cls) el.className = x.cls;
+    if (el.dataset.i !== String(x.i)) el.dataset.i = String(x.i);
+    set(el, x.inner);
+  });
 }
+/** The HTML last written into each tower element (the browser's own serialisation differs). */
+const towerHtml = new WeakMap<HTMLElement, string>();
 
 /** The current lap's three sectors as coloured chips, then the latest sector time. */
 function sectorChips(c: SectorCell): string {
@@ -553,6 +578,11 @@ function frame(now: number) {
       // Stay centred on the car (or its battle) at any playback speed; only the zoom and the
       // battle framing's offset from the car ease.
       const p = poses[followIdx].p;
+      // Switching car (or coming from the overview): start from where the camera is and ease
+      // the offset to the new car away, instead of jumping.
+      if (camFrom.session === s && (camFrom.follow !== followIdx || camFrom.mode === 'all')) {
+        s.battleOff = { x: (W / 2 - s.cam.ox) / s.cam.scale - p.x, y: (s.cam.oy - H / 2) / s.cam.scale - p.y };
+      }
       let target = FOLLOW_SCALE * dpr * zoom.follow;
       let off = { x: 0, y: 0 };
       if (camMode === 'battle') {
@@ -575,6 +605,7 @@ function frame(now: number) {
       s.cam = { scale: s.cam.scale + (t.scale - s.cam.scale) * a, ox: s.cam.ox + (t.ox - s.cam.ox) * a, oy: s.cam.oy + (t.oy - s.cam.oy) * a };
     }
 
+    camFrom = { session: s, follow: followIdx, mode: camMode };
     drawTrack(ctx, s.track, s.cam, s.lanes.line, r.sectorEnds.slice(0, 2));
     drawSkidMarks(ctx, s.cam, skidMarksAt(r, s.clock), s.clock);
     for (let p = n - 1; p >= 0; p--) {
@@ -658,6 +689,7 @@ function drawLabels(s: Session, poses: { p: Vec; status: number }[], order: numb
   if (followIdx >= 0 && ids.includes(followIdx)) ids.splice(ids.indexOf(followIdx), 1), ids.unshift(followIdx);
   ctx.font = `600 ${11 * dpr}px system-ui, sans-serif`;
   ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
   const placed: [number, number, number, number][] = [];
   const h = 16 * dpr;
   for (const i of ids) {
