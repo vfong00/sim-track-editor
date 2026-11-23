@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "F1 constructors at Yas Marina",
-  "description": "Ten teams of two in F1 cars that differ (about 1.5 s a lap from first to last): Meridian the all-rounder, Aurora and Kestrel high downforce, Helix and Saltire quick on the straights, Ferro and Ember at the back. Better drivers mostly at the better teams, not strictly. Qualifying order (car and driver) on the grid, ten laps.",
+  "description": "Ten teams of two in F1 cars, about 1.4 s a lap apart at the limit. Fastest first:\n- Meridian (Bianchi, Alvarez): the all-rounder, quickest in the corners and on the straights.\n- Aurora (Dlamini, Garcia): the most downforce, a little down on top speed.\n- Kestrel (Chen, Fontaine): high downforce, slow on the straights.\n- Brightwater (Laurent, Jovanovic): strong traction out of slow corners, good top speed.\n- Corsair (Eriksen, Ito): the best brakes, slow on the straights.\n- Helix (Kowalski, Hughes): low downforce, as fast as Meridian on the straights.\n- Lumen (Olsen, Murphy): middling everywhere, slow on the straights.\n- Saltire (Petrov, Nakamura): the least downforce, quick on the straights.\n- Ferro (Quinn, Tanaka): the weakest acceleration, slow on the straights.\n- Ember (Schmidt, Reyes): the least grip, at the back.\nBetter drivers mostly at the better teams, not strictly. Qualifying sets the grid; ten laps.",
   "seed": 1,
   "track": {
     "type": "png",

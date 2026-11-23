@@ -128,7 +128,7 @@ export class ScenarioEditor {
       <div class="ed-msg" id="ed-msg"></div>
       <section><h4>Scenario</h4>
         ${this.row('Name', this.text(['name'], s.name))}
-        ${this.row('Notes', `<textarea data-path="description" data-kind="str" rows="2">${esc(s.description)}</textarea>`)}
+        ${this.row('Notes', `<textarea data-path="description" data-kind="str" rows="${Math.min(14, Math.max(2, (s.description ?? '').split('\n').length))}">${esc(s.description)}</textarea>`)}
         ${this.row('Race seed', this.num(['seed'], s.seed, [0, 4294967295], '1'), 'same seed = same race')}
       </section>
       <section><h4>Race rules</h4>
