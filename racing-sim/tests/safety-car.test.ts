@@ -175,3 +175,34 @@ describe('a scripted safety car always comes out', () => {
     expect(log.at(-1)).toBe('L5 Green flag: racing resumes');
   });
 });
+
+describe('cars caught in a pile-up drive out of it', () => {
+  it('steers round the wreck in its own path and creeps past one it is already clear of', () => {
+    // Staged from the rookie-rocket pile-up at Yas T10 (seed 42 in the browser), offsets from
+    // the road centre as they were. Wrecks: P (3.6 m ahead of A, d −0.3), J (alongside A, d −0.3)
+    // and R (alongside A, d 1.7). Running cars at a standstill: A (d −2.9, clear of P sideways
+    // but already partly alongside it, with G stopped right behind), B (behind R and J, which sit
+    // side by side, R in B's path, and G alongside B where B's racing line runs). G is a wreck
+    // here; in the race it was a third stuck car. Before the fix A and B sat there until they
+    // retired as stuck.
+    const r = new Race({ track: track7, lanes: lanes7, entrants: identicalField(7, AVERAGE_DRIVER), laps: 2, seed: 1 });
+    while (r.t < 8) r.step();
+    const [P, J, R, G, A, B] = [0, 1, 2, 3, 4, 5].map((i) => r.cars[i]);
+    const s0 = (r.cars[6].st.s + 400) % track7.length;
+    const at = (ds: number) => (s0 + ds + track7.length) % track7.length;
+    for (const [c, s, d] of [[P, at(3.56), -0.32], [J, at(-0.44), -0.32], [R, at(-0.28), 1.68], [G, at(-4.06), -2.92], [A, at(0), -2.92], [B, at(-4.44), 2.09]] as const) {
+      c.st.dist += s - c.st.s;
+      c.st.s = s;
+      c.st.v = 0;
+      c.st.vDelta = 0;
+      c.st.delta = d - lanes7.lineD(s);
+    }
+    for (const i of [0, 1, 2, 3]) r.retire(i);
+    const from = [A.st.dist, B.st.dist];
+    const t0 = r.t;
+    while (r.t < t0 + 15) r.step();
+    expect(A.dnf || B.dnf).toBe(false);
+    expect(A.st.dist - from[0]).toBeGreaterThan(30);
+    expect(B.st.dist - from[1]).toBeGreaterThan(30);
+  });
+});

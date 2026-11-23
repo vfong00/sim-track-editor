@@ -119,8 +119,9 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     let vAllowed = room > 0 ? Math.sqrt(o.v * o.v * ratio + 2 * bb * room) : Math.max(0, o.v - 2 + room);
     // Stopped behind a car that isn't moving, but heading for a clear line beside it: creep
     // forward so the car can turn out; while still in line with it, only as far as the room left.
-    if (Math.abs(o.d - targetD) >= HIT_W + 0.2 && o.gap > HIT_LEN) {
-      const inLine = Math.abs(o.d - me.d) < HIT_W + 0.2;
+    // Already clear of it sideways, the car can creep on even with the two partly alongside.
+    const inLine = Math.abs(o.d - me.d) < HIT_W + 0.2;
+    if (Math.abs(o.d - targetD) >= HIT_W + 0.2 && (o.gap > HIT_LEN || !inLine)) {
       const creep = inLine ? Math.min(1, Math.sqrt(Math.max(0, 2 * (o.gap - HIT_LEN - 0.2)))) : 3;
       vAllowed = Math.max(vAllowed, Math.min(creep, o.v + 3));
     }
@@ -143,7 +144,11 @@ export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): {
   const { st, lanes } = me;
   const lim = lanes.lim;
   const look = 30 + st.v * 3;
-  let haz: Near | null = null;
+  // The nearest slow car ahead in my path, else the nearest one close beside it. In a pile-up
+  // two wrecks can sit side by side: steering round the nearer one when it's the other that
+  // blocks my lane would send me across behind the first. (One already alongside me isn't in my
+  // path going forward, wherever my lane runs: the side spacing keeps me off it.)
+  let haz: Near | null = null, hazIn: Near | null = null;
   for (const o of near) {
     if (o.gap <= -HIT_LEN || o.gap > look) continue;
     if (o.v > Math.max(6, 0.5 * st.v)) continue;
@@ -152,7 +157,11 @@ export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): {
     const dd = Math.min(Math.abs(o.dd), Math.abs(o.d - lanes.dOf(at, st.delta)), Math.abs(o.d - lanes.dOf(at, wantDelta)));
     if (dd > SIDE_GAP + 1) continue;
     if (!haz || o.gap < haz.gap) haz = o;
+    // In my path: for a car partly alongside, only where it is beside me now counts.
+    const inPath = (o.gap >= HIT_LEN ? dd : Math.abs(o.dd)) < HIT_W + 0.2;
+    if (o.gap > 0 && inPath && (!hazIn || o.gap < hazIn.gap)) hazIn = o;
   }
+  haz = hazIn ?? haz;
   if (!haz) return { delta: wantDelta, hazard: -1 };
   // Offsets are relative to the racing line at the hazard (where the clearance matters).
   const lineAt = lanes.lineD(st.s + Math.max(0, haz.gap));
@@ -161,9 +170,11 @@ export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): {
   for (const side of [1, -1]) {
     const d = haz.d + side * (SIDE_GAP + 0.4);
     if (Math.abs(d) > lim) continue;
-    // Another slow car (or a car alongside) blocking that side?
-    const blocked = near.some((o) => o !== haz && o.gap > -ALONGSIDE && o.gap < haz!.gap + 15 &&
-      Math.abs(o.d - d) < HIT_W + 0.3 && (o.v < Math.max(6, 0.5 * st.v) || Math.abs(o.gap) < ALONGSIDE));
+    // Another slow car (or a car alongside) blocking that side? A slow car only blocks it if it
+    // reaches up beside or ahead of me: one wholly behind (another wreck I've already passed)
+    // isn't in the way going forward.
+    const blocked = near.some((o) => o !== haz && o.gap < haz!.gap + 15 && Math.abs(o.d - d) < HIT_W + 0.3 &&
+      (o.v < Math.max(6, 0.5 * st.v) ? o.gap > -HIT_LEN : Math.abs(o.gap) < ALONGSIDE));
     if (blocked) continue;
     if (Number.isNaN(best) || Math.abs(d - want) < Math.abs(best - want)) best = d;
   }
