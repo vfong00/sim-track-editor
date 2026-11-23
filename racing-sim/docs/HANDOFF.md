@@ -38,6 +38,8 @@ npm on this Mac: Artifactory may be unreachable. Install with
 ## Known soft spots
 
 - A 6%-faster car sometimes spins after contact on a late dive instead of passing.
+- Overtaking: late lunges are rare and capped, and on a corner exit nobody owns their lane (a car
+  alongside gets edged out and lifts). Causes and fixes in `docs/PLAN.md` → "Overtaking bugs".
 - Many Phase 4 checks use 4–8 seeds and sit near their thresholds. Use the batch runner
   (`npm run sim -- batch <scenario> --runs N`) or more seeds before reading a change into them.
   The traffic-rule checks run with the standard car, which has no downforce, so they don't

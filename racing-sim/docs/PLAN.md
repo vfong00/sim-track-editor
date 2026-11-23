@@ -414,6 +414,65 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
   gentle. Nordschleife (800 px for 20.8 km): laps 5–10% quick, no GP section (the 24h layout
   needs it), no elevation.
 
+**Overtaking bugs (from watching F1 at Yas over 30 laps, 2026-11-23)** S–M each
+Some of this can wait for driving styles. Some of it is logic we can fix now.
+- **Late lunges are rare, and the brave ones are capped.** The good version: T9 (the long
+  hairpin), L7 9:54.9, Jovanovic for P12. The defender sits a little off the inside and
+  squeezes. The attacker takes the inside anyway, locks up a little and trail-brakes past. We
+  want more of these. (More attempts round the outside here would be realistic too: see three
+  lines per corner.) Why they're rare, from the code:
+  - Bravery is a small knob. A committed attacker within 12 m brakes up to `0.04 · bravery`
+    later (`brave` in `racecraft.ts`): 2% for an average driver, 4% at most. Bravery is also
+    set to the same value as aggression (`risk`). So "bravery" can't make a lunge on its own,
+    and styles alone won't fix that.
+  - Moves are only started with more than 60 m to the corner (`toCorner > 60`), and pull out
+    at `DIVE_GAP` (12 m) once braking is `PULL_LEAD` s away. Nobody starts a lunge from 15–25 m
+    back once the braking zone has begun.
+  - `feasibleDelta` with `COMMIT_SLACK` (0.985) stops a committed attacker taking a lane it
+    can't make within 1.5% of its speed. A hairpin's inside line is much slower than that, so
+    the dive has to start before the braking. A real lunge arrives too fast and accepts it.
+  - A defence sits 1 m from the inside edge (`lim - 1`). `room()` needs `SIDE_GAP` (2.6 m), so
+    a defended inside closes the dive. The Jovanovic pass only worked because the dive started
+    before the defender got across.
+  - A lock-up is only a random mistake, rolled at `(1 − consistency) · (0.004 + 4 · excess)`
+    per second. Braking too late doesn't lock the wheels directly. It only slides a little,
+    because bravery keeps the car near the limit.
+  - Fix now: a "lunge" for a committed attacker in the braking zone. It starts from up to ~25 m
+    back when the inside is open. Allow a looser slack scaled by bravery (and by what's at stake:
+    a faster car, laps left). Lock-up odds rise with how far over the braking limit the car is,
+    so a lunge can lock up, run wide or make it. Widen bravery's range once it's separate from
+    aggression (driving styles). Measure with `batch`: passes, lock-ups, lap-1 contacts and DNFs
+    on F1 Yas and GT3 Laguna.
+- **Side by side out of a corner, nobody owns their lane.** At the T6/T7 chicane onto the back
+  straight, the attacker holds the inside and tries to beat the defender to the straight. Good
+  example: L6 8:18.9, Nakamura. Bad example: Garcia and Schmidt around 3:45–3:55. Schmidt wins
+  the inside and holds it. Garcia's line edges him out anyway, and Schmidt lifts to tuck in
+  behind. Either Garcia leaves a car's width (a drag race to T8), or he's blamed for the squeeze
+  (a penalty once stewards exist). Not reproduced: at seed 1 over 30 laps, Garcia is behind
+  Schmidt through that stretch and they're never side by side. Get the seed (or the reseeded
+  race) next time. Suspects, from the code:
+  - An attack is aimed at one corner (`cr.corner`). It ends at that corner's apex if the leader
+    is ahead (`beatenAtApex`), or once the next corner is up and the two aren't alongside. In a
+    chicane, a move decided for T6 is over by T7. Then the attacker is in `line` mode with no
+    idea it is still racing for position.
+  - The only side-by-side rule in `line` mode ("whoever is on the inside keeps the inside line")
+    applies on the way into a corner (`toCorner < 150`) and only to the car on the inside. On
+    the exit and down a straight, both cars head for the racing line, and only the symmetric
+    side spacing keeps them apart.
+  - Side spacing only counts cars within `ALONGSIDE` (6 m centre to centre) and more than 1.2 m
+    apart sideways. A car half a length ahead that drifts across can drop out of the other car's
+    `lo`/`hi` window. The trailing car then sees it as in its lane ahead (the gap rule checks
+    both the current and the target lane), and room goes negative, so it brakes below the
+    leader's speed (`o.v − 2 + room`). That is the "Schmidt has to slow down" look.
+  - A squeeze is only logged when the squeezed car's road runs out (`squeezedBy`, then an off).
+    A squeeze that makes the other car lift, but stay on the road, leaves no trace.
+  - Fix now: a car alongside at the exit of a corner (front wheels level with the other car's
+    rear wheels or better) is owed a car's width to the next braking zone. That's the room rule
+    from three lines per corner, brought forward for exits and straights. Keep an attack alive
+    through a linked sequence of corners (a chicane) while the two are alongside. Log a "forced
+    to lift" squeeze for blame as well as an off. Check: on F1 Yas, count side-by-side exits at
+    the T7 chicane that end in a lift with no contact, before and after.
+
 **Driving styles, corner lines and lap 1 (its own session)** L
 - Replace the risk and racecraft ratings with styles that bring several behaviours together:
   smooth vs aggressive at the wheel (trail-braking and oversteer moments vs tidy lines),
