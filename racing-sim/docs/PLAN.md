@@ -412,7 +412,11 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
   1:25.5 now. Kept the current image; OSM geometry is the real fix. Silverstone: Brooklands and Luffield
   ~75 km/h in F1 vs ~110 real. Laguna Seca (from a 300 px silhouette): the Corkscrew is too
   gentle. Nordschleife (800 px for 20.8 km): laps 5–10% quick, no GP section (the 24h layout
-  needs it), no elevation.
+  needs it), no elevation. Monza (added 2026-11-23, a 600 px outline upscaled 2×, smoothing 3:
+  4 and up flattens Ascari, 2 adds false corners): F1 1:16.4 at the limit vs ~1:19 real. Ascari
+  is right (~205/255/210 km/h); the Rettifilo (64 vs ~80), Roggia (111 vs ~140) and Lesmo 2
+  (140 vs ~175) are tight. Curva Grande counts as two corners, so the sim's numbers run one
+  ahead of the real ones from the Roggia on.
 
 **Overtaking bugs (from watching F1 at Yas over 30 laps, 2026-11-23)** S–M each
 Some of this can wait for driving styles. Some of it is logic we can fix now.
