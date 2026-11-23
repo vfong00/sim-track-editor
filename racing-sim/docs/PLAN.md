@@ -448,9 +448,9 @@ Some of this can wait for driving styles. Some of it is logic we can fix now.
   example: L6 8:18.9, Nakamura. Bad example: Garcia and Schmidt around 3:45–3:55. Schmidt wins
   the inside and holds it. Garcia's line edges him out anyway, and Schmidt lifts to tuck in
   behind. Either Garcia leaves a car's width (a drag race to T8), or he's blamed for the squeeze
-  (a penalty once stewards exist). Not reproduced: at seed 1 over 30 laps, Garcia is behind
-  Schmidt through that stretch and they're never side by side. Get the seed (or the reseeded
-  race) next time. Suspects, from the code:
+  (a penalty once stewards exist). The timestamps here are from the viewer's race before the
+  determinism fix (HANDOFF → Determinism): the browser was running a different race from Node,
+  and seed 1 is a new race everywhere now. Suspects, from the code:
   - An attack is aimed at one corner (`cr.corner`). It ends at that corner's apex if the leader
     is ahead (`beatenAtApex`), or once the next corner is up and the two aren't alongside. In a
     chicane, a move decided for T6 is over by T7. Then the attacker is in `line` mode with no

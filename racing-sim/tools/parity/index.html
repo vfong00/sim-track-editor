@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8">
+<!--
+  Browser side of the Node/browser parity check: runs a scenario the way the viewer does (canvas PNG
+  decode, scenarioRaceOptions) and prints the result as text, for diffing against the same run in Node.
+  With `npm run dev` up:  /tools/parity/?s=<example>&laps=N&until=SECONDS  (events)
+                          /tools/parity/?setup=1                          (track, line and envelope hashes)
+                          /tools/parity/?ticks=N                          (every car's exact state per tick)
+  Headless:  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new \
+    --virtual-time-budget=600000 --dump-dom "http://localhost:5173/tools/parity/?laps=30&until=3600"
+  See docs/HANDOFF.md (Determinism).
+-->
+<pre id="out">running</pre>
+<script type="module">
+import { loadScenario, Race } from '/src/core';
+import { tickDump, setupDump } from './dump.js';
+const out = document.getElementById('out');
+const q = new URLSearchParams(location.search);
+const data = await (await fetch('/scenarios/' + (q.get('s') ?? 'f1-constructors-yas') + '.json')).json();
+data.race.laps = Number(q.get('laps') ?? 30);
+const bmp = await createImageBitmap(await (await fetch(data.track.image)).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+const c = new OffscreenCanvas(bmp.width, bmp.height); const g = c.getContext('2d');
+g.fillStyle = '#fff'; g.fillRect(0, 0, bmp.width, bmp.height); g.drawImage(bmp, 0, 0);
+const img = g.getImageData(0, 0, bmp.width, bmp.height);
+let sum = 0; for (let i = 0; i < img.data.length; i += 4) sum += img.data[i];
+const { track, options } = loadScenario(data, img);
+if (q.get('setup')) { out.textContent = setupDump(new Race(options)).join('\n'); out.id = 'done'; throw 0; }
+if (q.get('ticks')) { out.textContent = tickDump(new Race(options), Number(q.get('ticks'))).join('\n'); out.id = 'done'; throw 0; }
+const race = new Race(options).run(Number(q.get('until') ?? 620));
+out.textContent = `length ${track.length.toFixed(3)} sum ${sum} ${img.width}x${img.height}\n` + race.events.map((e) => `${e.t.toFixed(3)} ${e.text}`).join('\n');
+out.id = 'done';
+</script>

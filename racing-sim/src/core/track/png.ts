@@ -1,4 +1,5 @@
 import type { Vec } from '../math';
+import { exp } from '../fmath';
 import { Track } from './track';
 
 /**
@@ -148,7 +149,7 @@ function smoothClosed(pts: Vec[], sigma: number): Vec[] {
   const r = Math.ceil(sigma * 3);
   const wts: number[] = [];
   let sum = 0;
-  for (let k = -r; k <= r; k++) { const v = Math.exp(-(k * k) / (2 * sigma * sigma)); wts.push(v); sum += v; }
+  for (let k = -r; k <= r; k++) { const v = exp(-(k * k) / (2 * sigma * sigma)); wts.push(v); sum += v; }
   const out: Vec[] = [];
   for (let i = 0; i < n; i++) {
     let x = 0, y = 0;

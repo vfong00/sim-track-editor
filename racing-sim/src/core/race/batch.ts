@@ -11,7 +11,7 @@ export const spread = (xs: number[]): Spread => {
   if (!n) return { mean: 0, se: 0 };
   const mean = xs.reduce((a, b) => a + b, 0) / n;
   if (n < 2) return { mean, se: 0 };
-  const v = xs.reduce((a, x) => a + (x - mean) ** 2, 0) / (n - 1);
+  const v = xs.reduce((a, x) => a + (x - mean) * (x - mean), 0) / (n - 1);
   return { mean, se: Math.sqrt(v / n) };
 };
 

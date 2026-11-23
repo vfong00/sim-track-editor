@@ -35,6 +35,19 @@ npm on this Mac: Artifactory may be unreachable. Install with
 - **Batch runs** (`src/core/race/batch.ts`, CLI `batch`): one track and lane set, many seeds;
   `runBatch` / `summarize` work in Node and the browser. Use it to tune instead of single races.
 
+## Determinism (Node and the browser run the same race)
+
+- The race is chaotic, so one bit anywhere becomes a different race. Engines round `Math.exp`,
+  `log`, `sin`, `cos` (and `atan2`, `pow`, `**`) differently in the last bit: Node 24 and Chrome
+  disagreed, so until 2026-11-23 the viewer showed a different race from the CLI, the tests and
+  the batch baselines for the same scenario and seed. Core code now uses `src/core/fmath.ts`
+  (fdlibm ports, only + − × ÷), and `tests/determinism.test.ts` fails on any engine-rounded Math
+  call or `**` in `src/core`. `sqrt`, `hypot`, `floor` and the like are exact and fine.
+- To check parity: `tools/parity/` runs a scenario the way the viewer does and prints its events,
+  setup hashes or per-tick state (instructions at the top of the page). Run it in headless Chrome
+  and diff against the same run in Node (`tools/parity/dump.js` has the shared dump functions).
+  The 30-lap F1 Yas race matched event for event when this landed.
+
 ## Known soft spots
 
 - A 6%-faster car sometimes spins after contact on a late dive instead of passing.

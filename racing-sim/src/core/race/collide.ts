@@ -60,7 +60,7 @@ export function resolveCollisions(cars: Body[], lanes: LaneSet, edgeWall = false
         if (!seen.has(key)) {
           seen.add(key);
           // Velocity of each car in (s, d): (v_along, vDelta).
-          const va = Math.sqrt(Math.max(0, A.st.v ** 2 - A.st.vDelta ** 2)), vb = Math.sqrt(Math.max(0, B.st.v ** 2 - B.st.vDelta ** 2));
+          const va = Math.sqrt(Math.max(0, A.st.v * A.st.v - A.st.vDelta * A.st.vDelta)), vb = Math.sqrt(Math.max(0, B.st.v * B.st.v - B.st.vDelta * B.st.vDelta));
           const closing = (va - vb) * nx + (A.st.vDelta - B.st.vDelta) * ny;
           const angle = alongS ? Math.min(1, Math.abs(dd) / HIT_W) : 1;
           out.push({ a: i, b: j, closing: Math.max(0, closing), angle });

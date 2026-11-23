@@ -1,4 +1,5 @@
 import { convexHull, dist, type Vec } from '../math';
+import { cos, sin } from '../fmath';
 import { makeRng } from '../rng';
 import { Track } from './track';
 
@@ -57,8 +58,8 @@ export function generateTrack(opts: GenerateOptions): Track {
   }
   // Practically unreachable: a plain ellipse is always valid.
   const ell: Vec[] = Array.from({ length: 16 }, (_, i) => ({
-    x: size * Math.cos((i / 16) * 2 * Math.PI),
-    y: size * 0.6 * Math.sin((i / 16) * 2 * Math.PI),
+    x: size * cos((i / 16) * 2 * Math.PI),
+    y: size * 0.6 * sin((i / 16) * 2 * Math.PI),
   }));
   return Track.fromControlPoints(ell, width);
 }

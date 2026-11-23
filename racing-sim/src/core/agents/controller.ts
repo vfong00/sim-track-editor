@@ -2,6 +2,7 @@ import type { Controls } from '../race/car';
 import { clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet } from '../race/lanes';
 import { type CarModel, type Effects, NO_EFFECTS } from '../physics/model';
 import type { CarState } from '../race/car';
+import { exp } from '../fmath';
 
 /** Another car as seen from one car: path distance ahead (negative = behind) and lateral gap. */
 export interface Near {
@@ -151,7 +152,7 @@ export function hazardSpeed(model: CarModel, fx: Effects, share: number, vEnd: n
   const A = share * model.maxBrake(0, 0, fx);
   const B = (share * model.maxBrake(10, 0, fx) - A) / 100;
   if (B < 1e-9) return Math.sqrt(vEnd * vEnd + 2 * A * room);
-  return Math.sqrt(Math.max(0, ((A + B * vEnd * vEnd) * Math.exp(2 * B * room) - A) / B));
+  return Math.sqrt(Math.max(0, ((A + B * vEnd * vEnd) * exp(2 * B * room) - A) / B));
 }
 
 /**

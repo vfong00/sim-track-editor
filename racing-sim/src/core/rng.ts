@@ -1,3 +1,5 @@
+import { cos, log } from './fmath';
+
 /** Seeded PRNG (mulberry32). All randomness in the sim goes through one of these. */
 export interface Rng {
   /** Uniform in [0, 1). */
@@ -26,7 +28,7 @@ export function makeRng(seed: number): Rng {
     normal: () => {
       const u = 1 - next();
       const v = next();
-      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+      return Math.sqrt(-2 * log(u)) * cos(2 * Math.PI * v);
     },
     fork: () => makeRng(Math.floor(next() * 4294967296)),
   };
