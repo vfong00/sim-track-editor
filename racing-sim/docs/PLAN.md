@@ -321,8 +321,19 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   to race" returns to the race where it was left. The HUD shows the ideal race lap and the ideal
   push lap; the stats add a Race pace row.
 - Still open: drivers stepping up to the limit when attacking or defending (deferred on
-  purpose), lap-to-lap variation in races (only qualifying has per-corner variation), and a
-  formation of cars on track together in qualifying (traffic, tows).
+  purpose), and a formation of cars on track together in qualifying (traffic, tows).
+- Race pace scatter: each corner's target speed is race pace times a factor drawn around 1
+  (`raceSpread`: 0.3% plus 3.5% per point of inconsistency) plus a per-lap rhythm (0.8 of that
+  spread), so laps differ. Consistency sets the spread; the race margin is now headroom for it,
+  1% of grip plus (2 − bravery) spreads, so a brave driver runs closer to the limit and slides
+  more (bravery 0 → 1 is ~0.35 s a lap at Laguna). Off under the safety car. A lone car's lap
+  SD: GT3 Laguna 0.09 / 0.25 / 0.35 s at consistency 0.96 / 0.85 / 0.70, F1 Yas 0.06 / 0.12 /
+  0.28 s. Trains break up a little (5–9% less time in one).
+- Wrecks: a hazard stop is planned with the braking the car really has all the way down
+  (`hazardSpeed`: braking is A + B·v², so a winged car brakes far harder at speed; planning at
+  today's braking left a GT3 13 m short from 50 m/s), keeping 10% for steering round
+  (`HAZARD_RESERVE`). No car hits a wreck already at rest in 192 example races (12 examples ×
+  16 seeds; 4 in 96 before); DNFs in those races roughly halved.
 
 **Next, in order**
 1. One of the bigger sessions: driving styles with corner lines and lap 1 (with car size

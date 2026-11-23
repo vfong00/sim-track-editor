@@ -116,7 +116,11 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     // ~10 m back at speed, too far to pull out), but does count the grip dirty air costs it: a
     // winged car tucked in at 1.5 m into a 300 km/h braking zone otherwise ran into the leader.
     const ratio = attacked ? Math.min(1, me.model.maxBrake(st.v, 0, { ...fx, drag: 1 }) / bo) : bb / bo;
-    let vAllowed = room > 0 ? Math.sqrt(o.v * o.v * ratio + 2 * bb * room) : Math.max(0, o.v - 2 + room);
+    // A hazard is (nearly) stopped and won't brake with me: stop for it with the braking I really
+    // have all the way down, which falls with speed for a winged car (see hazardSpeed).
+    let vAllowed = room > 0
+      ? hazard ? hazardSpeed(me.model, fx, HAZARD_RESERVE * bHaz / Math.max(1e-6, me.model.maxBrake(st.v, 0, fx)), o.v, room) : Math.sqrt(o.v * o.v * ratio + 2 * bb * room)
+      : Math.max(0, o.v - 2 + room);
     // Stopped behind a car that isn't moving, but heading for a clear line beside it: creep
     // forward so the car can turn out; while still in line with it, only as far as the room left.
     // Already clear of it sideways, the car can creep on even with the two partly alongside.
@@ -131,6 +135,23 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     }
   }
   return { ctl: squeezedBy >= 0 ? { vTarget, deltaTarget, squeezedBy } : { vTarget, deltaTarget }, following };
+}
+
+/** Share of the braking a driver plans a hazard stop with: the rest is kept for steering round it. */
+export const HAZARD_RESERVE = 0.9;
+
+/**
+ * The fastest I can be going `room` metres short of a hazard and still slow to `vEnd` by it,
+ * braking with `share` of the car's straight-line braking all the way. The model's braking is
+ * A + B·v² (tire grip with downforce, plus drag), so a winged car brakes far harder at speed than
+ * slow: planning the whole stop at today's braking (v² = 2·b·room) left a GT3 13 m short from
+ * 50 m/s, and cars ran into wrecks at 15 m/s. Exact for that model: ∫ v dv / (A + B v²) = room.
+ */
+export function hazardSpeed(model: CarModel, fx: Effects, share: number, vEnd: number, room: number): number {
+  const A = share * model.maxBrake(0, 0, fx);
+  const B = (share * model.maxBrake(10, 0, fx) - A) / 100;
+  if (B < 1e-9) return Math.sqrt(vEnd * vEnd + 2 * A * room);
+  return Math.sqrt(Math.max(0, ((A + B * vEnd * vEnd) * Math.exp(2 * B * room) - A) / B));
 }
 
 /**
