@@ -416,8 +416,10 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
 
 **Overtaking bugs (from watching F1 at Yas over 30 laps, 2026-11-23)** S–M each
 Some of this can wait for driving styles. Some of it is logic we can fix now.
-- **Late lunges are rare, and the brave ones are capped.** The good version: T9 (the long
-  hairpin), L7 9:54.9, Jovanovic for P12. The defender sits a little off the inside and
+- **Late lunges are rare, and the brave ones are capped.** The good version, at the T9 hairpin (the sim's
+  T7) in F1 Yas, seed 1, 30 laps: Kowalski for P11 at 5:29.6, and Dlamini for P3 at 13:51.1 (the
+  dramatic one). It happens about six times in that race. (An outside pass there turns up early
+  in the same race too.) The defender sits a little off the inside and
   squeezes. The attacker takes the inside anyway, locks up a little and trail-brakes past. We
   want more of these. (More attempts round the outside here would be realistic too: see three
   lines per corner.) Why they're rare, from the code:
@@ -432,7 +434,7 @@ Some of this can wait for driving styles. Some of it is logic we can fix now.
     can't make within 1.5% of its speed. A hairpin's inside line is much slower than that, so
     the dive has to start before the braking. A real lunge arrives too fast and accepts it.
   - A defence sits 1 m from the inside edge (`lim - 1`). `room()` needs `SIDE_GAP` (2.6 m), so
-    a defended inside closes the dive. The Jovanovic pass only worked because the dive started
+    a defended inside closes the dive. Passes like these only work because the dive started
     before the defender got across.
   - A lock-up is only a random mistake, rolled at `(1 − consistency) · (0.004 + 4 · excess)`
     per second. Braking too late doesn't lock the wheels directly. It only slides a little,
@@ -444,13 +446,12 @@ Some of this can wait for driving styles. Some of it is logic we can fix now.
     aggression (driving styles). Measure with `batch`: passes, lock-ups, lap-1 contacts and DNFs
     on F1 Yas and GT3 Laguna.
 - **Side by side out of a corner, nobody owns their lane.** At the T6/T7 chicane onto the back
-  straight, the attacker holds the inside and tries to beat the defender to the straight. Good
-  example: L6 8:18.9, Nakamura. Bad example: Garcia and Schmidt around 3:45–3:55. Schmidt wins
-  the inside and holds it. Garcia's line edges him out anyway, and Schmidt lifts to tuck in
-  behind. Either Garcia leaves a car's width (a drag race to T8), or he's blamed for the squeeze
-  (a penalty once stewards exist). The timestamps here are from the viewer's race before the
-  determinism fix (HANDOFF → Determinism): the browser was running a different race from Node,
-  and seed 1 is a new race everywhere now. Suspects, from the code:
+  straight, the attacker holds the inside and tries to beat the defender to the straight. Bad
+  example (F1 Yas, seed 1, 30 laps): Chen and Dlamini around 6:25–6:30 (Dlamini brakes at
+  −40 m/s² at 6:31.4 with Chen 1.2 m ahead and 2.1 m across). The car holding its line gets
+  edged and lifts to tuck in behind. Either the other car leaves a car's width (a drag race to
+  the hairpin), or it's blamed for the squeeze (a penalty once stewards exist). Suspects, from
+  the code:
   - An attack is aimed at one corner (`cr.corner`). It ends at that corner's apex if the leader
     is ahead (`beatenAtApex`), or once the next corner is up and the two aren't alongside. In a
     chicane, a move decided for T6 is over by T7. Then the attacker is in `line` mode with no
