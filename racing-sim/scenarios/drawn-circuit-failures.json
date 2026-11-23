@@ -46,7 +46,8 @@
     ]
   },
   "race": {
-    "laps": 4
+    "laps": 4,
+    "gridOrder": "qualifying"
   },
   "cars": [
     {

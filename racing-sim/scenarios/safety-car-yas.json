@@ -13,6 +13,7 @@
   },
   "race": {
     "laps": 8,
+    "gridOrder": "qualifying",
     "safetyCar": "auto"
   },
   "cars": [

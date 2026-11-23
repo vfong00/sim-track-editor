@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "GT3 at Laguna Seca",
-  "description": "Sixteen roster drivers in GT3 cars at Laguna Seca, anticlockwise from the front straight: Andretti hairpin, up the Rahal straight to the Corkscrew, Rainey Curve and back. Random grid, eight laps.",
+  "description": "Sixteen roster drivers in GT3 cars at Laguna Seca, anticlockwise from the front straight: Andretti hairpin, up the Rahal straight to the Corkscrew, Rainey Curve and back. Qualifying sets the grid; eight laps.",
   "seed": 1,
   "track": {
     "type": "png",
@@ -14,7 +14,7 @@
   },
   "race": {
     "laps": 8,
-    "gridOrder": "random"
+    "gridOrder": "qualifying"
   },
   "cars": [
     {
