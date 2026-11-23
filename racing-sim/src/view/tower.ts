@@ -9,9 +9,6 @@ import { fmtTime } from './draw';
 export type TowerMode = 'gap' | 'interval' | 'last' | 'best' | 'sectors';
 export const TOWER_MODES: TowerMode[] = ['gap', 'interval', 'last', 'best', 'sectors'];
 export const TOWER_LABEL: Record<TowerMode, string> = { gap: 'Gap', interval: 'Interval', last: 'Last lap', best: 'Best lap', sectors: 'Sectors' };
-/** Auto-rotation period, and how long a click holds the chosen mode before rotation resumes (wall-clock seconds). */
-export const TOWER_ROTATE = 6;
-export const TOWER_HOLD = 30;
 
 export const nextMode = (m: TowerMode): TowerMode => TOWER_MODES[(TOWER_MODES.indexOf(m) + 1) % TOWER_MODES.length];
 
@@ -29,13 +26,6 @@ function behind(at: RaceAt, i: number, ahead: number): string {
   if (down >= L) return `+${Math.floor(down / L)} lap`;
   const g = at.gap(i, ahead);
   return isFinite(g) ? `+${g.toFixed(3)}` : '';
-}
-
-/** The fastest lap anyone has set so far (Infinity if none). */
-export function fastestLap(at: RaceAt): number {
-  let best = Infinity;
-  for (let i = 0; i < at.r.cars.length; i++) for (const t of at.lapTimes(i)) best = Math.min(best, t);
-  return best;
 }
 
 /**

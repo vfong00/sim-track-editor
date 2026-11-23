@@ -12,7 +12,7 @@ import { type Livery, liveries } from './livery';
 import { drawMinimap } from './minimap';
 import { statRows } from './stats';
 import { drawTimeline, timelineDuration } from './timeline';
-import { deltaToBest, nextMode, sectorBoard, sectorCell, type SectorCell, TOWER_HOLD, TOWER_LABEL, TOWER_MODES, TOWER_ROTATE, type TowerMode, fastestLap, fastestLaps, towerCell } from './tower';
+import { deltaToBest, nextMode, sectorBoard, sectorCell, type SectorCell, TOWER_LABEL, TOWER_MODES, type TowerMode, fastestLaps, towerCell } from './tower';
 import { drawSpeedTrace, pedals, type TracePoint } from './trace';
 import { raceOver, raceSummary, summaryHtml } from './summary';
 import { qualiHtml, qualiSummary } from './quali';
@@ -158,7 +158,6 @@ async function runScenario(s: Scenario): Promise<boolean> {
   feedKey = '';
   towerKey = '';
   towerMode = 'gap';
-  towerSwitched = performance.now();
   statsKey = '';
   followIdx = 0;
   setResult(false);
@@ -336,21 +335,10 @@ function pose(s: Session, i: number): { p: Vec; heading: number; v: number; sPos
 let camFrom: { session: Session | null; follow: number; mode: string } = { session: null, follow: -1, mode: '' };
 
 let towerKey = '';
-/** What the tower's time column shows; rotates every TOWER_ROTATE s unless the user picked one recently. */
+/** What the tower's time column shows; it stays put until the user clicks for the next one. */
 let towerMode: TowerMode = 'gap';
-let towerHeldUntil = 0;
-let towerSwitched = performance.now();
-function updateTowerMode(now: number, anyLaps: boolean) {
-  if (now < towerHeldUntil || now - towerSwitched < TOWER_ROTATE * 1000) return;
-  towerMode = nextMode(towerMode);
-  // Before anyone has completed a lap, lap times would be an empty column: rotate gap and interval only.
-  while (!anyLaps && (towerMode === 'last' || towerMode === 'best')) towerMode = nextMode(towerMode);
-  towerSwitched = now;
-}
 function clickTowerMode() {
   towerMode = nextMode(towerMode);
-  towerSwitched = performance.now();
-  towerHeldUntil = towerSwitched + TOWER_HOLD * 1000;
 }
 
 function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) {
@@ -376,9 +364,8 @@ function renderTower(s: Session, at: RaceAt, order: number[], status: number[]) 
     const c = towerCell(at, order, p, towerMode, fastest);
     return `<span class="gap${c.purple ? ' purple' : ''}">${c.text}</span>`;
   }
-  const held = performance.now() < towerHeldUntil;
   const dots = TOWER_MODES.map((m) => (m === towerMode ? '●' : '○')).join('');
-  const modeBtn = `<span class="mode" title="${held ? 'Held (auto-rotates again after 30 s)' : 'Auto-rotating'}: click for ${TOWER_LABEL[nextMode(towerMode)].toLowerCase()}">${TOWER_LABEL[towerMode]}<span class="dots">${dots}</span></span>`;
+  const modeBtn = `<span class="mode" title="Click for ${TOWER_LABEL[nextMode(towerMode)].toLowerCase()}">${TOWER_LABEL[towerMode]}<span class="dots">${dots}</span></span>`;
   const grip = at.gripLevel;
   const wx = grip === 1 ? '' : `<span class="grip" title="Track grip">${grip < 1 ? 'Wet' : 'Grip'} ${(grip * 100).toFixed(0)}%</span>`;
   const sc = scState(r, s.clock);
@@ -629,7 +616,6 @@ function frame(now: number) {
     if (over && !s.resultShown) { s.resultShown = true; setResult(true); }
     if (!over && !summaryBox.hidden) setResult(false);
     $<HTMLButtonElement>('result').disabled = !over;
-    updateTowerMode(now, fastestLap(at) < Infinity);
     renderTower(s, at, order, poses.map((q) => q.status));
     const mini = camMode !== 'all' && followIdx >= 0;
     document.body.classList.toggle('mm', mini);

@@ -234,7 +234,7 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
 
 **Done since Phase 6**
 - Viewer: one-row toolbar with a Race menu, playback in the timeline bar, camera controls over
-  the canvas, minimap, rotating timing tower (gap, interval, last, best), driver and car stats
+  the canvas, minimap, timing tower (gap, interval, last, best, sectors; click to switch), driver and car stats
   with field ranks in the follow panel, closable scenario panel.
 - Racing line is truly minimum curvature (it used to hug the inside: shortest path). Lanes ease
   off the road edge instead of kinking. Inside attacks dive for the inside edge; slipstream
