@@ -504,6 +504,29 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
   - Done: drift angle. A running car over its grip limit is drawn nose into the turn, up to
     20° where a spin becomes likely (`RaceCar.drift`, logged in the yaw slot, display only:
     the baselines are identical race by race).
+- Track scenery and looks (after car art; display only, nothing in the race reads it). M
+  - Settings per track: an optional `look` on the scenario's track (a theme plus overrides),
+    defaulting by track (the generated ones pick from the seed). Themes:
+    - desert: sand run-off instead of grass, pale tarmac, heat haze far off, palms;
+    - city / street: concrete walls instead of run-off, kerbs flush, buildings and grandstands
+      along the outside, painted road markings;
+    - forest: dark grass and trees right up to the barrier (the Nordschleife), shade on the road;
+    - classic circuit: grass, gravel traps at the outside of fast corners, grandstands at the
+      big braking zones.
+  - Kerb colours by theme or by circuit (red and white, blue and white, green and white, yellow
+    and black), and sausage kerbs at chicanes. The kerb mask (`kerbsFor`) already says where.
+  - Run-off drawn by type: grass, gravel (where the physics' run-off is), tarmac with painted
+    stripes, and the barrier as tyre wall, armco or concrete.
+  - Pit lane, garages and the start-finish gantry (with the lights-out sequence, under Race
+    starts), drawn even before there are pit stops.
+  - Time of day and weather: dusk and night with headlights and floodlights (Yas), and rain
+    shown when the scenario's grip drops (spray behind the cars, a darker, shinier road, the
+    dry line appearing as it dries).
+  - Scenery from the image or OSM where it exists (real-map tracks): grandstands and buildings
+    where they really are. Until then, placed by rules (grandstands at the start and at the
+    slowest corners, trees elsewhere) and seeded, so a track always looks the same.
+  - Cost: draw static scenery once to an offscreen layer per zoom band, so it stays well under
+    a millisecond a frame at 20 cars.
 - Auto-director camera: follow the closest live battle (cars within ~1 s for a while), cut to
   an incident as it happens and back. A camera mode next to Follow. M
 - Corner names: an optional `corners` list on the track (name, metres along), shown on the map
