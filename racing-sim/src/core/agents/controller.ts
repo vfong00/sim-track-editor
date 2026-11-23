@@ -19,6 +19,8 @@ export interface Near {
 export const SIDE_GAP = HIT_W + 0.6;
 /** Centre-to-centre distance at which a car alongside is leaning in and squeezes a car on the road edge over it. */
 export const SQUEEZE = HIT_W + 0.25;
+/** How far ahead (s) the side spacing looks, for a racing line that sweeps across the road. */
+export const SIDE_LOOK = 0.4;
 /** Longitudinal distance within which a car counts as alongside. */
 export const ALONGSIDE = HIT_LEN + 2;
 
@@ -64,19 +66,37 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   const { st, lanes } = me;
   const lineD = lanes.lineD(st.s);
   let lo = -Infinity, hi = Infinity, loBy = -1, hiBy = -1;
+  // The same limits SIDE_LOOK seconds on, with both cars holding their offsets from the racing
+  // line. Out of a corner the line sweeps across the road faster than a car can steer off it, so
+  // a car holding the line beside another leaned into it (and, before the gap rule ignored cars
+  // alongside, braked hard to get behind it). Aim for the tighter of now and then.
+  let loAim = -Infinity, hiAim = Infinity;
+  const lineAhead = lanes.lineD(st.s + st.v * SIDE_LOOK);
   for (const o of near) {
     if (Math.abs(o.gap) >= ALONGSIDE || Math.abs(o.dd) < 1.2) continue;
     // Only a car leaning in (closer than SQUEEZE) squeezes; within the spacing margin the
     // driver holds the edge and lets the other car make room.
     const by = Math.abs(o.dd) < SQUEEZE ? o.j : -1;
-    if (o.dd > 0) { if (o.d - SIDE_GAP - lineD < hi) { hi = o.d - SIDE_GAP - lineD; hiBy = by; } }
-    else if (o.d + SIDE_GAP - lineD > lo) { lo = o.d + SIDE_GAP - lineD; loBy = by; }
+    // Only a car driving the road follows the line: a slow one (spun, stopped, crawling back) or
+    // one in the run-off is taken where it is.
+    const oS = st.s + o.gap;
+    const driving = o.v >= Math.max(6, 0.5 * st.v) && Math.abs(o.d) <= lanes.lim;
+    const oAhead = driving ? clamp(lanes.lineD(oS + o.v * SIDE_LOOK) + o.d - lanes.lineD(oS), -lanes.lim, lanes.lim) : o.d;
+    if (o.dd > 0) {
+      if (o.d - SIDE_GAP - lineD < hi) { hi = o.d - SIDE_GAP - lineD; hiBy = by; }
+      hiAim = Math.min(hiAim, o.d - SIDE_GAP - lineD, oAhead - SIDE_GAP - lineAhead);
+    } else {
+      if (o.d + SIDE_GAP - lineD > lo) { lo = o.d + SIDE_GAP - lineD; loBy = by; }
+      loAim = Math.max(loAim, o.d + SIDE_GAP - lineD, oAhead + SIDE_GAP - lineAhead);
+    }
   }
   // Aim within the road, but side spacing wins: a car squeezed onto the grass stays there until
   // there's room to come back (steering back into a car alongside would only lean on it).
   const eLo = -lanes.lim - lineD, eHi = lanes.lim - lineD;
   const onRoad = clamp(wantDelta, eLo, eHi);
-  let deltaTarget = lo > hi ? st.delta : clamp(onRoad, lo, hi);
+  // Looking ahead only tightens the aim; with no room either way it falls back to now.
+  if (loAim > hiAim) { loAim = lo; hiAim = hi; }
+  let deltaTarget = lo > hi ? st.delta : clamp(onRoad, Math.max(lo, Math.min(loAim, eHi)), Math.min(hi, Math.max(hiAim, eLo)));
   deltaTarget = clamp(deltaTarget, -lanes.wall - lineD, lanes.wall - lineD);
   // Squeezed: the spacing rule leaves no room on the road on that side.
   const squeezedBy = lo > hi ? -1 : hi < eLo - 1e-9 ? hiBy : lo > eHi + 1e-9 ? loBy : -1;
@@ -99,6 +119,11 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   for (const o of near) {
     const hazard = o.v < slow;
     if (o.gap <= 0 || o.gap > (hazard ? 40 + 4 * st.v : look)) continue;
+    // Alongside (overlapping lengthwise) and not touching sideways: a car beside me, not one to
+    // queue behind. The side spacing and collisions deal with it. Counting it here (it was within
+    // HIT_W + 0.2 across, or my target lane was) made a car level out of a corner brake at full
+    // force to tuck in behind one 0.7 m ahead.
+    if (!hazard && o.gap < HIT_LEN && Math.abs(o.d - me.d) >= HIT_W) continue;
     // A hazard is judged where I'll be when I reach it (my lane and my target lane at its s): the
     // racing line can sweep across the road on the way, so a wreck beside the line further on
     // is in my path even when it's far to the side of me now.

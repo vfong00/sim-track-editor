@@ -445,6 +445,11 @@ Some of this can wait for driving styles. Some of it is logic we can fix now.
     so a lunge can lock up, run wide or make it. Widen bravery's range once it's separate from
     aggression (driving styles). Measure with `batch`: passes, lock-ups, lap-1 contacts and DNFs
     on F1 Yas and GT3 Laguna.
+  - From watching: inside and outside moves at the hairpin should be about equally likely (the
+    outside needs the three lines per corner). Lock-ups from braking too late are needed either
+    way, and go with driving styles. Today a lunge costs nothing if it doesn't come off. Tyre
+    management or brake temperatures (Later) should make it rarer, since a lock-up or a hot
+    brake would then cost something for the rest of the stint.
 - **Side by side out of a corner, nobody owns their lane.** At the T6/T7 chicane onto the back
   straight, the attacker holds the inside and tries to beat the defender to the straight. Bad
   example (F1 Yas, seed 1, 30 laps): Chen and Dlamini around 6:25–6:30 (Dlamini brakes at
@@ -472,10 +477,17 @@ Some of this can wait for driving styles. Some of it is logic we can fix now.
     corners as it finds them: its T5/T6 is the T6/T7 chicane, its T7 the long T9 hairpin.)
   - A squeeze is only logged when the squeezed car's road runs out (`squeezedBy`, then an off).
     A squeeze that makes the other car lift, but stay on the road, leaves no trace.
-  - Fix now, first: the gap rule ignores a car that overlaps lengthwise (`o.gap < HIT_LEN`) and
-    isn't touching sideways (`|o.d − me.d| ≥ HIT_W`): side spacing and collisions handle cars
-    alongside. And the side spacing allows for sideways speed (stop short of `SIDE_GAP` by the
-    distance the car needs to stop moving across), so a car doesn't lean into the one beside it.
+  - **Done (2026-11-23):** the gap rule ignores a car that overlaps lengthwise (`o.gap < HIT_LEN`)
+    and isn't touching sideways (`|o.d − me.d| ≥ HIT_W`). The side spacing also aims `SIDE_LOOK`
+    (0.4 s) ahead, with cars driving the road assumed to hold their offset from the line, so a car
+    doesn't lean into the one beside it as the line sweeps across. Over 8 F1 Yas races T6-exit
+    lifts went 58 → 0. Against the baselines (16 races): contacts −34% (F1 Yas, MX-5) and −57%
+    (Nordschleife), passes and DNFs unchanged within the noise. T6 exits are drag races now.
+  - **What it cost: most hairpin lunges were this bug.** Over 12 races of 20 laps, hairpin passes
+    went 55 → 31. In the old code, 45 of those 55 (and 311 of all 537 clean passes) had the passed
+    car braking for a car alongside in the 2 s before, including Kowalski at 5:29.6 and Dlamini
+    at 13:51. The defender gave way because of the gap rule, not a rule about the corner. The room
+    rule below is meant to bring them back for the right reason.
   - Then: a car alongside at the exit of a corner (front wheels level with the other car's
     rear wheels or better) is owed a car's width to the next braking zone. That's the room rule
     from three lines per corner, brought forward for exits and straights. Keep an attack alive

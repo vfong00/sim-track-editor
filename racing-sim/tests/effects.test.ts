@@ -8,7 +8,7 @@ const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.js
 describe('effects from the logs', () => {
   // A seed whose race has a contact and a lock-up (with race-pace scatter the equal field spreads
   // out, and the fixture's own seed no longer has both).
-  const race = new Race(loadScenario({ ...scn, seed: 6, race: { ...scn.race, incidentRate: 2 } }).options).run();
+  const race = new Race(loadScenario({ ...scn, seed: 4, race: { ...scn.race, incidentRate: 2 } }).options).run();
   const first = (type: string) => race.events.find((e) => e.type === type);
 
   it('the race has the moments to test with', () => {
