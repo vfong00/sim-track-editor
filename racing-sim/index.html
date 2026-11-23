@@ -98,6 +98,8 @@
       /* Wide enough for "L10 12:34.567" (digits are fixed-width), so long race times don't run under the text. */
       .ev { display: grid; grid-template-columns: 13ch 1fr; gap: 8px; padding: 2px; border-radius: 3px; cursor: pointer; }
       .ev:hover { background: #22262d; }
+      /* Watched before (or a spoiler) but ahead of where the replay is now. */
+      .ev.ahead { opacity: .4; }
       .ev .tm { opacity: .55; white-space: nowrap; font-variant-numeric: tabular-nums; }
       .ev.pass .tx { color: #9fd18b; }
       .ev.mistake .tx { color: #e8c36a; }

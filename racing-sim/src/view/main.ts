@@ -439,22 +439,35 @@ function craftTag(mode: string, finished: boolean): string {
 const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'cleared', 'grip', 'safety-car']);
 const FEED_MAX = 40;
 let feedKey = '';
+/** Events ahead of the replay the feed shows (watched before, or spoilers), nearest first. */
+const FEED_AHEAD = 10;
 /**
  * Event feed: passes, mistakes, contact and incidents up to the viewer clock, newest first. An
  * off is shown until its rejoin line ("off at T5, rejoins P9") replaces it.
  */
+/** How far the feed and the timeline marks reach: what has been watched, or (spoilers) the race so far computed. */
+const shownTo = (s: Session) => (showSpoilers ? s.race.t : s.watched);
+
 function renderFeed(s: Session) {
   const all = s.race.events;
+  // Rewinding keeps what was already watched (greyed while it's ahead of the replay); with
+  // spoilers, the whole race.
+  const to = shownTo(s);
   const rejoined = new Set<number>();
-  for (const e of all) if (e.type === 'rejoin' && e.t <= s.clock && e.cause !== undefined) rejoined.add(e.cause);
-  const evs = all.filter((e, k) => FEED_TYPES.has(e.type) && e.t <= s.clock && !(e.type === 'off' && rejoined.has(k)));
-  const key = `${evs.length}/${rejoined.size}`;
+  for (const e of all) if (e.type === 'rejoin' && e.t <= to && e.cause !== undefined) rejoined.add(e.cause);
+  const evs = all.filter((e, k) => FEED_TYPES.has(e.type) && e.t <= to && !(e.type === 'off' && rejoined.has(k)));
+  const ahead = evs.filter((e) => e.t > s.clock).length;
+  const key = `${evs.length}/${rejoined.size}/${ahead}`;
   if (key === feedKey) return;
   feedKey = key;
-  const rows = evs.slice(-FEED_MAX).reverse().map((e) =>
-    `<div class="ev ${e.type}" data-i="${e.cars[0] ?? ''}" data-t="${e.t}" title="Click: watch this moment"><span class="tm">L${e.lap} ${fmtTime(e.t)}</span><span class="tx">${e.text}</span></div>`).join('');
-  const dnf = evs.filter((e) => e.type === 'crash' || e.type === 'retire').length;
-  feed.innerHTML = `<div class="hd">Race events · ${evs.filter((e) => e.type === 'pass').length} passes${dnf ? ` · ${dnf} DNF` : ''}</div>${rows || '<div class="ev"><span></span><span class="tm">Nothing yet</span></div>'}`;
+  // Around the replay: the next few events ahead (greyed), then the latest ones behind it.
+  const nextUp = evs.filter((e) => e.t > s.clock).slice(0, FEED_AHEAD);
+  const behind = evs.filter((e) => e.t <= s.clock);
+  const shown = [...behind.slice(-(FEED_MAX - nextUp.length)), ...nextUp];
+  const rows = shown.reverse().map((e) =>
+    `<div class="ev ${e.type}${e.t > s.clock ? ' ahead' : ''}" data-i="${e.cars[0] ?? ''}" data-t="${e.t}" title="Click: watch this moment"><span class="tm">L${e.lap} ${fmtTime(e.t)}</span><span class="tx">${e.text}</span></div>`).join('');
+  const dnf = evs.filter((e) => e.t <= s.clock && (e.type === 'crash' || e.type === 'retire')).length;
+  feed.innerHTML = `<div class="hd">Race events · ${evs.filter((e) => e.t <= s.clock && e.type === 'pass').length} passes${dnf ? ` · ${dnf} DNF` : ''}</div>${rows || '<div class="ev"><span></span><span class="tm">Nothing yet</span></div>'}`;
 }
 
 function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
@@ -651,7 +664,7 @@ function frame(now: number) {
       const lap = from ? actual : actual.filter((p) => p.s < s.track.length / 2);
       drawSpeedTrace(tctx, traceCanvas.width, traceCanvas.height, at.plans(followIdx).profiles[s.lanes.zero].v, s.track.length, lap, fp.sPos, c.entrant.color, showInputs);
     }
-    drawTimeline(tlctx, tlCanvas.width, tlCanvas.height, r, s.clock, s.watched, devicePixelRatio || 1);
+    drawTimeline(tlctx, tlCanvas.width, tlCanvas.height, r, s.clock, s.watched, devicePixelRatio || 1, shownTo(s));
   }
   requestAnimationFrame(frame);
 }
@@ -786,6 +799,7 @@ function buildControls() {
     else if (k === 'i') toggleInputs();
     else if (k === 'k') toggleCurvature();
     else if (k === 'l') toggleLine();
+    else if (k === 's') toggleSpoilers();
     else if (k === 'r') setResult(summaryBox.hidden);
     else if (k === 'q') setQuali(qualiBox.hidden);
     else if (k === '+' || k === '=') zoomBy(1.25);
@@ -890,6 +904,15 @@ function toggleLine() {
   syncViewOpts();
 }
 
+/** Spoilers: the feed and the timeline show the whole race, not just what has been watched (remembered). */
+let showSpoilers = localStorage.getItem('racing-sim.spoilers') === '1';
+function toggleSpoilers() {
+  showSpoilers = !showSpoilers;
+  localStorage.setItem('racing-sim.spoilers', showSpoilers ? '1' : '0');
+  feedKey = '';
+  syncViewOpts();
+}
+
 function toggleNames() {
   showNames = !showNames;
   syncViewOpts();
@@ -900,6 +923,7 @@ const VIEW_OPTS: { id: string; label: string; key: string; title: string; on: ()
   { id: 'line', label: 'Racing line', key: 'l', title: 'The racing line, dashed on the track', on: () => showLine, toggle: toggleLine },
   { id: 'names', label: 'Names', key: 'n', title: 'Driver names over the cars', on: () => showNames, toggle: toggleNames },
   { id: 'inputs', label: 'Inputs', key: 'i', title: 'Throttle and brake on the speed trace, worked out from the car\'s speed', on: () => showInputs, toggle: toggleInputs },
+  { id: 'spoilers', label: 'Spoilers', key: 's', title: 'Show every event of the race in the feed and on the timeline, not just what you have watched', on: () => showSpoilers, toggle: toggleSpoilers },
   { id: 'curv', label: 'Curvature colours', key: 'k', title: 'Debug view: colour the track edges by curvature, green straight to red tight, instead of kerbs', on: () => showCurvature, toggle: toggleCurvature },
 ];
 /** Every other keyboard shortcut, for the ⚙ menu (the key handler above must match). */

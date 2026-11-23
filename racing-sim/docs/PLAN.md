@@ -335,6 +335,13 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   Saltire top speed, Lumen no strength or weakness, Meridian best overall without topping any
   one section. 1.6 s first to last; the description lists each team's gains and losses. Abreu
   partners Alvarez at Meridian: 20 seeds, Alvarez 60% of wins, Abreu 40% (pole every time).
+- Fields can draw from the whole roster: `field.pick: "mix"` takes one driver from each of
+  `count` equal bands of ability (with the field seed, default the race seed), so a 12-car
+  field runs A to Z and a new seed brings a new line-up. Six examples use it; the lab and the
+  30-car MX-5 race don't need it.
+- Event feed: rewinding keeps what was already watched (greyed while it's ahead of the replay),
+  showing the next 10 events ahead and the latest behind. Spoilers (⚙, `s`) show the whole
+  race in the feed and on the timeline.
 - Wrecks: a hazard stop is planned with the braking the car really has all the way down
   (`hazardSpeed`: braking is A + B·v², so a winged car brakes far harder at speed; planning at
   today's braking left a GT3 13 m short from 50 m/s), keeping 10% for steering round

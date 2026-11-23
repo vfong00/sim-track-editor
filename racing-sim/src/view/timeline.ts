@@ -23,7 +23,7 @@ const MARK: Partial<Record<RaceEvent['type'], { color: string; h: number }>> = {
   pass: { color: '#9fd18b', h: 0.35 },
 };
 
-export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, h: number, r: Race, clock: number, watched: number, dpr: number): void {
+export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, h: number, r: Race, clock: number, watched: number, dpr: number, marksTo = watched): void {
   const dur = timelineDuration(r);
   const X = (t: number) => (t / dur) * w;
   ctx.fillStyle = '#181b20';
@@ -33,13 +33,13 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, h: number
   ctx.fillRect(0, 0, X(r.t), h);
   ctx.fillStyle = '#28303b';
   ctx.fillRect(0, 0, X(watched), h);
-  // Lap marks: when the first car started each lap (watched part only).
+  // Lap marks: when the first car started each lap (up to `marksTo`: the watched part, or all with spoilers).
   ctx.font = `${9 * dpr}px system-ui, sans-serif`;
   ctx.textBaseline = 'top';
   for (let n = 1; n < r.laps; n++) {
     let t = Infinity;
     for (const c of r.cars) if (c.crossTimes[n] !== undefined) t = Math.min(t, c.crossTimes[n]);
-    if (!(t <= watched)) break;
+    if (!(t <= marksTo)) break;
     ctx.fillStyle = '#3c4552';
     ctx.fillRect(X(t), 0, 1 * dpr, h);
     ctx.fillStyle = '#7d8896';
@@ -47,7 +47,7 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, w: number, h: number
   }
   // Event markers.
   for (const e of r.events) {
-    if (e.t > watched) break;
+    if (e.t > marksTo) break;
     const m = MARK[e.type];
     if (!m) continue;
     ctx.fillStyle = m.color;
