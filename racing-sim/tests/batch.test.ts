@@ -35,8 +35,18 @@ describe('Phase 7: batch runs', () => {
   });
 
   it('every race is counted once per driver', () => {
-    for (const d of a.drivers) expect(d.finishes.reduce((x, y) => x + y, 0)).toBe(a.runs);
+    for (const d of a.drivers) expect([d.races, d.finishes.reduce((x, y) => x + y, 0)]).toEqual([a.runs, a.runs]);
     expect(a.drivers.reduce((x, d) => x + d.wins, 0)).toBe(a.runs);
+  });
+
+  it('a field drawn per seed: each driver is summarised over only the races they were in', () => {
+    const run = (seed: number, names: string[], order: number[]) => ({ seed, names, order, dnf: names.map((n) => n === 'z'), bestLaps: names.map((_, i) => 60 + i), stats: { passes: 0, mistakes: 0, contacts: 0, offs: 0, spins: 0, dnfs: 0, trainShare: 0, stuckTime: 0, trafficTime: 0 }, incidents: 0, lap1Contacts: 0, chaos: 0, time: 0 });
+    const s = summarize([run(1, ['a', 'b', 'c'], [1, 0, 2]), run(2, ['c', 'z', 'a'], [0, 2, 1])]);
+    expect(s.drivers.map((d) => [d.name, d.races])).toEqual([['a', 2], ['b', 1], ['c', 2], ['z', 1]]);
+    const c = s.drivers.find((d) => d.name === 'c')!;
+    expect([c.wins, c.position.mean, c.grid.mean, c.bestLap]).toEqual([1, 2, 2, 60]);
+    expect(s.drivers.find((d) => d.name === 'z')!.dnfs).toBe(1);
+    expect(s.drivers.reduce((x, d) => x + d.wins, 0)).toBe(2);
   });
 
   it('the chaos score is 0 for an unchanged order and 1 on average for a random one', () => {
