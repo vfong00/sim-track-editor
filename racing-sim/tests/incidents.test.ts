@@ -66,7 +66,9 @@ describe('Phase 5: incidents in a field', () => {
 describe('Phase 5: incident rates follow the driver', () => {
   // Incidents drivers bring on themselves (rooted in their own slide or mistake), summed over a
   // spread of fields: contact-caused ones depend as much on the other car and only add noise.
-  const SEEDS = [1, 2, 3, 4, 5, 6];
+  // 16 seeds: on 6, one lucky draw (steady drivers bunching half their 30-seed incidents into
+  // seeds 1–6) failed it while 30 seeds gave sloppy 2.8× steady.
+  const SEEDS = Array.from({ length: 16 }, (_, k) => k + 1);
   const rate = (ratings: Partial<DriverSpec>) => SEEDS.reduce((sum, seed) => sum + ownIncidentCount(race(seed, 6, ratings)), 0);
 
   it('rise with risk-taking', () => {

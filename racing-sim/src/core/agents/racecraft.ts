@@ -392,6 +392,10 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     if (side * (edge - (lineD + wantDelta)) < 0) wantDelta = edge - lineD;
   }
 
+  // --- The room rule: a car alongside on my inside, before the apex, with its front wheels about
+  // level with my mirrors (its centre no more than ROOM_LEVEL behind mine), has earned the corner.
+  // I give it room and tuck in behind (the gap rule, told to count it as a car ahead in my lane).
+  const owed = owedRoom(near, corner, toCorner);
   // --- Side by side into a corner: whoever is on the inside keeps the inside line.
   if (cr.mode === 'line' && corner && toCorner < 150 && anyAlongside && allOutside) wantDelta = st.delta;
   if (avoid.hazard >= 0) wantDelta = avoidSlowCar(view, near, wantDelta).delta;
@@ -404,13 +408,33 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const braveNow = brave > 1 && vEnv < st.v && toCorner > 30;
   if (braveNow) vEnv = Math.min(st.v, vEnv * brave);
   if (cr.mode !== 'attack') cr.commit = false;
-  const tc = trafficControls(view, near, wantDelta, vEnv, undefined, cr.mode === 'attack' ? relax : {});
+  const tc = trafficControls(view, near, wantDelta, vEnv, undefined, { ...(cr.mode === 'attack' ? relax : {}), ...(owed >= 0 ? { yieldTo: owed } : {}) });
   // Moving across the road: respect the speed of the lane we're heading for too, so a car isn't
   // carried onto a tighter line faster than it can take it.
   let vLane = plans.envelope(ahead, tc.ctl.deltaTarget, depth.tow, depth.dirty);
   if (braveNow) vLane = Math.min(st.v, vLane * brave);
   const ctl = { ...tc.ctl, vTarget: Math.min(tc.ctl.vTarget, vLane), effects, ...(cr.mode === 'attack' && cr.commit ? { lateralSpeed: COMMIT_LATERAL } : {}) };
   return { ctl, following: tc.following, mistake: started };
+}
+
+/** How far behind mine (m, centre to centre) a car on my inside can be and still have earned the corner: front wheels about level with my mirrors. */
+export const ROOM_LEVEL = 1.0;
+/** The room rule applies from this far before the apex (m) up to it. */
+export const ROOM_FROM = 150;
+
+/**
+ * The car I owe room into this corner, or -1: alongside on my inside (not in line, within
+ * ALONGSIDE), before the apex, its centre no more than ROOM_LEVEL behind mine. The nearest such.
+ */
+export function owedRoom(near: Near[], corner: Corner | null, toCorner: number): number {
+  if (!corner || toCorner <= 0 || toCorner > ROOM_FROM) return -1;
+  let best: Near | null = null;
+  for (const o of near) {
+    if (Math.abs(o.gap) >= ALONGSIDE || Math.abs(o.dd) < 1.2 || Math.sign(o.dd) !== corner.dir) continue;
+    if (o.gap < -ROOM_LEVEL || o.v < 10) continue;
+    if (!best || Math.abs(o.dd) < Math.abs(best.dd)) best = o;
+  }
+  return best ? best.j : -1;
 }
 
 /**

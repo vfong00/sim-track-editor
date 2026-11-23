@@ -488,6 +488,14 @@ Some of this can wait for driving styles. Some of it is logic we can fix now.
     car braking for a car alongside in the 2 s before, including Kowalski at 5:29.6 and Dlamini
     at 13:51. The defender gave way because of the gap rule, not a rule about the corner. The room
     rule below is meant to bring them back for the right reason.
+  - **Done (2026-11-23): the room rule into a corner.** Before the apex (from `ROOM_FROM`, 150 m),
+    a car alongside on my inside whose centre is no more than `ROOM_LEVEL` (1 m) behind mine
+    (front wheels about level with my mirrors) has earned the corner: I tuck in behind it
+    (`owedRoom` in `racecraft.ts`, `yieldTo` in the gap rule). Hairpin passes over 12 races:
+    55 (bug) → 31 (gap fix) → 46. Clean passes 537 → 561. T6-exit lifts stay gone. Against the
+    baselines: F1 Yas passes unchanged, contacts −29% (F1 Yas), −27% (MX-5), −59% (Nordschleife).
+    Also: `avoidSlowCar` tries the sides of other wrecks beside the nearest one when both of its
+    sides are shut (a field was stuck behind two wrecks side by side at MX-5 Laguna T13).
   - Then: a car alongside at the exit of a corner (front wheels level with the other car's
     rear wheels or better) is owed a car's width to the next braking zone. That's the room rule
     from three lines per corner, brought forward for exits and straights. Keep an attack alive

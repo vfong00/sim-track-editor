@@ -58,6 +58,12 @@ export interface TrafficDecision {
 export interface GapRuleRelax {
   tow?: number;
   commit?: number;
+  /**
+   * The room rule: a car alongside on my inside into a corner that has earned it (see
+   * `owedRoom` in racecraft.ts). I give it the corner: it counts as a car ahead in my lane (my
+   * line to the apex crosses its path), so I tuck in behind it instead of turning in on it.
+   */
+  yieldTo?: number;
 }
 /** Nose-to-tail margin (m) an attacker keeps while closing up in the tow. */
 export const TOW_ROOM = 1.5;
@@ -123,7 +129,7 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     // queue behind. The side spacing and collisions deal with it. Counting it here (it was within
     // HIT_W + 0.2 across, or my target lane was) made a car level out of a corner brake at full
     // force to tuck in behind one 0.7 m ahead.
-    if (!hazard && o.gap < HIT_LEN && Math.abs(o.d - me.d) >= HIT_W) continue;
+    if (!hazard && o.gap < HIT_LEN && Math.abs(o.d - me.d) >= HIT_W && o.j !== relax.yieldTo) continue;
     // A hazard is judged where I'll be when I reach it (my lane and my target lane at its s): the
     // racing line can sweep across the road on the way, so a wreck beside the line further on
     // is in my path even when it's far to the side of me now.
@@ -213,18 +219,31 @@ export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): {
   // Offsets are relative to the racing line at the hazard (where the clearance matters).
   const lineAt = lanes.lineD(st.s + Math.max(0, haz.gap));
   const want = lineAt + wantDelta;
-  let best = NaN;
-  for (const side of [1, -1]) {
-    const d = haz.d + side * (SIDE_GAP + 0.4);
-    if (Math.abs(d) > lim) continue;
-    // Another slow car (or a car alongside) blocking that side? A slow car only blocks it if it
-    // reaches up beside or ahead of me: one wholly behind (another wreck I've already passed)
-    // isn't in the way going forward.
-    const blocked = near.some((o) => o !== haz && o.gap < haz!.gap + 15 && Math.abs(o.d - d) < HIT_W + 0.3 &&
-      (o.v < Math.max(6, 0.5 * st.v) ? o.gap > -HIT_LEN : Math.abs(o.gap) < ALONGSIDE));
-    if (blocked) continue;
-    if (Number.isNaN(best) || Math.abs(d - want) < Math.abs(best - want)) best = d;
+  // Either side of the hazard. If both are shut, either side of any other slow car lying beside
+  // it: two wrecks side by side block one side of each other, and the way through is past both
+  // (only trying the nearer one's sides left a queue stopped behind them for good).
+  const slowCar = (o: Near) => o.v < Math.max(6, 0.5 * st.v);
+  const sides = (o: Near) => [o.d + SIDE_GAP + 0.4, o.d - SIDE_GAP - 0.4];
+  let best = pickSide(sides(haz));
+  if (Number.isNaN(best)) {
+    const others = near.filter((o) => o !== haz && slowCar(o) && o.gap > haz!.gap - HIT_LEN && o.gap < haz!.gap + 15);
+    best = pickSide(others.flatMap(sides));
   }
   if (Number.isNaN(best)) return { delta: wantDelta, hazard: haz.j };
   return { delta: best - lineAt, hazard: haz.j };
+
+  function pickSide(cands: number[]): number {
+    let best = NaN;
+    for (const d of cands) {
+      if (Math.abs(d) > lim) continue;
+      // Another slow car (or a car alongside) blocking that side? A slow car only blocks it if it
+      // reaches up beside or ahead of me: one wholly behind (another wreck I've already passed)
+      // isn't in the way going forward.
+      const blocked = near.some((o) => o !== haz && o.gap < haz!.gap + 15 && Math.abs(o.d - d) < HIT_W + 0.3 &&
+        (o.v < Math.max(6, 0.5 * st.v) ? o.gap > -HIT_LEN : Math.abs(o.gap) < ALONGSIDE));
+      if (blocked) continue;
+      if (Number.isNaN(best) || Math.abs(d - want) < Math.abs(best - want)) best = d;
+    }
+    return best;
+  }
 }

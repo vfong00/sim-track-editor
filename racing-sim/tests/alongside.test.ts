@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAR_PRESETS, CarModel, generateTrack, HIT_LEN, HIT_W, LanePlans, LaneSet, newCarState, trafficControls, type Near } from '../src/core';
+import { avoidSlowCar, CAR_PRESETS, CarModel, generateTrack, HIT_LEN, HIT_W, LanePlans, LaneSet, newCarState, trafficControls, type Near } from '../src/core';
 
 /**
  * Two cars side by side are not a queue. Out of T6 at Yas (F1 constructors, seed 1, 6:31) a car
@@ -30,3 +30,28 @@ describe('cars alongside', () => {
   });
 
 });
+
+describe('wrecks side by side', () => {
+  const lanes = new LaneSet(generateTrack({ seed: 7, width: 14 }));
+  const model = new CarModel({ id: 'mx5', ...CAR_PRESETS.mx5 });
+  const plans = new LanePlans(lanes, model);
+  let s = 0;
+  for (let i = 0; i < lanes.track.n; i++) if (Math.abs(lanes.track.curvature[i]) < 1e-4) { s = i * lanes.track.ds; break; }
+  const lim = lanes.lim;
+  const me = { st: newCarState(s, 0, 10), d: lim - 0.5, model, plans, lanes, dt: 1 / 60 };
+  me.st.delta = me.d - lanes.lineD(s);
+
+  it('steers past both, not into a stop behind them (MX-5 Laguna, seed 5, T13)', () => {
+    // Two wrecks across the left of the road ahead, the right side open.
+    const wrecks: Near[] = [
+      { j: 1, gap: 8, dd: lim - 1 - me.d, d: lim - 1, v: 0 },
+      { j: 2, gap: 6, dd: lim - 3 - me.d, d: lim - 3, v: 0 },
+    ];
+    const r = avoidSlowCar(me, wrecks, 0);
+    const d = lanes.lineD(s + 6) + r.delta;
+    expect(r.hazard).toBeGreaterThan(0);
+    expect(d).toBeLessThan(lim - 3 - HIT_W);
+    expect(d).toBeGreaterThanOrEqual(-lim);
+  });
+});
+
