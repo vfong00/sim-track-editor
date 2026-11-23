@@ -6,7 +6,9 @@ import { brakeAt, PUFF_LIFE, puffsAt, SPARK_LIFE, skidMarksAt, sparksAt } from '
 const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.json', import.meta.url).pathname, 'utf8')) as Scenario;
 
 describe('effects from the logs', () => {
-  const race = new Race(loadScenario({ ...scn, race: { ...scn.race, incidentRate: 2 } }).options).run();
+  // A seed whose race has a contact and a lock-up (with race-pace scatter the equal field spreads
+  // out, and the fixture's own seed no longer has both).
+  const race = new Race(loadScenario({ ...scn, seed: 6, race: { ...scn.race, incidentRate: 2 } }).options).run();
   const first = (type: string) => race.events.find((e) => e.type === type);
 
   it('the race has the moments to test with', () => {
@@ -52,6 +54,9 @@ describe('effects from the logs', () => {
         const a = xy(k - 10, i), b = xy(k, i), c = xy(k + 10, i);
         let turn = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x);
         turn -= 2 * Math.PI * Math.round(turn / (2 * Math.PI));
+        // A path this close to straight (half a degree over the window: a car held on the road
+        // edge between two bends) has no turn direction to check against.
+        if (Math.abs(turn) < 0.01) continue;
         expect(Math.sign(turn)).toBe(Math.sign(f[o + 3]));
         seen++;
       }

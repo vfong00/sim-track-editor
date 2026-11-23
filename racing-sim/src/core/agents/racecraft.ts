@@ -4,7 +4,7 @@ import { type CarModel, dirtyEffects, type PhysicsParams } from '../physics/mode
 import type { Rng } from '../rng';
 import type { Corner } from '../track/corners';
 import { ALONGSIDE, avoidSlowCar, type GapRuleRelax, type Near, SIDE_GAP, trafficControls } from './controller';
-import type { DriverSpec } from './driver';
+import { type DriverSpec, raceSpread, RHYTHM_SHARE } from './driver';
 
 /** Range (m) of the wake behind a car… */
 export const WAKE_RANGE = 40;
@@ -78,13 +78,19 @@ export interface Craft {
   swapped: boolean;
   /** Next time (s) the driver reconsiders attacking (decisions aren't made every tick). */
   nextThink: number;
-  /** Qualifying: the corner the push factor was drawn for, and the factor (speed vs the plan). */
+  /**
+   * The corner the push factor was drawn for, and the factor (speed vs the plan): qualifying's
+   * swing at the limit, or a race's scatter around race pace.
+   */
   pushCorner: number;
   push: number;
+  /** Race: the lap the rhythm was drawn for, and the rhythm (shared by that lap's corners). */
+  rhythmLap: number;
+  rhythm: number;
   mistake: Mistake | null;
 }
 
-export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, mistake: null });
+export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, rhythmLap: -1, rhythm: 0, mistake: null });
 
 export interface CraftContext {
   t: number;
@@ -180,6 +186,20 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       cr.push = 1 + me.rng.normal() * (PUSH_SPREAD + PUSH_PER_INCONSISTENCY * (1 - drv.consistency));
     }
     vEnv *= cr.push;
+  } else if (!ctx.neutral) {
+    // Racing: each corner a little quicker or slower than race pace, on top of the lap's rhythm.
+    // The race margin is headroom for this, so only the odd corner goes over the limit.
+    const sd = raceSpread(drv.consistency);
+    const lap = Math.floor(st.dist / lanes.track.length);
+    if (lap !== cr.rhythmLap) {
+      cr.rhythmLap = lap;
+      cr.rhythm = me.rng.normal() * RHYTHM_SHARE * sd;
+    }
+    if (ci !== cr.pushCorner) {
+      cr.pushCorner = ci;
+      cr.push = 1 + me.rng.normal() * sd;
+    }
+    vEnv *= cr.push + cr.rhythm;
   }
   // In the run-off: corner speed ∝ √grip, and the driver's only aim is to get back on the road.
   const off = offShare(lanes.track, me.d);

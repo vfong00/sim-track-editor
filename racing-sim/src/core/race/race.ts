@@ -571,7 +571,12 @@ export class Race {
 
     for (const hit of resolveCollisions(this.cars, this.lanes, edgeWall)) {
       const key = Math.min(hit.a, hit.b) * 1000 + Math.max(hit.a, hit.b);
-      if (hit.closing > 1 && (this.contactCooldown.get(key) ?? -Infinity) < this.t - 2) {
+      // Cars leaning on each other log one contact, not one per tick. But a hit with no contact on
+      // record for the pair (the touches before it were too soft to log) is logged, so whatever
+      // it causes has a cause.
+      const last = this.pairEvent.get(key);
+      const logged = last !== undefined && this.t - this.events[last].t <= INCIDENTS.causeWindow;
+      if (hit.closing > 1 && ((this.contactCooldown.get(key) ?? -Infinity) < this.t - 2 || !logged)) {
         const ev = this.emit('contact', [hit.a, hit.b], `Contact: ${this.name(hit.a)} and ${this.name(hit.b)}`);
         this.pairEvent.set(key, ev);
         this.cars[hit.a].cause = this.cars[hit.b].cause = ev;

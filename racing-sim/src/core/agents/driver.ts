@@ -30,16 +30,30 @@ export const PACE_MAX = 1.0;
 export const paceFromSpeed = (speed: number) => PACE_MIN + (PACE_MAX - PACE_MIN) * speed;
 
 /**
- * Races are run under the limit: the grip share given up, more for an erratic driver (who has to
- * back off to stay on the road) than a steady one. Lap time moves ~0.3–0.4% per 1% of grip, so
- * consistency 0.96 races ~1% off their qualifying lap (3.0% grip), 0.85 ~1.5% (4.3%), 0.70 ~2%
- * (6.1%).
+ * Race pace scatter (Phase 7): nobody drives a corner the same way twice. Each corner's target
+ * speed is the plan times a factor drawn around 1 with spread `raceSpread` (consistency sets it),
+ * plus a per-lap rhythm drawn with RHYTHM_SHARE of that spread (good laps and scrappy ones: with
+ * corners alone, the scatter averages out over a lap).
  */
-export const RACE_MARGIN_BASE = 0.025;
-export const RACE_MARGIN_PER_INCONSISTENCY = 0.12;
-export const raceMargin = (consistency: number) => RACE_MARGIN_BASE + RACE_MARGIN_PER_INCONSISTENCY * (1 - consistency);
+export const RACE_SPREAD_BASE = 0.003;
+export const RACE_SPREAD_PER_INCONSISTENCY = 0.035;
+export const RHYTHM_SHARE = 0.8;
+export const raceSpread = (consistency: number) => RACE_SPREAD_BASE + RACE_SPREAD_PER_INCONSISTENCY * (1 - consistency);
+
+/**
+ * Races are run under the limit, by enough headroom that the scatter rarely takes a corner over
+ * it: RACE_MARGIN_BASE of grip plus `raceHeadroom` spreads of it (grip goes with speed², so a
+ * spread of x in speed is 2x in grip). An erratic driver has to leave more room; a brave one
+ * leaves less and slides more. Lap time moves ~0.3–0.4% per 1% of grip, so an average driver
+ * (consistency 0.85, bravery 0.5: 4.3% grip) races ~1.5% off their qualifying lap, 0.96 ~1%
+ * (3.2%), 0.70 ~2% (5.8%).
+ */
+export const RACE_MARGIN_BASE = 0.01;
+export const raceHeadroom = (bravery: number) => 2 - bravery;
+export const raceMargin = (d: Pick<DriverSpec, 'consistency' | 'bravery'>) =>
+  RACE_MARGIN_BASE + raceHeadroom(d.bravery) * 2 * raceSpread(d.consistency) * Math.hypot(1, RHYTHM_SHARE);
 /** Share of the car's grip a driver uses in a race. */
-export const racePace = (d: Pick<DriverSpec, 'pace' | 'consistency'>) => d.pace * (1 - raceMargin(d.consistency));
+export const racePace = (d: Pick<DriverSpec, 'pace' | 'consistency' | 'bravery'>) => d.pace * (1 - raceMargin(d));
 
 /** The average driver: speed 0.5. */
 export const AVERAGE_DRIVER: Omit<DriverSpec, 'name'> = { pace: paceFromSpeed(0.5), consistency: 0.85, aggression: 0.5, racecraft: 0.6, bravery: 0.5 };
