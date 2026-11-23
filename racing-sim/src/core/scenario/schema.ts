@@ -75,8 +75,14 @@ export interface FieldEntry {
   car: string;
   /** How far each roster driver's ratings are from the average: 0 = all average, 1 (default) = as rostered. */
   spread?: number;
-  /** Seed for drivers made up past the end of the roster (20); default the scenario seed. */
+  /** Seed for drivers made up past the end of the roster, and for `pick: 'mix'`; default the scenario seed. */
   seed?: number;
+  /**
+   * Which roster drivers: 'roster' (default) the first `count` in roster order, the same people
+   * every time; 'mix' one from each of `count` equal bands of the roster by ability, drawn with
+   * the field seed, so a field covers the range from A to Z.
+   */
+  pick?: 'roster' | 'mix';
 }
 
 export type EventEntry =
@@ -388,12 +394,13 @@ export function validateScenario(x: unknown): ScenarioError[] {
       }
     });
   }
-  if (x.field !== undefined && object(v, 'field', x.field, ['count', 'car'], ['spread', 'seed'])) {
+  if (x.field !== undefined && object(v, 'field', x.field, ['count', 'car'], ['spread', 'seed', 'pick'])) {
     const f = x.field;
     if (num(v, 'field.count', f.count, RANGES.fieldCount[0], RANGES.fieldCount[1], { int: true })) total += f.count as number;
     carRef('field.car', f.car);
     num(v, 'field.spread', f.spread, 0, 1, { optional: true });
     num(v, 'field.seed', f.seed, SEED[0], SEED[1], { int: true, optional: true });
+    oneOf(v, 'field.pick', f.pick, ['roster', 'mix'], true);
   }
   if (!v.errors.some((e) => e.path.startsWith('drivers') || e.path.startsWith('field'))) {
     if (total === 0) err(v, 'drivers', 'the race needs at least one driver (list them in "drivers" or add a "field")');

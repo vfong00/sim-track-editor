@@ -152,7 +152,7 @@ export class ScenarioEditor {
         <table><tr><th></th><th>name</th><th>car</th><th>speed</th><th>cons.</th><th>risk</th><th></th></tr>${drivers}</table>
         <button data-act="add-driver">+ Driver</button>
         ${this.row('Roster drivers', this.num(['field', 'count'], f?.count, RANGES.fieldCount, '1', 'none'), 'from the fixed roster')}
-        ${f ? this.row('Field car', this.carSelect(['field', 'car'], f.car)) + this.row('Rating spread', this.num(['field', 'spread'], f.spread, [0, 1], '0.1', '1'), '0 = all average, 1 = as rostered') : ''}
+        ${f ? this.row('Field car', this.carSelect(['field', 'car'], f.car)) + this.row('Rating spread', this.num(['field', 'spread'], f.spread, [0, 1], '0.1', '1'), '0 = all average, 1 = as rostered') + this.row('Which drivers', this.select(['field', 'pick'], f.pick ?? 'roster', [['roster', 'Roster order'], ['mix', 'A mix, A to Z']]), 'mix: one from each band of ability') : ''}
       </section>
       <section><h4>Mid-race events <em>when the leader starts the lap</em></h4>
         <table><tr><th>lap</th><th>type</th><th>value</th><th>note</th><th></th></tr>${events}</table>

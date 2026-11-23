@@ -1,5 +1,5 @@
 import { AVERAGE_RATINGS, DRIVER_COLORS, driverFromRatings, type Entrant } from '../agents/driver';
-import { ROSTER, rosterDriver } from '../agents/roster';
+import { overallAbility, ROSTER, type RosterDriver, rosterDriver } from '../agents/roster';
 import { polylineSelfIntersects, type Vec } from '../math';
 import { CAR_PRESETS, STANDARD_CAR, type CarSpec } from '../physics/model';
 import { LaneSet } from '../race/lanes';
@@ -105,6 +105,22 @@ const FIELD_SPREAD = { speed: 0.3, consistency: 0.12, risk: 0.4 };
  * limit, two timed laps) and sorts by best lap; a car with no time starts at the back. Rating and
  * qualifying grids record each entrant's `gridTime`. Deterministic in the scenario.
  */
+/**
+ * The roster drivers a field takes: the first `count` in roster order, or ('mix') one drawn from
+ * each of `count` equal bands of the roster sorted by ability, best band first. Its own stream,
+ * so the drivers made up past the end of the roster are unchanged. A field as big as the roster
+ * takes everyone either way.
+ */
+export function pickRoster(free: RosterDriver[], count: number, pick: 'roster' | 'mix', seed: number): RosterDriver[] {
+  if (pick === 'roster' || count >= free.length) return free;
+  const ranked = [...free].sort((a, b) => overallAbility(b) - overallAbility(a) || b.speed - a.speed);
+  const rng = makeRng((seed ^ 0x5bd1e995) >>> 0);
+  return Array.from({ length: count }, (_, i) => {
+    const lo = Math.floor((i * ranked.length) / count), hi = Math.floor(((i + 1) * ranked.length) / count);
+    return ranked[lo + rng.int(0, hi - lo)];
+  });
+}
+
 export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
   const cars = carSpecs(s);
   const list: Entrant[] = [];
@@ -127,7 +143,7 @@ export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
     // the average by `spread` (0 = all average). Only past the end of the roster are drivers
     // made up, from the field seed.
     const toward = (avg: number, x: number) => avg + (x - avg) * spread;
-    const free = ROSTER.filter((d) => !used.has(d.name));
+    const free = pickRoster(ROSTER.filter((d) => !used.has(d.name)), f.count, f.pick ?? 'roster', f.seed ?? s.seed);
     const rng = makeRng(f.seed ?? s.seed);
     const r = (base: number, x: number) => Math.max(0, Math.min(1, base + (rng.next() * 2 - 1) * x * spread));
     for (let k = 0; k < f.count; k++) {

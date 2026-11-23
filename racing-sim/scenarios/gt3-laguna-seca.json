@@ -24,6 +24,7 @@
   ],
   "field": {
     "count": 16,
+    "pick": "mix",
     "car": "gt3"
   }
 }

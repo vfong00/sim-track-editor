@@ -37,6 +37,7 @@
   ],
   "field": {
     "count": 11,
+    "pick": "mix",
     "car": "gt3"
   },
   "events": [

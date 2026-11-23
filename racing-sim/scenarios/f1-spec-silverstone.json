@@ -23,6 +23,7 @@
   ],
   "field": {
     "count": 12,
+    "pick": "mix",
     "car": "f1"
   }
 }

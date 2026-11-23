@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CAR_PRESET_IDS, CAR_PRESETS, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, overallAbility, ROSTER, type Scenario, simulateLap,
+  CAR_PRESET_IDS, CAR_PRESETS, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, overallAbility, pickRoster, ROSTER, type Scenario, simulateLap,
 } from '../src/core';
 
 const read = (f: string) => JSON.parse(readFileSync(new URL(`./fixtures/scenarios/${f}`, import.meta.url).pathname, 'utf8')) as Scenario;
@@ -71,6 +71,24 @@ describe('fixed roster', () => {
     // The middle of the pack is M and N.
     expect(letters.slice(14, 16).join('')).toBe('MN');
     expect(new Set(ROSTER.map((d) => d.name)).size).toBe(ROSTER.length);
+  });
+
+  it("a 'mix' field takes one driver from each band of ability, the same for the same seed", () => {
+    const ranked = [...ROSTER].sort((a, b) => overallAbility(b) - overallAbility(a) || b.speed - a.speed);
+    for (const seed of [1, 2, 3, 42]) {
+      const picked = pickRoster([...ROSTER], 12, 'mix', seed);
+      expect(picked).toHaveLength(12);
+      expect(new Set(picked.map((d) => d.name)).size).toBe(12);
+      picked.forEach((d, i) => {
+        const r = ranked.indexOf(d);
+        expect(r).toBeGreaterThanOrEqual(Math.floor((i * ranked.length) / 12));
+        expect(r).toBeLessThan(Math.floor(((i + 1) * ranked.length) / 12));
+      });
+      expect(pickRoster([...ROSTER], 12, 'mix', seed)).toEqual(picked);
+    }
+    // Different seeds, different fields; a field as big as the roster is everyone.
+    expect(pickRoster([...ROSTER], 12, 'mix', 1)).not.toEqual(pickRoster([...ROSTER], 12, 'mix', 2));
+    expect(pickRoster([...ROSTER], ROSTER.length, 'mix', 1)).toHaveLength(ROSTER.length);
   });
 
   it('generated fields are the roster, in order', () => {
