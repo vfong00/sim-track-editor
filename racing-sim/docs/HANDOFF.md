@@ -34,6 +34,8 @@ npm on this Mac: Artifactory may be unreachable. Install with
   the result panel are DOM-free modules (`stats.ts`, `tower.ts`, `minimap.ts`, `summary.ts`).
 - **Batch runs** (`src/core/race/batch.ts`, CLI `batch`): one track and lane set, many seeds;
   `runBatch` / `summarize` work in Node and the browser. Use it to tune instead of single races.
+  A generated field draws its drivers per seed, so per-driver figures cover only the races each
+  driver was in (`DriverSummary.races`); baselines hold per-race numbers and pair by seed.
 
 ## Determinism (Node and the browser run the same race)
 

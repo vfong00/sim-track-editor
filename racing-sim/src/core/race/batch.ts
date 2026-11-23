@@ -15,9 +15,15 @@ export const spread = (xs: number[]): Spread => {
   return { mean, se: Math.sqrt(v / n) };
 };
 
-/** One driver over a batch (matched by name: a random grid puts them in a different slot each race). */
+/**
+ * One driver over a batch (matched by name: a random grid puts them in a different slot each race).
+ * A generated field draws its drivers per seed, so every figure covers only the races the driver
+ * was in (`races`); wins, podiums and DNFs are counts out of those.
+ */
 export interface DriverSummary {
   name: string;
+  /** Races of the batch the driver was in. */
+  races: number;
   /** Grid slot (1-based). */
   grid: Spread;
   wins: number;
@@ -25,7 +31,7 @@ export interface DriverSummary {
   dnfs: number;
   /** Finishing position (1-based, DNFs classified behind the finishers as the race orders them). */
   position: Spread;
-  /** How many times the driver finished in each position (index 0 = P1). */
+  /** How many times the driver finished in each position (index 0 = P1; as long as the largest field). */
   finishes: number[];
   /** Best lap over the batch (Infinity if no lap was completed). */
   bestLap: number;
@@ -101,25 +107,33 @@ export function runOne(options: RaceOptions): RunResult {
   };
 }
 
-/** Summarise a set of runs of the same field (drivers listed in the first run's grid order). */
+/**
+ * Summarise a set of runs. Drivers are listed in the first run's grid order, then anyone who first
+ * appears in a later run (a generated field draws its drivers per seed).
+ */
 export function summarize(runs: RunResult[], ms = 0): BatchSummary {
-  const names = runs[0]?.names ?? [];
-  const n = names.length;
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const r of runs) for (const name of r.names) if (!seen.has(name)) (seen.add(name), names.push(name));
+  const n = Math.max(0, ...runs.map((r) => r.names.length));
   const drivers: DriverSummary[] = names.map((name) => {
-    const slot = runs.map((r) => r.names.indexOf(name));
-    if (slot.includes(-1)) throw new Error(`summarize: ${name} is not in every race`);
-    const pos = runs.map((r, k) => r.order.indexOf(slot[k]) + 1);
+    const ins = runs.flatMap((r) => {
+      const slot = r.names.indexOf(name);
+      return slot < 0 ? [] : [{ r, slot }];
+    });
+    const pos = ins.map(({ r, slot }) => r.order.indexOf(slot) + 1);
     const finishes = new Array(n).fill(0);
     pos.forEach((p) => finishes[p - 1]++);
     return {
       name,
-      grid: spread(slot.map((i) => i + 1)),
+      races: ins.length,
+      grid: spread(ins.map(({ slot }) => slot + 1)),
       wins: pos.filter((p) => p === 1).length,
       podiums: pos.filter((p) => p <= 3).length,
-      dnfs: runs.filter((r, k) => r.dnf[slot[k]]).length,
+      dnfs: ins.filter(({ r, slot }) => r.dnf[slot]).length,
       position: spread(pos),
       finishes,
-      bestLap: Math.min(...runs.map((r, k) => r.bestLaps[slot[k]])),
+      bestLap: Math.min(...ins.map(({ r, slot }) => r.bestLaps[slot])),
     };
   });
   const of = (f: (r: RunResult) => number) => spread(runs.map(f));

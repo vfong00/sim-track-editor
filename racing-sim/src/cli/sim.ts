@@ -143,16 +143,19 @@ function baselineReport(file: string, base: Baseline, c: BaselineComparison, has
 
 function batchReport(name: string, b: BatchSummary): string {
   const pm = (x: Spread, d = 1) => `${x.mean.toFixed(d)} ± ${x.se.toFixed(d)}`;
-  const pct = (k: number) => `${((100 * k) / b.runs).toFixed(0)}%`.padStart(5);
+  const pct = (k: number, of: number) => `${((100 * k) / of).toFixed(0)}%`.padStart(5);
+  // A generated field draws its drivers per seed: show how many races each was in, and rate them over those.
+  const mixed = b.drivers.some((d) => d.races < b.runs);
   const w = Math.max(6, ...b.drivers.map((d) => d.name.length));
   const lap = (t: number) => (Number.isFinite(t) ? `${Math.floor(t / 60)}:${(t % 60).toFixed(3).padStart(6, '0')}` : '-');
   const rows = [...b.drivers].sort((x, y) => x.position.mean - y.position.mean).map((d) =>
-    `  ${d.name.padEnd(w)}  ${d.grid.mean.toFixed(1).padStart(4)}  ${pct(d.wins)}  ${pct(d.podiums)}  ${pct(d.dnfs)}  ${pm(d.position).padStart(11)}  ${lap(d.bestLap)}`);
+    `  ${d.name.padEnd(w)}  ${mixed ? `${String(d.races).padStart(5)}  ` : ''}${d.grid.mean.toFixed(1).padStart(4)}  ${pct(d.wins, d.races)}  ${pct(d.podiums, d.races)}  ${pct(d.dnfs, d.races)}  ${pm(d.position).padStart(11)}  ${lap(d.bestLap)}`);
   const chaos = b.chaos.mean < 0.25 ? 'processional' : b.chaos.mean < 0.5 ? 'some shuffling' : b.chaos.mean < 0.8 ? 'lively' : 'chaotic';
   return [
     `${name}: ${b.runs} races (seeds ${b.seeds[0]}–${b.seeds[b.seeds.length - 1]}) in ${(b.ms / 1000).toFixed(1)} s`,
     '',
-    `  ${'Driver'.padEnd(w)}  Grid    Win  Podium  DNF     Avg pos     Best lap`,
+    ...(mixed ? [`  (the field is drawn per seed: each driver's figures cover only the races they were in)`] : []),
+    `  ${'Driver'.padEnd(w)}  ${mixed ? 'Races  ' : ''}Grid    Win  Podium  DNF     Avg pos     Best lap`,
     ...rows,
     '',
     `  Per race: passes ${pm(b.passes)}, contacts ${pm(b.contacts)} (lap 1 ${pm(b.lap1Contacts)}), incidents ${pm(b.incidents)}, spins ${pm(b.spins)}, DNFs ${pm(b.dnfs)}`,
