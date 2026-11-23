@@ -355,6 +355,32 @@ constructors at Yas 15.1 of 17.3 contacts a race, GT3 Laguna 5.3 of 6.4, MX-5 La
   at the exit. The physics could use the same mask. The old curvature-coloured edges are a
   debug view (k, or Race ▾ → Curvature colours).
 
+**Race starts: lights out, standing and rolling** M
+- Today every race is a standing start (`race.start: 'grid'`, the only value the schema takes):
+  a staggered two-wide grid, 7 m a slot, everyone released at t = 0 ("Lights out") after a
+  random 0.15–0.5 s delay that has nothing to do with the driver.
+- Lights out: five red lights on a gantry overlay, one a second, then a random 0.2–3 s hold
+  before they go out (the sequence on the clock and in the feed). Reaction time from the
+  driver (0.15–0.35 s, quicker for a steadier, more experienced one), then the launch: wheelspin
+  and bog-down drawn by consistency, limited by the physics (grip and power off the line). A
+  car moving before the lights go out is a jump start: logged now, a penalty once penalties
+  exist (Marshalling below). This is the "launch variation" in the lap-1 plan under Driving
+  styles: build it here, measure there.
+- Rolling start (`race.start: 'rolling'`): the field forms up two-wide behind the safety car
+  for a formation lap and stays in order. It pulls in, and the leader sets the pace to a
+  marked start (or the line), where racing starts. Reuses the safety car's queue (`queueSpeed`,
+  `SAFETY_CAR`) and its "no passing until the line" rule. Options: the start speed per class
+  (slower classes start behind, as at the Nordschleife), and a jumped start (passing before the
+  line) handled like a jump start above.
+- Standing restarts after a safety car (optional, F1 style): the field lines up on the grid in
+  race order and does lights out again, instead of today's rolling restart.
+- Scenario: `race.start` takes `'standing'` (the default; `'grid'` stays as its old name) or
+  `'rolling'`; the examples pick what fits (F1 and spec F1 standing, the multiclass and
+  Nordschleife races rolling, the safety-car race either).
+- Measure with `batch`: lap-1 contacts, DNFs and lap-1 position changes for the same scenario
+  standing vs rolling (a rolling start should be calmer and shuffle the order less), and how
+  much the reaction and launch spread moves the order before T1.
+
 **Real-map tracks (its own session)** M
 - Build tracks from OpenStreetMap geometry instead of traced images: road ways converted to
   metres and fed in as a drawn track (true length and corner radii, no tracing blur). OSM maps
