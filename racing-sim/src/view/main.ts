@@ -595,7 +595,7 @@ function frame(now: number) {
     }
 
     camFrom = { session: s, follow: followIdx, mode: camMode };
-    drawTrack(ctx, s.track, s.cam, s.lanes.line, r.sectorEnds.slice(0, 2), showCurvature);
+    drawTrack(ctx, s.track, s.cam, showLine ? s.lanes.line : undefined, r.sectorEnds.slice(0, 2), showCurvature);
     drawSkidMarks(ctx, s.cam, skidMarksAt(r, s.clock), s.clock);
     for (let p = n - 1; p >= 0; p--) {
       const i = order[p];
@@ -774,7 +774,7 @@ function buildControls() {
   addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement;
     // Escape closes the menu and the scenario panel, even from a field inside the panel.
-    if (e.key === 'Escape') { setRaceMenu(false); setEditor(false); setResult(false); setQuali(false); return; }
+    if (e.key === 'Escape') { setRaceMenu(false); setViewMenu(false); setEditor(false); setResult(false); setQuali(false); return; }
     if (el.closest?.('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
     if (k === 'ArrowUp') stepFollow(-1);
@@ -785,6 +785,7 @@ function buildControls() {
     else if (k === 'n') toggleNames();
     else if (k === 'i') toggleInputs();
     else if (k === 'k') toggleCurvature();
+    else if (k === 'l') toggleLine();
     else if (k === 'r') setResult(summaryBox.hidden);
     else if (k === 'q') setQuali(qualiBox.hidden);
     else if (k === '+' || k === '=') zoomBy(1.25);
@@ -799,11 +800,8 @@ function buildControls() {
   });
   $('skip').onclick = () => { if (S) S.clock += 30; };
   $('names').onclick = () => toggleNames();
-  $('names').classList.toggle('on', showNames);
   $('inputs').onclick = () => toggleInputs();
-  $('curv').onclick = () => { toggleCurvature(); setRaceMenu(false); };
-  $('curv').classList.toggle('on', showCurvature);
-  $('inputs').classList.toggle('on', showInputs);
+  buildViewMenu();
   // Replay: back to the start of the same race (same scenario and seed: identical by design).
   $('restart').onclick = () => seek(0);
   // Timeline: click or drag to seek.
@@ -877,19 +875,81 @@ let showNames = params.get('names') !== '0';
 let showCurvature = params.get('curvature') === '1';
 function toggleCurvature() {
   showCurvature = !showCurvature;
-  $('curv').classList.toggle('on', showCurvature);
+  syncViewOpts();
 }
 /** Throttle and brake on the speed trace (remembered between visits). */
 let showInputs = localStorage.getItem('racing-sim.inputs') === '1';
 function toggleInputs() {
   showInputs = !showInputs;
   localStorage.setItem('racing-sim.inputs', showInputs ? '1' : '0');
-  $('inputs').classList.toggle('on', showInputs);
+  syncViewOpts();
+}
+/** The racing line drawn on the track, dashed (remembered between visits). */
+let showLine = localStorage.getItem('racing-sim.line') !== '0';
+function toggleLine() {
+  showLine = !showLine;
+  localStorage.setItem('racing-sim.line', showLine ? '1' : '0');
+  syncViewOpts();
 }
 
 function toggleNames() {
   showNames = !showNames;
+  syncViewOpts();
+}
+
+/** What the ⚙ menu can show or hide, with each one's key (the key handler above must match). */
+const VIEW_OPTS: { id: string; label: string; key: string; title: string; on: () => boolean; toggle: () => void }[] = [
+  { id: 'line', label: 'Racing line', key: 'l', title: 'The racing line, dashed on the track', on: () => showLine, toggle: toggleLine },
+  { id: 'names', label: 'Names', key: 'n', title: 'Driver names over the cars', on: () => showNames, toggle: toggleNames },
+  { id: 'inputs', label: 'Inputs', key: 'i', title: 'Throttle and brake on the speed trace, worked out from the car\'s speed', on: () => showInputs, toggle: toggleInputs },
+  { id: 'curv', label: 'Curvature colours', key: 'k', title: 'Debug view: colour the track edges by curvature, green straight to red tight, instead of kerbs', on: () => showCurvature, toggle: toggleCurvature },
+];
+/** Every other keyboard shortcut, for the ⚙ menu (the key handler above must match). */
+const KEYS: [string[], string][] = [
+  [['Space'], 'Pause / play'],
+  [['←', '→'], 'Back / ahead 5 s (with shift: 30 s)'],
+  [['Home'], 'Replay from the start'],
+  [['↑', '↓'], 'Follow the car ahead / behind'],
+  [['o'], 'Overview camera'],
+  [['f'], 'Follow camera'],
+  [['b'], 'Battle camera'],
+  [['+', '−'], 'Zoom in / out'],
+  [['0'], 'Reset zoom'],
+  [['r'], 'Result (once the race is over)'],
+  [['q'], 'Qualifying runs'],
+  [['Esc'], 'Close menus and panels'],
+];
+
+function buildViewMenu() {
+  $('viewOpts').innerHTML = VIEW_OPTS.map((o) =>
+    `<button data-opt="${o.id}" role="menuitemcheckbox" title="${o.title} (${o.key})"><span class="ck">✓</span><span class="lb">${o.label}</span><kbd>${o.key}</kbd></button>`).join('');
+  $('viewKeys').innerHTML = KEYS.map(([ks, d]) => `<span class="k">${ks.map((k) => `<kbd>${k}</kbd>`).join('')}</span><span class="d">${d}</span>`).join('');
+  // A toggle leaves the menu open, so several can be flipped in one go.
+  $('viewOpts').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('button[data-opt]');
+    VIEW_OPTS.find((o) => o.id === b?.dataset.opt)?.toggle();
+  });
+  $('viewBtn').onclick = () => setViewMenu($('viewItems').hidden);
+  addEventListener('pointerdown', (e) => { if (!(e.target as HTMLElement).closest('#viewMenu')) setViewMenu(false); });
+  syncViewOpts();
+}
+
+function setViewMenu(open: boolean) {
+  $('viewItems').hidden = !open;
+  $('viewBtn').classList.toggle('on', open);
+  $('viewBtn').setAttribute('aria-expanded', String(open));
+  if (open) setRaceMenu(false);
+}
+
+/** Light each view option that's on, in the ⚙ menu and on the camera bar's buttons. */
+function syncViewOpts() {
+  for (const o of VIEW_OPTS) {
+    const b = document.querySelector<HTMLElement>(`#viewOpts [data-opt="${o.id}"]`);
+    b?.classList.toggle('on', o.on());
+    b?.setAttribute('aria-checked', String(o.on()));
+  }
   $('names').classList.toggle('on', showNames);
+  $('inputs').classList.toggle('on', showInputs);
 }
 
 /** Jump the viewer to time t, within what has been computed (computing more if needed is left to the background). */

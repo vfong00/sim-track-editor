@@ -22,6 +22,17 @@
       .menu .items button:hover { background: #2a2f38; }
       .menu .items button.on { background: #2c3a4e; border-color: transparent; }
       .menu .items .sep { border-top: 1px solid #2a2f38; margin: 3px 2px; }
+      #viewBtn { font-size: 15px; line-height: 1; padding: 3px 7px; }
+      #viewItems { min-width: 250px; }
+      #viewItems .ttl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; opacity: .55; padding: 3px 6px 2px; }
+      #viewOpts button { display: flex; width: 100%; align-items: center; gap: 8px; }
+      #viewOpts button .ck { width: 12px; opacity: 0; }
+      #viewOpts button.on .ck { opacity: 1; }
+      #viewOpts button .lb { flex: 1; }
+      kbd { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; background: #2a2f38; border: 1px solid #3a404b; border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; min-width: 10px; text-align: center; display: inline-block; }
+      #viewKeys { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; padding: 2px 6px 4px; align-items: center; }
+      #viewKeys .k { display: flex; gap: 3px; justify-content: flex-end; white-space: nowrap; }
+      #viewKeys .d { opacity: .8; }
       #cam { left: 8px; bottom: 168px; display: flex; gap: 6px; align-items: center; padding: 4px; z-index: 2; }
       #mini { left: 8px; bottom: 206px; width: 200px; height: 150px; padding: 0; display: none; }
       body.mm #mini { display: block; }
@@ -170,8 +181,16 @@
           <button id="restart" role="menuitem" title="Back to the start of this race (same seed: identical) (Home)">Replay</button>
           <button id="result" role="menuitem" title="Classification, gaps, fastest laps, passes and incidents (r); available once the race is over">Result</button>
           <button id="qualiBtn" role="menuitem" title="Each car's qualifying run, and watch any of them (q)">Qualifying</button>
+        </div>
+      </div>
+      <div class="menu" id="viewMenu">
+        <button id="viewBtn" aria-haspopup="true" aria-expanded="false" title="View options and keyboard shortcuts">⚙</button>
+        <div class="items" id="viewItems" hidden>
+          <div class="ttl">Show</div>
+          <div id="viewOpts"></div>
           <div class="sep"></div>
-          <button id="curv" role="menuitem" title="Debug view: colour the track edges by curvature, green straight to red tight, instead of kerbs (k)">Curvature colours</button>
+          <div class="ttl">Keys</div>
+          <div id="viewKeys" class="keys"></div>
         </div>
       </div>
       <button id="close" hidden>Close loop</button>
