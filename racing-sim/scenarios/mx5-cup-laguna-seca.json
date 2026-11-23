@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "MX-5 Cup sprint at Laguna Seca",
-  "description": "The whole roster, twenty MX-5 Cup cars, gridded by qualifying at Laguna Seca. Light, slow on the straights and close: expect a busy Andretti hairpin on lap 1. Six laps.",
+  "description": "The whole roster, thirty MX-5 Cup cars, gridded by qualifying at Laguna Seca. Light, slow on the straights and close: expect a busy Andretti hairpin on lap 1. Six laps.",
   "seed": 1,
   "track": {
     "type": "png",
@@ -23,7 +23,7 @@
     }
   ],
   "field": {
-    "count": 20,
+    "count": 30,
     "car": "mx5"
   }
 }

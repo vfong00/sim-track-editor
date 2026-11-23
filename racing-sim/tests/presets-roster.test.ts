@@ -64,7 +64,13 @@ describe('fixed roster', () => {
 
   it('names run A, B, C… from the best driver down (overall ability, ties to the faster one)', () => {
     const ranked = [...ROSTER].sort((a, b) => overallAbility(b) - overallAbility(a) || b.speed - a.speed);
-    expect(ranked.map((d) => d.name[0]).join('')).toBe('ABCDEFGHIJKLMNOPQRST');
+    const letters = ranked.map((d) => d.name[0]);
+    // Every A ranks above every B, and so on; every letter A–Z is used.
+    expect([...letters].sort().join('')).toBe(letters.join(''));
+    expect([...new Set(letters)].join('')).toBe('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    // The middle of the pack is M and N.
+    expect(letters.slice(14, 16).join('')).toBe('MN');
+    expect(new Set(ROSTER.map((d) => d.name)).size).toBe(ROSTER.length);
   });
 
   it('generated fields are the roster, in order', () => {

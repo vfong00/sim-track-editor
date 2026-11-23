@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "F1 constructors at Yas Marina",
-  "description": "Ten teams of two in F1 cars, about 1.4 s a lap apart at the limit. Fastest first:\n- Meridian (Bianchi, Alvarez): the all-rounder, quickest in the corners and on the straights.\n- Aurora (Dlamini, Garcia): the most downforce, a little down on top speed.\n- Kestrel (Chen, Fontaine): high downforce, slow on the straights.\n- Brightwater (Laurent, Jovanovic): strong traction out of slow corners, good top speed.\n- Corsair (Eriksen, Ito): the best brakes, slow on the straights.\n- Helix (Kowalski, Hughes): low downforce, as fast as Meridian on the straights.\n- Lumen (Olsen, Murphy): middling everywhere, slow on the straights.\n- Saltire (Petrov, Nakamura): the least downforce, quick on the straights.\n- Ferro (Quinn, Tanaka): the weakest acceleration, slow on the straights.\n- Ember (Schmidt, Reyes): the least grip, at the back.\nBetter drivers mostly at the better teams, not strictly. Qualifying sets the grid; ten laps.",
+  "description": "Ten teams of two in F1 cars, about 1.6 s a lap apart at the limit. A lap of Yas is about half straights, a sixth braking, a fifth slow corners and an eighth fast corners. Each team below, fastest first: where it gains or loses against Meridian, per lap.\n- Meridian (Abreu, Alvarez): the benchmark. Never the best in any one part of the lap, never far off it. 342 km/h.\n- Aurora (Dlamini, Bianchi): the most downforce. Best in fast corners and the second-best brakes (0.1 s up), but 5 km/h down on top speed (0.4 s lost on the straights). +0.3 s.\n- Brightwater (Laurent, Jovanovic): the strongest engine. Quickest out of slow corners and down the straights, but less downforce costs it 0.3 s in the braking zones. +0.35 s.\n- Kestrel (Chen, Fontaine): the most mechanical grip. Best in slow corners and good on the brakes, but 0.4 s lost on the straights. +0.4 s.\n- Corsair (Eriksen, Ito): the best brakes (0.2 s up in the braking zones), ordinary everywhere else (0.4 s lost on the straights). +0.5 s.\n- Helix (Kowalski, Hughes): the lowest drag, top speed 348 km/h. As fast as Meridian on the straights, but 0.4 s lost braking and 0.5 s in the corners. +0.8 s.\n- Saltire (Petrov, Nakamura): low drag (346 km/h) and the least grip in the midfield. Fine on the straights, 0.9 s lost under braking and in the corners. +0.9 s.\n- Lumen (Olsen, Murphy): no strength and no weakness. A step down everywhere: about 0.2 s in the braking zones and in each kind of corner, 0.5 s on the straights. +1.0 s.\n- Ferro (Quinn, Garcia): strong brakes and grip but the weakest engine: 336 km/h, 1 s lost on the straights. +1.45 s.\n- Ember (Schmidt, Reyes): the least downforce and grip in the field, an average engine. Slower everywhere. +1.65 s.\nBetter drivers mostly at the better teams, not strictly. Qualifying sets the grid; ten laps.",
   "seed": 1,
   "track": {
     "type": "png",
@@ -17,181 +17,37 @@
     "incidentRate": 0.5
   },
   "cars": [
-    {
-      "id": "meridian",
-      "preset": "f1",
-      "grip": 2.12,
-      "downforce": 0.00087,
-      "topSpeed": 96.8,
-      "accel": 14.2
-    },
-    {
-      "id": "aurora",
-      "preset": "f1",
-      "grip": 2.12,
-      "downforce": 0.00088,
-      "topSpeed": 96.0
-    },
-    {
-      "id": "kestrel",
-      "preset": "f1",
-      "grip": 2.11,
-      "downforce": 0.000875,
-      "topSpeed": 95.8
-    },
-    {
-      "id": "corsair",
-      "preset": "f1",
-      "grip": 2.1,
-      "downforce": 0.00086,
-      "topSpeed": 95.8,
-      "brake": 1.02
-    },
-    {
-      "id": "helix",
-      "preset": "f1",
-      "grip": 2.1,
-      "downforce": 0.00084,
-      "topSpeed": 96.8
-    },
-    {
-      "id": "brightwater",
-      "preset": "f1",
-      "grip": 2.095,
-      "downforce": 0.00084,
-      "topSpeed": 96.4,
-      "accel": 14.2
-    },
-    {
-      "id": "lumen",
-      "preset": "f1",
-      "grip": 2.09,
-      "downforce": 0.00085,
-      "topSpeed": 95.8
-    },
-    {
-      "id": "saltire",
-      "preset": "f1",
-      "grip": 2.085,
-      "downforce": 0.00082,
-      "topSpeed": 96.5
-    },
-    {
-      "id": "ferro",
-      "preset": "f1",
-      "grip": 2.08,
-      "downforce": 0.00084,
-      "topSpeed": 95.5,
-      "accel": 13.8
-    },
-    {
-      "id": "ember",
-      "preset": "f1",
-      "grip": 2.075,
-      "downforce": 0.000825,
-      "topSpeed": 95.5
-    }
+    {"id": "meridian", "preset": "f1", "grip": 2.12, "downforce": 0.00088, "topSpeed": 96.5, "accel": 14.3},
+    {"id": "aurora", "preset": "f1", "grip": 2.1, "downforce": 0.00093, "topSpeed": 95.0},
+    {"id": "kestrel", "preset": "f1", "grip": 2.19, "downforce": 0.00084, "topSpeed": 95.6},
+    {"id": "corsair", "preset": "f1", "grip": 2.1, "downforce": 0.00085, "topSpeed": 96.0, "brake": 1.12},
+    {"id": "helix", "preset": "f1", "grip": 2.09, "downforce": 0.00081, "topSpeed": 98.5, "accel": 14.1},
+    {"id": "brightwater", "preset": "f1", "grip": 2.09, "downforce": 0.00083, "topSpeed": 95.6, "accel": 15.0},
+    {"id": "lumen", "preset": "f1", "grip": 2.1, "downforce": 0.00085, "topSpeed": 96.0, "accel": 13.9},
+    {"id": "saltire", "preset": "f1", "grip": 2.07, "downforce": 0.00083, "topSpeed": 98.0},
+    {"id": "ferro", "preset": "f1", "grip": 2.12, "downforce": 0.00085, "topSpeed": 95.0, "accel": 13.4, "brake": 1.05},
+    {"id": "ember", "preset": "f1", "grip": 2.08, "downforce": 0.00081, "topSpeed": 96.5, "accel": 13.8}
   ],
   "drivers": [
-    {
-      "name": "Bianchi",
-      "car": "meridian",
-      "color": "#3a86ff"
-    },
-    {
-      "name": "Alvarez",
-      "car": "meridian",
-      "color": "#3a86ff"
-    },
-    {
-      "name": "Dlamini",
-      "car": "aurora",
-      "color": "#e63946"
-    },
-    {
-      "name": "Garcia",
-      "car": "aurora",
-      "color": "#e63946"
-    },
-    {
-      "name": "Chen",
-      "car": "kestrel",
-      "color": "#f1f1f1"
-    },
-    {
-      "name": "Fontaine",
-      "car": "kestrel",
-      "color": "#f1f1f1"
-    },
-    {
-      "name": "Eriksen",
-      "car": "corsair",
-      "color": "#9b5de5"
-    },
-    {
-      "name": "Ito",
-      "car": "corsair",
-      "color": "#9b5de5"
-    },
-    {
-      "name": "Kowalski",
-      "car": "helix",
-      "color": "#2a9d8f"
-    },
-    {
-      "name": "Hughes",
-      "car": "helix",
-      "color": "#2a9d8f"
-    },
-    {
-      "name": "Laurent",
-      "car": "brightwater",
-      "color": "#00bbf9"
-    },
-    {
-      "name": "Jovanovic",
-      "car": "brightwater",
-      "color": "#00bbf9"
-    },
-    {
-      "name": "Olsen",
-      "car": "lumen",
-      "color": "#f4d03f"
-    },
-    {
-      "name": "Murphy",
-      "car": "lumen",
-      "color": "#f4d03f"
-    },
-    {
-      "name": "Petrov",
-      "car": "saltire",
-      "color": "#06d6a0"
-    },
-    {
-      "name": "Nakamura",
-      "car": "saltire",
-      "color": "#06d6a0"
-    },
-    {
-      "name": "Quinn",
-      "car": "ferro",
-      "color": "#f4a261"
-    },
-    {
-      "name": "Tanaka",
-      "car": "ferro",
-      "color": "#f4a261"
-    },
-    {
-      "name": "Schmidt",
-      "car": "ember",
-      "color": "#ff70a6"
-    },
-    {
-      "name": "Reyes",
-      "car": "ember",
-      "color": "#ff70a6"
-    }
+    {"name": "Abreu", "car": "meridian", "color": "#3a86ff"},
+    {"name": "Alvarez", "car": "meridian", "color": "#3a86ff"},
+    {"name": "Dlamini", "car": "aurora", "color": "#e63946"},
+    {"name": "Bianchi", "car": "aurora", "color": "#e63946"},
+    {"name": "Chen", "car": "kestrel", "color": "#f1f1f1"},
+    {"name": "Fontaine", "car": "kestrel", "color": "#f1f1f1"},
+    {"name": "Eriksen", "car": "corsair", "color": "#9b5de5"},
+    {"name": "Ito", "car": "corsair", "color": "#9b5de5"},
+    {"name": "Kowalski", "car": "helix", "color": "#2a9d8f"},
+    {"name": "Hughes", "car": "helix", "color": "#2a9d8f"},
+    {"name": "Laurent", "car": "brightwater", "color": "#00bbf9"},
+    {"name": "Jovanovic", "car": "brightwater", "color": "#00bbf9"},
+    {"name": "Olsen", "car": "lumen", "color": "#f4d03f"},
+    {"name": "Murphy", "car": "lumen", "color": "#f4d03f"},
+    {"name": "Petrov", "car": "saltire", "color": "#06d6a0"},
+    {"name": "Nakamura", "car": "saltire", "color": "#06d6a0"},
+    {"name": "Quinn", "car": "ferro", "color": "#f4a261"},
+    {"name": "Garcia", "car": "ferro", "color": "#f4a261"},
+    {"name": "Schmidt", "car": "ember", "color": "#ff70a6"},
+    {"name": "Reyes", "car": "ember", "color": "#ff70a6"}
   ]
 }

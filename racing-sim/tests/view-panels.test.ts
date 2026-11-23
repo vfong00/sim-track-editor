@@ -52,8 +52,10 @@ describe('follow panel stats', () => {
     const counts = new Map<string, number>();
     for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
     expect(counts.size).toBeGreaterThanOrEqual(5);
-    expect(Math.max(...counts.values())).toBeLessThanOrEqual(6);
-    expect(counts.get('Dominant')).toBe(1);
+    // No word for more than 30% of the roster (6 of the first 20; 9 of 30).
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(Math.floor(0.3 * ROSTER.length));
+    // "Dominant" is for the A drivers only.
+    expect(ROSTER.filter((_, i) => words[i] === 'Dominant').map((r) => r.name[0])).toEqual(['A', 'A']);
   });
 
   it('gives each rating and car value its rank in the field', () => {

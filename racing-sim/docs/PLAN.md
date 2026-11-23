@@ -241,7 +241,7 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   reaches 1 s back at speed.
 - Car presets with downforce: F1, LMP, GT3, sports car, MX-5 Cup, civilian car (Yas laps
   1:24.9, 1:43.5, 1:57.0, 2:10.4, 2:18.1, 2:45.4).
-- Fixed roster of 20 drivers, named A–T by overall ability (Alvarez best, Tanaka weakest).
+- Fixed roster, named by overall ability: 20 drivers A–T at first, now 30 on A–Z (Alvarez and Abreu best, M and N the middle, Zhou weakest; A, M, R and W have two each). Abreu is quicker over a lap than Alvarez and scrappier in a race.
 - PNG import: no longer mirrored; `reverse` and `start` options; Yas runs anticlockwise from
   its pit straight.
 - Real tracks: Yas Marina, Silverstone, Laguna Seca and the Nordschleife (on its own, 20.8 km;
@@ -329,6 +329,12 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   more (bravery 0 → 1 is ~0.35 s a lap at Laguna). Off under the safety car. A lone car's lap
   SD: GT3 Laguna 0.09 / 0.25 / 0.35 s at consistency 0.96 / 0.85 / 0.70, F1 Yas 0.06 / 0.12 /
   0.28 s. Trains break up a little (5–9% less time in one).
+- F1 constructors respecced so each team has one clear strength and one weakness, measured by
+  section of the Yas lap (straights 51%, braking 17%, slow corners 22%, fast corners 13%):
+  Aurora downforce, Brightwater power, Kestrel mechanical grip, Corsair brakes, Helix and
+  Saltire top speed, Lumen no strength or weakness, Meridian best overall without topping any
+  one section. 1.6 s first to last; the description lists each team's gains and losses. Abreu
+  partners Alvarez at Meridian: 20 seeds, Alvarez 60% of wins, Abreu 40% (pole every time).
 - Wrecks: a hazard stop is planned with the braking the car really has all the way down
   (`hazardSpeed`: braking is A + B·v², so a winged car brakes far harder at speed; planning at
   today's braking left a GT3 13 m short from 50 m/s), keeping 10% for steering round

@@ -72,7 +72,8 @@ export interface Entrant {
 const NAMES = ['Nakamura', 'Alvarez', 'Garcia', 'Chen', 'Reyes', 'Petrov', 'Jovanovic', 'Schmidt', 'Eriksen', 'Murphy', 'Ito',
   'Hughes', 'Dlamini', 'Bianchi', 'Quinn', 'Fontaine', 'Olsen', 'Laurent', 'Kowalski', 'Tanaka'];
 const COLORS = ['#ff5a36', '#36a2ff', '#ffd23f', '#3ddc84', '#c77dff', '#ff8fab', '#00d1c1', '#f4a261', '#e9ecef', '#8ac926',
-  '#ff006e', '#4cc9f0', '#b5838d', '#ffbe0b', '#90be6d', '#adb5bd', '#e63946', '#a8dadc', '#fb8500', '#7209b7'];
+  '#ff006e', '#4cc9f0', '#b5838d', '#ffbe0b', '#90be6d', '#adb5bd', '#e63946', '#a8dadc', '#fb8500', '#7209b7',
+  '#ef476f', '#118ab2', '#ffd6a5', '#06d6a0', '#9d4edd', '#f15bb5', '#43aa8b', '#f9844a', '#577590', '#caffbf'];
 
 /** A field of `n` cars. `spread` varies car specs and driver ratings around the averages. */
 export function makeField(n: number, rng: Rng, spread = 1): Entrant[] {

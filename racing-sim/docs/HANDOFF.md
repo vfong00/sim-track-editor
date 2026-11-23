@@ -21,7 +21,7 @@ npm on this Mac: Artifactory may be unreachable. Install with
   (`src/core/race/lanes.ts`) are the line shifted sideways, eased off the road edge.
 - **Racecraft** (`src/core/agents/racecraft.ts`): attack, dive for the inside (`DIVE_FROM`),
   defend, slipstream (`WAKE_RANGE` or `WAKE_TIME` back) and dirty air (`DIRTY_RANGE`).
-- **Drivers**: the fixed roster (`src/core/agents/roster.ts`), named A–T by overall ability;
+- **Drivers**: the fixed roster (`src/core/agents/roster.ts`), 30 drivers named A–Z by overall ability (M and N mid-pack; A, M, R and W have two);
   a test keeps the order. Scenarios use speed / consistency / risk (`driverFromRatings`).
   `pace` is the limit (qualifying); races run at `racePace` (a margin set by consistency) via
   `Race.paceOf`. Qualifying grids run each car's session (`src/core/race/qualifying.ts`).

@@ -66,9 +66,9 @@ export function rankText(r: Rank): string {
  * the race shows: Alvarez's consistency puts him well clear); the bands spread the roster out
  * (1 dominant, 1 very quick, 3 quick, 5 average, 5 slower, 5 off the pace).
  */
-const RACE_BANDS: [number, string][] = [[0.945, 'Dominant'], [0.935, 'Very quick'], [0.925, 'Quick'], [0.91, 'Average'], [0.895, 'Slower'], [0, 'Off the pace']];
+const RACE_BANDS: [number, string][] = [[0.945, 'Dominant'], [0.935, 'Very quick'], [0.925, 'Quick'], [0.91, 'Average'], [0.895, 'Slower'], [0.875, 'Off the pace'], [0, 'Backmarker']];
 /** The same words for one flying lap (pace at the limit), for "quick over a lap, average in races". */
-const LAP_BANDS: [number, string][] = [[0.985, 'Dominant'], [0.975, 'Very quick'], [0.965, 'Quick'], [0.95, 'Average'], [0.935, 'Slower'], [0, 'Off the pace']];
+const LAP_BANDS: [number, string][] = [[0.985, 'Dominant'], [0.975, 'Very quick'], [0.965, 'Quick'], [0.95, 'Average'], [0.935, 'Slower'], [0.92, 'Off the pace'], [0, 'Backmarker']];
 const band = (x: number, bands: [number, string][]) => bands.findIndex(([lo]) => x >= lo);
 
 /**

@@ -6,9 +6,12 @@ import { DRIVER_COLORS, type SimpleRatings } from './driver';
  * Generated fields take drivers from here in this order. Ratings are each in [0, 1]; see
  * `driverFromRatings` for what they drive.
  *
- * Names run A to T by overall ability (0.7 × speed + 0.3 × consistency, consistency scaled
- * over the roster's range; ties to the faster driver): Alvarez is the best, Tanaka the
- * weakest. Risk is a style, not a skill, so it doesn't count. A test keeps this true.
+ * Names run A to Z by overall ability (0.7 × speed + 0.3 × consistency, consistency scaled
+ * over the roster's range; ties to the faster driver): all the A names rank above all the B
+ * names, and so on, so Alvarez and Abreu are the best, M and N the middle of the pack and Zhou
+ * the weakest. A, M, R and W have two drivers each. Risk is a style, not a skill, so it doesn't
+ * count. A test keeps this true. Generated fields take drivers in the order listed here, so new
+ * names go at the end.
  */
 export interface RosterDriver extends SimpleRatings {
   name: string;
@@ -37,6 +40,18 @@ const R: [string, number, number, number][] = [
   ['Laurent', 0.36, 0.93, 0.4],
   ['Kowalski', 0.48, 0.86, 0.5],
   ['Tanaka', 0.2, 0.78, 0.75],
+  // Phase 7: 30 drivers on A–Z (ranks 15–16 of 30 are M and N, the middle of the pack). A, M, R
+  // and W have two drivers. New names go at the end, so generated fields keep their drivers.
+  ['Abreu', 0.87, 0.84, 0.6], // quicker than Alvarez over a lap, scrappier over a race
+  ['Moreau', 0.45, 0.83, 0.35],
+  ['Ruiz', 0.45, 0.72, 0.9],
+  ['Ueda', 0.29, 0.72, 0.8],
+  ['Vargas', 0.08, 0.84, 0.4],
+  ['Weber', 0.12, 0.8, 0.35],
+  ['Walsh', 0.25, 0.7, 0.95],
+  ['Xu', 0.16, 0.72, 0.6],
+  ['Yilmaz', 0.05, 0.78, 0.5],
+  ['Zhou', 0.02, 0.75, 0.45],
 ];
 
 export const ROSTER: readonly RosterDriver[] = R.map(([name, speed, consistency, risk], i) => ({
