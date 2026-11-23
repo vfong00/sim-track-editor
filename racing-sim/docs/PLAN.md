@@ -459,14 +459,23 @@ Some of this can wait for driving styles. Some of it is logic we can fix now.
     applies on the way into a corner (`toCorner < 150`) and only to the car on the inside. On
     the exit and down a straight, both cars head for the racing line, and only the symmetric
     side spacing keeps them apart.
-  - Side spacing only counts cars within `ALONGSIDE` (6 m centre to centre) and more than 1.2 m
-    apart sideways. A car half a length ahead that drifts across can drop out of the other car's
-    `lo`/`hi` window. The trailing car then sees it as in its lane ahead (the gap rule checks
-    both the current and the target lane), and room goes negative, so it brakes below the
-    leader's speed (`o.v − 2 + room`). That is the "Schmidt has to slow down" look.
+  - **Confirmed (seed 1, 30 laps, after the determinism fix): the gap rule mistakes a car
+    alongside for a car ahead.** 5:04, Chen and Alvarez exit T6 nose to nose, Chen on the line
+    and Alvarez outside. Chen's sideways speed carries him to 2.1 m from Alvarez, inside
+    `SIDE_GAP` (2.6 m): the spacing clamps where a car aims (`lo`/`hi`), not the sideways speed it
+    already has. Alvarez is pushed past the edge (d 6.2–6.8, edge 6.1). Alvarez is then 0.7 m
+    ahead and 2.1 m across, within the gap rule's 2.2 m "same lane" width (`HIT_W + 0.2`) with
+    negative room, so Chen is allowed `o.v − 2 + room` and brakes at −40 m/s² (−15 km/h in
+    0.1 s). The car that was level loses. The same −35 to −40 m/s² lift out of T6 (s ≈ 2690,
+    ~150 km/h, everyone accelerating) happens about a dozen times in that race. (The sim names
+    corners as it finds them: its T5/T6 is the T6/T7 chicane, its T7 the long T9 hairpin.)
   - A squeeze is only logged when the squeezed car's road runs out (`squeezedBy`, then an off).
     A squeeze that makes the other car lift, but stay on the road, leaves no trace.
-  - Fix now: a car alongside at the exit of a corner (front wheels level with the other car's
+  - Fix now, first: the gap rule ignores a car that overlaps lengthwise (`o.gap < HIT_LEN`) and
+    isn't touching sideways (`|o.d − me.d| ≥ HIT_W`): side spacing and collisions handle cars
+    alongside. And the side spacing allows for sideways speed (stop short of `SIDE_GAP` by the
+    distance the car needs to stop moving across), so a car doesn't lean into the one beside it.
+  - Then: a car alongside at the exit of a corner (front wheels level with the other car's
     rear wheels or better) is owed a car's width to the next braking zone. That's the room rule
     from three lines per corner, brought forward for exits and straights. Keep an attack alive
     through a linked sequence of corners (a chicane) while the two are alongside. Log a "forced
