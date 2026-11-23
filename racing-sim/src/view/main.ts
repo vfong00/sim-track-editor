@@ -799,8 +799,6 @@ function buildControls() {
     e.preventDefault();
   });
   $('skip').onclick = () => { if (S) S.clock += 30; };
-  $('names').onclick = () => toggleNames();
-  $('inputs').onclick = () => toggleInputs();
   buildViewMenu();
   // Replay: back to the start of the same race (same scenario and seed: identical by design).
   $('restart').onclick = () => seek(0);
@@ -941,15 +939,13 @@ function setViewMenu(open: boolean) {
   if (open) setRaceMenu(false);
 }
 
-/** Light each view option that's on, in the ⚙ menu and on the camera bar's buttons. */
+/** Light each view option that's on in the ⚙ menu. */
 function syncViewOpts() {
   for (const o of VIEW_OPTS) {
     const b = document.querySelector<HTMLElement>(`#viewOpts [data-opt="${o.id}"]`);
     b?.classList.toggle('on', o.on());
     b?.setAttribute('aria-checked', String(o.on()));
   }
-  $('names').classList.toggle('on', showNames);
-  $('inputs').classList.toggle('on', showInputs);
 }
 
 /** Jump the viewer to time t, within what has been computed (computing more if needed is left to the background). */
