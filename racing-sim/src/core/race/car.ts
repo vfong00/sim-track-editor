@@ -9,8 +9,16 @@ export interface CarState {
   dist: number;
   /** Sideways offset from the racing line (lane coordinate), m. */
   delta: number;
-  /** Rate of change of delta, m/s. */
+  /**
+   * Sideways speed, m/s: the rate of change of delta, relative to the racing line (which itself
+   * moves across the road), except in a spin, where it is the speed across the road
+   * (`acrossRoad`; see `toFrame`). In the run-off it moves the car across the road too (see
+   * driveInLane), but isn't converted on the way off and back: the incident rates are tuned to
+   * that, and converting there doubled the contacts at Monza.
+   */
   vDelta: number;
+  /** vDelta is across the road (spinning) rather than relative to the racing line. */
+  acrossRoad: boolean;
   /** Speed along the path, m/s. */
   v: number;
   /** Last tick's longitudinal and lateral acceleration (m/s²) and friction-circle usage (1 = limit). */
@@ -23,6 +31,8 @@ export interface CarState {
   mu: number;
   /** Sideways speed into the barrier if the car hit it this tick (m/s), else 0. */
   wall: number;
+  /** Surface grip share under the tyres this tick (1 = clean asphalt; kerbs less). */
+  surface: number;
 }
 
 export interface Controls {
@@ -45,11 +55,51 @@ export interface Controls {
   squeezedBy?: number;
 }
 
+/** Sideways deceleration (m/s²) of a car easing onto the road edge it holds (see driveInLane). */
+export const EDGE_STOP = 15;
+
 /** Sliding friction as a share of grip (a spinning car's tires are dragged, not rolling). */
 const SLIDE_FRICTION = 0.8;
 
 export function newCarState(s: number, delta: number, v = 0, dist = s): CarState {
-  return { s, dist, delta, vDelta: 0, v, aLong: 0, aLat: 0, usage: 0, slide: 0, mu: 0, wall: 0 };
+  return { s, dist, delta, vDelta: 0, acrossRoad: false, v, aLong: 0, aLat: 0, usage: 0, slide: 0, mu: 0, wall: 0, surface: 1 };
+}
+
+/**
+ * The part of a car's sideways speed across the road that comes from following the racing line
+ * as it moves across: its slope times the car's speed along the road.
+ */
+function lineDrift(st: CarState, lanes: LaneSet, vSide: number): number {
+  return lanes.lineSlope(st.s) * alongRoad(st, lanes, vSide);
+}
+
+/** The car's speed along the centerline (m/s), given its sideways speed. */
+function alongRoad(st: CarState, lanes: LaneSet, vSide: number): number {
+  return Math.sqrt(Math.max(0, st.v * st.v - vSide * vSide)) / lanes.stretch(st.s, st.delta);
+}
+
+/**
+ * The car's sideways speed relative to the racing line (m/s), whichever frame vDelta is in,
+ * converted with the line's slope `slope` (default: where the car is). Contacts work in this
+ * frame: two driven cars on one lane at different speeds move apart along the lane, not across
+ * it, though their speeds across the road differ by the line's slope times the difference.
+ */
+export function lineSideSpeed(st: CarState, lanes: LaneSet, slope = lanes.lineSlope(st.s)): number {
+  return st.acrossRoad ? st.vDelta - slope * alongRoad(st, lanes, st.vDelta) : st.vDelta;
+}
+
+/**
+ * Put vDelta in the frame this tick moves in, keeping the car's motion on the map. Without it a
+ * car that began to spin turned on the spot by the racing line's slope (up to ~0.1 rad, more in
+ * a chicane): a driven car's heading is its lane's, and a spinning one goes straight across the
+ * road. The drift-angle check caught it (a sliding car's nose pointed out of the turn).
+ */
+export function toFrame(st: CarState, lanes: LaneSet, acrossRoad: boolean): void {
+  if (st.acrossRoad === acrossRoad) return;
+  // Line → road adds the line's drift; road → line takes it off (worked from the road-frame speed).
+  const drift = lineDrift(st, lanes, st.vDelta);
+  st.vDelta = clamp(st.vDelta + (acrossRoad ? drift : -drift), -st.v, st.v);
+  st.acrossRoad = acrossRoad;
 }
 
 /**
@@ -62,7 +112,11 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
   // Run-off: less grip and extra rolling drag by how much of the car is off the road.
   const lineD0 = lanes.lineD(st.s);
   const off = offShare(lanes.track, lineD0 + st.delta);
-  const f = off > 0 ? { ...f0, grip: f0.grip * (1 - off * (1 - RUNOFF_GRIP)) } : f0;
+  toFrame(st, lanes, !!ctl.free);
+  // The surface under the tyres on the road (kerbs), and the share of the car in the run-off.
+  st.surface = lanes.surface.carGrip(st.s, lineD0 + st.delta);
+  const grip = st.surface * (1 - off * (1 - RUNOFF_GRIP));
+  const f = grip !== 1 ? { ...f0, grip: f0.grip * grip } : f0;
   // Gravel drag grows with speed: it stops a fast car but lets a crawling one drive out.
   const roll = off * RUNOFF_DRAG * Math.min(1, st.v / 15);
   const mu = model.gripLimit(f, st.v);
@@ -128,6 +182,7 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
 
 /** A driven car: along its lane at speed v, steering sideways with aSide. */
 function driveInLane(st: CarState, v0: number, aSide: number, lanes: LaneSet, dt: number, lineD0: number, off: number, ctl: Controls, edgeWall: boolean): void {
+  const delta0 = st.delta;
   st.vDelta += aSide * dt;
   // Sideways speed can't exceed the car's speed, except that a car at a standstill can shuffle
   // out at walking pace (turning out from behind a stopped car, nose to its gearbox).
@@ -142,6 +197,24 @@ function driveInLane(st: CarState, v0: number, aSide: number, lanes: LaneSet, dt
   st.delta += st.vDelta * dt;
 
   const lineD = lanes.lineD(st.s);
+  // A car that holds the road edge comes onto it smoothly. It sits at the racing line plus its
+  // offset, and holding that offset while the line runs out toward the edge stopped it dead
+  // there: its motion kinked by the line's slope (up to ~0.1 rad). So when holding its offset
+  // would take it past the edge within the distance it needs to stop going across, it comes
+  // across no faster than it could still stop at EDGE_STOP in the gap left. This limits where
+  // it is, not its speed: like the edge itself, it costs no steering and stores no sideways
+  // speed relative to the line (cancelling the line's drift with sideways speed threw the car
+  // back across the road, into the car beside it, once the line stopped running out to the
+  // edge). (A car on the racing line is never held: the line stays LINE_MARGIN inside the road.)
+  if (holdsEdge(ctl, off, edgeWall) && st.slide === 0) {
+    const d0 = lineD0 + delta0, moved = lineD + st.delta - d0;
+    const side = moved > 0 ? 1 : -1;
+    const uMax = Math.sqrt(2 * EDGE_STOP * Math.max(0, lanes.lim - side * d0));
+    if (side * moved > uMax * dt && runsOff(lanes, st.s, st.delta, side, (Math.abs(moved) / dt) * (Math.abs(moved) / dt / EDGE_STOP + 0.5))) {
+      st.delta = d0 + side * uMax * dt - lineD;
+      if (st.vDelta * side > 0) st.vDelta = 0;
+    }
+  }
   // In the run-off the car runs parallel to the road edge, not to the racing line (whose lanes
   // are clamped to the road): it keeps its lateral position d apart from its own sideways speed.
   if (off > 0) st.delta -= lineD - lineD0;
@@ -150,11 +223,27 @@ function driveInLane(st: CarState, v0: number, aSide: number, lanes: LaneSet, dt
   // or being squeezed by a car alongside (giving way rather than leaning on it) takes it past
   // the edge.
   // With `edgeWall` (incidents off) the road edge is a wall for everyone, as before Phase 5.
-  if (edgeWall || (off === 0 && !ctl.free && !ctl.runWide && !((ctl.squeezedBy ?? -1) >= 0) && st.slide === 0)) {
+  // Held there, it keeps no speed toward the edge relative to the racing line: following its
+  // lane is what its cornering load pays for, so it costs no steering. (Holding its speed across
+  // the road at zero instead left it carrying the line's drift: when the line stopped running
+  // out to the edge, that threw the car back across the road into the car beside it.)
+  if (edgeWall || (holdsEdge(ctl, off, false) && st.slide === 0)) {
     const elo = -lanes.lim - lineD, ehi = lanes.lim - lineD;
     if (st.delta < elo) { st.delta = elo; if (st.vDelta < 0) st.vDelta = 0; }
     if (st.delta > ehi) { st.delta = ehi; if (st.vDelta > 0) st.vDelta = 0; }
   }
+}
+
+/** Holding offset δ from s for `ahead` metres, does the car pass the road edge on `side`? */
+function runsOff(lanes: LaneSet, s: number, delta: number, side: number, ahead: number): boolean {
+  const step = lanes.track.ds;
+  for (let x = 0; x <= Math.min(ahead, 100); x += step) if (side * (lanes.lineD(s + x) + delta) > lanes.lim) return true;
+  return false;
+}
+
+/** A driven car that keeps to the road at its edge (see driveInLane); slides aside. */
+function holdsEdge(ctl: Controls, off: number, edgeWall: boolean): boolean {
+  return edgeWall || (off === 0 && !ctl.free && !ctl.runWide && !((ctl.squeezedBy ?? -1) >= 0));
 }
 
 /**

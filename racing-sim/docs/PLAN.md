@@ -354,7 +354,9 @@ These phases build on each other: each one changes what the next one tunes again
 run in order. Everything else on this map is standalone and waits for after the sprint. The
 racecraft rules the phases are checked against are under "Racecraft rules" in the handoff.
 
-- **A. Land the racecraft fixes, and kerbs.** S–M
+- **A. Land the racecraft fixes, and kerbs.** S–M. **Done 2026-11-24** (see the handoff →
+  "Phase A: what landed"). Left open: kerbs as extra road width the line can use (with D), the
+  Monza exit squeeze (a rules question), rule 3 still at ~4 violations a race (B).
   - Commit the racecraft fixes so far: an attacker keeps its tow while pulling out, the room
     rule into a corner, the give-up rules, spins that move in map space, and cars that drive
     round a queue or tuck in behind instead of steering off. Full suite once, re-save

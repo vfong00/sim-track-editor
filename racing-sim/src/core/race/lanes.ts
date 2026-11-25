@@ -1,6 +1,7 @@
 import type { CarModel, Effects } from '../physics/model';
 import { solveSpeedProfile, type SpeedProfile } from '../physics/profile';
 import { pathFromOffsets, racingLine, type TrackPath } from '../track/line';
+import { Surface } from '../track/surface';
 import type { Track } from '../track/track';
 
 /** Car body: drawn size and the collision circle. */
@@ -42,6 +43,10 @@ export class LaneSet {
   /** Barrier limit for the car's centre. */
   readonly wall: number;
   readonly step = 1;
+  /** Grip by position on the road (kerbs; rain later). */
+  readonly surface: Surface;
+  /** Per lane, the surface grip share along it (what its speed plan pays for). */
+  readonly grips: Float64Array[];
 
   constructor(readonly track: Track, line?: TrackPath) {
     this.line = line ?? racingLine(track);
@@ -59,6 +64,8 @@ export class LaneSet {
       }
       this.paths.push(pathFromOffsets(track, shiftedLane(this.line.d, off, this.lim, Math.round(LANE_EASE / track.ds))));
     }
+    this.surface = new Surface(track, this.line);
+    this.grips = this.paths.map((p) => Float64Array.from(p.d, (d, i) => this.surface.nodeGrip(i, d)));
   }
 
   get zero(): number {
@@ -74,6 +81,12 @@ export class LaneSet {
   /** Racing-line lateral position at s. */
   lineD(s: number): number {
     return interpNode(this.line.d, s / this.track.ds);
+  }
+
+  /** Sideways slope of the racing line at s (metres across per metre along the centerline). */
+  lineSlope(s: number): number {
+    const i = segIndex(s, this.track), d = this.line.d;
+    return (d[(i + 1) % d.length] - d[i]) / this.track.ds;
   }
 
   /** Lateral position for offset δ at s (not clamped: the car may be in the run-off). */
@@ -131,11 +144,11 @@ export class LanePlans {
    * are, so they brake for the car they're actually driving, not the clean-air one.
    */
   constructor(readonly lanes: LaneSet, readonly model: CarModel, effects?: Effects, tow?: Effects, dirty?: Effects) {
-    this.profiles = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects }));
-    this.envelopes = lanes.paths.map((p) => solveSpeedProfile(p, model, { effects, forward: false, brakeUse: BRAKE_USE }).v);
+    this.profiles = lanes.paths.map((p, k) => solveSpeedProfile(p, model, { effects, grip: lanes.grips[k] }));
+    this.envelopes = lanes.paths.map((p, k) => solveSpeedProfile(p, model, { effects, forward: false, brakeUse: BRAKE_USE, grip: lanes.grips[k] }).v);
     this.speeds = this.profiles.map((p) => p.v);
     const inv = (v: Float64Array) => v.map((x) => 1 / Math.max(x * x, 1e-6));
-    const env = (fx?: Effects) => (fx ? lanes.paths.map((p) => inv(solveSpeedProfile(p, model, { effects: fx, forward: false, brakeUse: BRAKE_USE }).v)) : this.invSq);
+    const env = (fx?: Effects) => (fx ? lanes.paths.map((p, k) => inv(solveSpeedProfile(p, model, { effects: fx, forward: false, brakeUse: BRAKE_USE, grip: lanes.grips[k] }).v)) : this.invSq);
     this.invSq = this.envelopes.map(inv);
     this.towInvSq = env(tow);
     this.dirtyInvSq = env(dirty);

@@ -105,6 +105,13 @@ export const INCIDENTS = {
    */
   spinFrom: 0.35,
   spinRate: 3,
+  /**
+   * Kerbs: under throttle with friction-circle usage above kerbSpinFrom, a car on a kerb spins
+   * at kerbSpinRate per second, times its share on the kerb, how far it is from kerbSpinFrom to
+   * the limit, and the driver's incidentScale.
+   */
+  kerbSpinFrom: 0.9,
+  kerbSpinRate: 0.006,
   /** Contact: spin odds rise from contactSpin m/s of closing speed over contactSpinSpan (times how off-centre). */
   contactSpin: 3,
   contactSpinSpan: 6,
@@ -620,13 +627,13 @@ export class Race {
     return !c.finished && (c.status === 'run' || c.status === 'spin' || c.status === 'stopped');
   }
 
-  private startSpin(c: RaceCar, cause: number): void {
+  private startSpin(c: RaceCar, cause: number, where = 'at'): void {
     c.status = 'spin';
     c.vSpin = Math.max(c.st.v, 1);
     c.yawRate = (c.rng.next() < 0.5 ? -1 : 1) * (2.5 + 2.5 * c.rng.next());
     c.craft.mistake = null;
     c.craft.mode = 'line';
-    this.emit('spin', [c.idx], `${this.name(c.idx)} spins at ${this.cornerName(c.st.s)}`, cause);
+    this.emit('spin', [c.idx], `${this.name(c.idx)} spins ${where} ${this.cornerName(c.st.s)}`, cause);
   }
 
   private startCrash(c: RaceCar, cause: number): void {
@@ -728,6 +735,16 @@ export class Race {
         const rate = I.spinRate * Math.max(0, excess - I.spinFrom / scale) * scale;
         // In the run-off, the off itself is to blame if nothing more recent is.
         if (rate > 0 && c.st.v > 10 && c.rng.next() < rate * dt) this.startSpin(c, this.causeOf(c) >= 0 || c.offEvent < 0 ? this.causeOf(c) : c.offEvent);
+        // Power down on a kerb: near the limit of grip under throttle, the ridges can break the
+        // rear loose. Odds by how much of the car is on it and how close to the limit it is.
+        else if (c.status === 'run' && c.st.aLong > 0 && c.st.v > 10 && c.st.usage > I.kerbSpinFrom) {
+          const kerb = this.lanes.surface.kerbShare(c.st.s, c.d);
+          const kRate = I.kerbSpinRate * kerb * ((c.st.usage - I.kerbSpinFrom) / (1 - I.kerbSpinFrom)) * scale;
+          if (kRate > 0 && c.rng.next() < kRate * dt) {
+            c.cause = this.emit('slide', [i], `${this.name(i)} puts the power down on the kerb at ${this.cornerName(c.st.s)}`);
+            this.startSpin(c, c.cause, 'on the kerb at');
+          }
+        }
       }
       if (c.st.wall > 0 && this.canCrash(c)) {
         const cause = c.offEvent >= 0 ? c.offEvent : this.causeOf(c);

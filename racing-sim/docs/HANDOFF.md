@@ -14,8 +14,14 @@ sprint". They run in order: each one changes what the next one tunes against.
 3. **Measure** with `batch` against the last phase's baselines.
 4. **Watch list** for the user: scenario, timestamp, what to look for. Required, not extra:
    the user watching races as a marshal catches what the numbers miss.
-5. **Full suite once**, re-save baselines if the user agrees, then one commit for the phase
-   (only when the user asks).
+5. **Tests, full suite once**, re-save baselines if the user agrees, then one commit for the
+   phase (only when the user asks). Tests come in three kinds:
+   - invariants (determinism, no NaNs, sectors add up, wreck avoidance): keep them as they are;
+   - rule checks: add one for each rule the phase agreed with the user, read from the race log
+     over several seeds (count violations), never from internals like mode names or constants;
+   - tuning numbers (rates near a threshold): these go in the `batch` baselines at 16+ seeds,
+     not in unit tests, unless the margin is wide. Tag slow multi-seed checks so the fast set
+     can run while iterating.
 6. **Hand off.** Update this file and the sprint section of `docs/PLAN.md`: what landed, what's
    still open, what the next phase should know. Then write the next phase's kickoff prompt
    under "Kickoff prompt" below, replacing the old one, and show it to the user. If the app can
@@ -32,24 +38,61 @@ its goal and scope from `docs/PLAN.md`, what the last phase left open, the files
 from, and what done looks like. Keep it to about 15 lines and point to this file and the plan
 rather than copying them.
 
-> Racing sprint, phase A (the rest of it). Read `racing-sim/docs/HANDOFF.md` (rules, sprint
-> loop) and the sprint section of `racing-sim/docs/PLAN.md` first.
+> Racing sprint, phase B (racecraft decisions). Read `racing-sim/docs/HANDOFF.md` (rules, sprint
+> loop, "Phase A: what landed") and phase B in the sprint section of `racing-sim/docs/PLAN.md`.
 >
-> The racecraft fixes landed in "racing-sim: racecraft rules for attackers and defenders". Still to do in phase A:
-> 1. The lane-edge kink for driven cars: `tests/effects.test.ts` (drift angle, nose into the
->    turn) fails on it. Lanes are the racing line shifted sideways and bunch at the road edge,
->    so sideways motion kinks there (`driveInLane` in `src/core/race/car.ts`, lanes in
->    `src/core/race/lanes.ts`). Stop it smoothly at the edge. Don't loosen the test.
-> 2. Monza (`scenarios/f1-constructors-monza.json`, seed 1) at 5:27: Alvarez rides the wall
->    through the chicane with jerky throttle. A controller bug (`src/core/agents/controller.ts`).
-> 3. Kerbs in the physics, as a surface grip layer (grip by position on the road) that rain
->    will reuse later. A kerb costs some grip and can spin a car that puts the power down on
->    it. The mask exists already (`kerbsFor` in `src/view/draw.ts`).
+> Start with the design note (sprint loop step 1) and get the user's agreement before code: the
+> mixed strategy for defender and attacker, reading the opponent, and rule 5 (cars behind a
+> battle). Say how each is measured: variety of choices per driver, contacts and passes in `batch`.
 >
-> The baselines in `baselines/` are from before that commit; incidents are up 63–228% against
-> them, which phases B and C are meant to bring down. Ask the user whether to re-save them at
-> the end of A. Done: all three fixed, a watch list for the user, the full suite passes, and
-> the kickoff prompt for phase B written here.
+> Open from phase A, to settle in the note:
+> - Rule 3 check (`tests/racecraft-rules.test.ts`) is pinned at 5 violations a race (16 in 4 Yas
+>   races); B is to bring it to none. Some may be a defender held on the road edge while the line
+>   moves under it; look at the listed moments first.
+> - The Monza exit squeeze: alongside through a chicane, the car on the outside of the exit gets
+>   run onto the grass (rule 2 covers turn-in only). Ask the user whether exit room is a rule.
+> - The dirty-air check fails (committed so): dirty air hardly holds a faster car up since A.
+>   Numbers under "Phase A: what landed".
+> - Incidents: compare with `batch` against the baselines the user chose at the end of A.
+>
+> Files: `src/core/agents/racecraft.ts`, `src/core/agents/controller.ts`. Time-box measuring
+> (memory: plan test depth first). Done: the agreed note built, rule checks for every new rule,
+> a watch list, the full suite passing, and the phase C kickoff written here.
+
+## Phase A: what landed (2026-11-24)
+
+- **Lane-edge kink.** A car that began to spin turned on the spot by the racing line's slope:
+  its sideways speed is relative to the line while driven, across the road once spinning.
+  `toFrame` in `car.ts` converts it; contacts compare cars in the line frame (`lineSideSpeed`).
+  A driven car holding the edge now eases onto it (`EDGE_STOP`, a limit on position that stores
+  no sideways speed) instead of stopping dead: big sideways jumps at the edge fell by about
+  half. Left: jumps when a slide, a squeeze or a push releases a car from the edge.
+  Tried and reverted, because each threw cars back across the road into the car beside them:
+  holding the speed across the road at zero on the edge, and converting the frame on the way
+  into the run-off (that doubled contacts at Monza).
+- **Kerbs** (`src/core/track/surface.ts`): a surface grip grid per node across the road (rain
+  writes into it later). Kerbs (`kerbsFor`, moved from the viewer) have `KERB_GRIP` 0.9; a car
+  has the mean over its tyres. The speed plans pay for it per lane (`LaneSet.grips`), about
+  +0.1% lap time on the line at Monza, 0.7% at Yas. Power down near the limit on a kerb can spin
+  a car (`INCIDENTS.kerbSpin*`), logged as a slide first: 0.1–0.5 a race.
+  The kerbs only cost: they sit inside the road, and the line keeps `LINE_MARGIN` from the edge
+  whatever the kerbs. Real kerbs give width (a wider line, a faster corner) for grip and spin
+  risk, and how much kerb a driver uses is a style. Belongs with D (corner lines, styles).
+- **Monza 5:27 (seed 1)**: Alvarez alongside Abreu holds his side through the chicane (inside
+  into part 1, outside of part 2: the switchback), and the throttle blip between the parts is
+  the racing line's own minimum-time input (79 → 98 → 65 km/h). Not a controller fault. What
+  breaks a rule, maybe: Abreu runs him onto the grass on the exit. Open with the user.
+- **Rule checks** (`tests/racecraft-rules.test.ts`, `[slow]`, from the race log): rule 3 (no
+  move toward a pulled-out attacker under braking: 16 in 4 races, pinned), rule 2 (room at
+  turn-in: 0 of 60), rule 1 (tow kept on a straight: 0 of 6), and kerbs (spins only under power on
+  a kerb, logged; the grip cost). Skip slow ones while iterating with
+  `npx vitest run --testNamePattern='^(?!.*\[slow\])'`.
+- **Dirty-air check fails** (`tests/racing-wake.test.ts`, committed failing with the user's
+  agreement). Races of 48 (16 seeds × 3 pace gaps) where the faster car is held up over 30 s:
+  HEAD before A 13, dirty air off 8, slipstream off 23; after A 5, 6 and 14. Passing got much
+  easier (likely the edge change: cars no longer stuck pinned to the edge) and dirty air
+  hardly holds a car up now. For B to settle (and E re-tunes dirty air); the check itself is
+  also all-or-nothing per seed (0 or 150–285 s stuck), so count held-up races instead.
 
 ## Racecraft rules (agreed with the user, F1 style)
 

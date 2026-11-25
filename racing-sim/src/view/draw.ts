@@ -1,4 +1,4 @@
-import { RUNOFF, STATUS, type Track, type TrackPath, type Vec } from '../core';
+import { KERB_STRIPE, KERB_WIDTH, kerbsFor, RUNOFF, STATUS, type Track, type TrackPath, type Vec } from '../core';
 import type { Livery } from './livery';
 
 export interface View {
@@ -138,47 +138,7 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
   ctx.stroke();
 }
 
-/** Kerb width (m), stripe length (m), and where kerbs go: see `kerbsFor`. */
-export const KERB_WIDTH = 1.0;
-export const KERB_STRIPE = 2.5;
-/** The racing line within this of the road edge (m) uses the kerb there... */
-const KERB_NEAR = 2.5;
-/** ...in a corner: somewhere within KERB_LOOK m the centreline is tighter than this radius (m). */
-const KERB_RADIUS = 250;
-const KERB_LOOK = 15;
-/** Kerbs run on this far (m) either side of where the line touches. */
-const KERB_EXTEND = 6;
-
-const kerbCache = new WeakMap<TrackPath, { left: Uint8Array; right: Uint8Array }>();
-
-/**
- * Where the kerbs go, per node and side (left = side +1): where the racing line comes close to
- * the edge in a corner, which is the outside at turn-in, the inside at the apex and the outside
- * at the exit, as on a real circuit.
- */
-export function kerbsFor(t: Track, line: TrackPath): { left: Uint8Array; right: Uint8Array } {
-  const hit = kerbCache.get(line);
-  if (hit) return hit;
-  const n = t.n, edge = t.width / 2;
-  const look = Math.round(KERB_LOOK / t.ds), ext = Math.round(KERB_EXTEND / t.ds);
-  // Tightest centreline curvature near each node.
-  const near = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    let m = 0;
-    for (let j = -look; j <= look; j++) m = Math.max(m, Math.abs(t.curvature[(i + j + n) % n]));
-    near[i] = m;
-  }
-  const left = new Uint8Array(n), right = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    const d = line.d[i];
-    if (Math.abs(d) < edge - KERB_NEAR || near[i] < 1 / KERB_RADIUS) continue;
-    const mask = d > 0 ? left : right;
-    for (let j = -ext; j <= ext; j++) mask[(i + j + n) % n] = 1;
-  }
-  const out = { left, right };
-  kerbCache.set(line, out);
-  return out;
-}
+export { kerbsFor } from '../core';
 
 /** Below this length on screen (px) a car is a plain coloured block: details would be mush. */
 const DETAIL_PX = 14;

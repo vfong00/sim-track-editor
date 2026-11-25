@@ -34,6 +34,8 @@ export interface ProfileOptions {
   forward?: boolean;
   /** Share of the car's maximum braking the backward pass may use (default 1). */
   brakeUse?: number;
+  /** Per-node grip share from the surface under the car (kerbs, later rain); 1 where absent. */
+  grip?: Float64Array;
 }
 
 /**
@@ -45,12 +47,17 @@ export interface ProfileOptions {
  */
 export function solveSpeedProfile(path: PathLike, model: CarModel, opts: ProfileOptions = {}): SpeedProfile {
   const { n, segLen: L, kappa: k, closed } = path;
-  const f = opts.effects ?? NO_EFFECTS;
+  const f0 = opts.effects ?? NO_EFFECTS;
   const brakeUse = opts.brakeUse ?? 1;
+  const g = opts.grip;
+  // Effects at node i: the traffic effects times the surface grip there.
+  const fx: Effects[] = [];
+  const at = (i: number): Effects => (g && g[i] !== 1 ? (fx[i] ??= { ...f0, grip: f0.grip * g[i] }) : f0);
   const v = new Float64Array(n);
-  for (let i = 0; i < n; i++) v[i] = Math.min(model.cornerSpeed(k[i], f), opts.cap ? opts.cap[i] : Infinity);
+  for (let i = 0; i < n; i++) v[i] = Math.min(model.cornerSpeed(k[i], at(i)), opts.cap ? opts.cap[i] : Infinity);
 
   const forward = (i: number, j: number) => {
+    const f = at(i);
     const a = model.maxDrive(v[i], v[i] * v[i] * Math.abs(k[i]), f);
     const lim = v[i] * v[i] + 2 * a * L[i];
     const vj = lim > 0 ? Math.sqrt(lim) : 0;
@@ -58,6 +65,7 @@ export function solveSpeedProfile(path: PathLike, model: CarModel, opts: Profile
   };
   const backward = (i: number, j: number) => {
     // Brake capacity depends on v[i] itself (drag, cornering load): two fixed-point rounds.
+    const f = at(i);
     let est = Math.min(v[i], v[j]);
     let vi = v[i];
     for (let it = 0; it < 3; it++) {

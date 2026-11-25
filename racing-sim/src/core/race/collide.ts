@@ -1,4 +1,4 @@
-import type { CarState } from './car';
+import { type CarState, lineSideSpeed } from './car';
 import { clamp, HIT_LEN, HIT_W, type LaneSet } from './lanes';
 
 export interface Contact {
@@ -61,7 +61,10 @@ export function resolveCollisions(cars: Body[], lanes: LaneSet, edgeWall = false
           seen.add(key);
           // Velocity of each car in (s, d): (v_along, vDelta).
           const va = Math.sqrt(Math.max(0, A.st.v * A.st.v - A.st.vDelta * A.st.vDelta)), vb = Math.sqrt(Math.max(0, B.st.v * B.st.v - B.st.vDelta * B.st.vDelta));
-          const closing = (va - vb) * nx + (A.st.vDelta - B.st.vDelta) * ny;
+          // Sideways relative to the racing line for both (one may be spinning or in the run-off,
+          // its sideways speed across the road), converted with the same slope of the line.
+          const slope = lanes.lineSlope(A.st.s);
+          const closing = (va - vb) * nx + (lineSideSpeed(A.st, lanes, slope) - lineSideSpeed(B.st, lanes, slope)) * ny;
           const angle = alongS ? Math.min(1, Math.abs(dd) / HIT_W) : 1;
           out.push({ a: i, b: j, closing: Math.max(0, closing), angle });
           if (closing > 0 && !(A.fixed && B.fixed)) {
