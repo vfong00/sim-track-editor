@@ -74,11 +74,10 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
   let a: number, aSide: number, loss = 0;
   if (ctl.free) {
     // Spinning: friction slows the car along its direction of travel, which keeps going
-    // straight while the road curves away (the unmet cornering −κv² pushes it sideways).
+    // straight while the road curves away (moved on the map below, not in the lanes).
     const dec = SLIDE_FRICTION * mu + roll + model.cd * f.drag * v0 * v0; // all of it is loss, none driven
     a = -Math.min(dec, v0 / dt);
-    const vAl = Math.sqrt(Math.max(0, v0 * v0 - st.vDelta * st.vDelta));
-    aSide = -kappa * vAl * vAl + (v0 > 1e-6 ? (a * st.vDelta) / v0 : -st.vDelta / dt);
+    aSide = 0;
     st.slide = 0;
   } else {
     const aCorner = v0 * v0 * kappa;
@@ -105,10 +104,34 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
   }
 
   st.v = Math.max(0, v0 + (a - loss) * dt);
+  if (ctl.free) {
+    slideStraight(st, v0, lanes, dt, lineD0);
+  } else {
+    driveInLane(st, v0, aSide, lanes, dt, lineD0, off, ctl, edgeWall);
+  }
+  // The barrier at the far side of the run-off.
+  st.wall = 0;
+  const lineD = lanes.lineD(st.s);
+  const lo = -lanes.wall - lineD, hi = lanes.wall - lineD;
+  if (st.delta < lo || st.delta > hi) {
+    st.wall = Math.abs(st.vDelta);
+    st.delta = clamp(st.delta, lo, hi);
+    st.vDelta = -0.2 * st.vDelta;
+    st.v = Math.hypot(Math.sqrt(Math.max(0, st.v * st.v - st.wall * st.wall)), st.vDelta);
+  }
+
+  st.aLong = a;
+  st.aLat = ctl.free ? 0 : v0 * v0 * kappa + aSide;
+  const tire = a + model.cd * f.drag * v0 * v0; // longitudinal tire force per unit mass
+  st.usage = Math.hypot(Math.min(Math.abs(st.aLat), mu), tire >= 0 ? tire : tire / model.spec.brake) / mu;
+}
+
+/** A driven car: along its lane at speed v, steering sideways with aSide. */
+function driveInLane(st: CarState, v0: number, aSide: number, lanes: LaneSet, dt: number, lineD0: number, off: number, ctl: Controls, edgeWall: boolean): void {
   st.vDelta += aSide * dt;
   // Sideways speed can't exceed the car's speed, except that a car at a standstill can shuffle
   // out at walking pace (turning out from behind a stopped car, nose to its gearbox).
-  const vdCap = Math.max(st.v, v0, ctl.free ? 0 : 0.5);
+  const vdCap = Math.max(st.v, v0, 0.5);
   if (Math.abs(st.vDelta) > vdCap) st.vDelta = Math.sign(st.vDelta) * vdCap;
   const vm = (v0 + st.v) / 2;
   const vAlong = Math.sqrt(Math.max(0, vm * vm - st.vDelta * st.vDelta));
@@ -132,18 +155,38 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
     if (st.delta < elo) { st.delta = elo; if (st.vDelta < 0) st.vDelta = 0; }
     if (st.delta > ehi) { st.delta = ehi; if (st.vDelta > 0) st.vDelta = 0; }
   }
-  // The barrier at the far side of the run-off.
-  st.wall = 0;
-  const lo = -lanes.wall - lineD, hi = lanes.wall - lineD;
-  if (st.delta < lo || st.delta > hi) {
-    st.wall = Math.abs(st.vDelta);
-    st.delta = clamp(st.delta, lo, hi);
-    st.vDelta = -0.2 * st.vDelta;
-    st.v = Math.hypot(Math.sqrt(Math.max(0, st.v * st.v - st.wall * st.wall)), st.vDelta);
-  }
+}
 
-  st.aLong = a;
-  st.aLat = ctl.free ? 0 : v0 * v0 * kappa + aSide;
-  const tire = a + model.cd * f.drag * v0 * v0; // longitudinal tire force per unit mass
-  st.usage = Math.hypot(Math.min(Math.abs(st.aLat), mu), tire >= 0 ? tire : tire / model.spec.brake) / mu;
+/**
+ * A spinning or crashing car: no steering, so it goes straight on the map while the road curves
+ * away beneath it. Moved in x, y and put back in the track frame, not along the lanes: they
+ * bend with the racing line and bunch up at the road edges, so a "straight" move in the lanes
+ * followed the bend and kept a spinning car on the road. In this state vDelta is the car's
+ * sideways speed across the road and the rest of v runs along it (what the contacts work in).
+ */
+function slideStraight(st: CarState, v0: number, lanes: LaneSet, dt: number, lineD0: number): void {
+  const track = lanes.track;
+  const d0 = lineD0 + st.delta;
+  const n0 = track.normalAt(st.s);
+  // Tangent is the left normal turned back a quarter (as in Track.toFrame).
+  const along = Math.sqrt(Math.max(0, v0 * v0 - st.vDelta * st.vDelta));
+  let wx = along * n0.y + st.vDelta * n0.x, wy = -along * n0.x + st.vDelta * n0.y;
+  const w = Math.hypot(wx, wy);
+  if (w < 1e-9) { st.vDelta = 0; return; }
+  wx /= w; wy /= w;
+  const vm = (v0 + st.v) / 2;
+  const p = track.toXY(st.s, d0);
+  const q = track.toFrame(p.x + wx * vm * dt, p.y + wy * vm * dt, st.s, 10);
+  let ds = q.s - st.s;
+  if (ds > track.length / 2) ds -= track.length;
+  else if (ds < -track.length / 2) ds += track.length;
+  st.s = q.s;
+  st.dist += ds;
+  st.delta = q.d - lanes.lineD(q.s);
+  // The same velocity in the new frame. Going backwards along the road can't be held in (v,
+  // vDelta), so that part is dropped (a car spun round in a hairpin stops a little sooner).
+  const n1 = track.normalAt(q.s);
+  const u = Math.max(0, st.v * (wx * n1.y - wy * n1.x));
+  st.vDelta = st.v * (wx * n1.x + wy * n1.y);
+  st.v = Math.hypot(u, st.vDelta);
 }

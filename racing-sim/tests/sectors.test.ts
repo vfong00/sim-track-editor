@@ -92,14 +92,19 @@ describe('sectors in the viewer', () => {
     const at = new RaceAt(race, (c.crossTimes[2] + c.crossTimes[3]) / 2);
     const board = sectorBoard(at);
     const cells = race.cars.map((_, i) => sectorCell(board, i));
-    // Every car has at least started lap 3 and finished its first sector.
+    // Every car has a first sector to show (this lap's, or its last lap's if only just onto lap 3).
     for (const cell of cells) expect(cell.colors[0]).not.toBe('none');
     // One purple per sector over the field's laps so far (ties aside), and not on a sector not yet run.
     for (let k = 0; k < 3; k++) {
       const best = Math.min(...board.own.map((o) => o[k]));
       expect(best).toBe(board.classBest.get(board.cls[0])![k]);
     }
-    expect(cells.every((x) => x.colors[2] === 'none')).toBe(true);
+    // Running with car 0 (onto lap 3 within 5 s of it): sector 3 of this lap not run yet. A car
+    // held up on lap 1 is still on lap 2, or only just onto lap 3 (showing its last lap still),
+    // and a retired car shows the last lap it ran.
+    const onLap3 = cells.filter((_, i) => !race.cars[i].dnf && race.cars[i].crossTimes[2] <= c.crossTimes[2] + 5);
+    expect(onLap3.length).toBeGreaterThan(1);
+    expect(onLap3.every((x) => x.colors[2] === 'none')).toBe(true);
     expect(cells[0].text).toMatch(/^S\d \d+\.\d{3}$/);
   });
 

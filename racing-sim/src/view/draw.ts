@@ -358,7 +358,7 @@ function drawBody(ctx: CanvasRenderingContext2D, L: number, W: number, lv: Liver
   ctx.fillStyle = GLASS;
   if (lv.shape === 'open') {
     // Cockpit opening with the driver's helmet in the accent.
-    roundRect(ctx, -hl * 0.12, -hw * 0.2, L * 0.16, W * 0.4, hw * 0.2);
+    roundRect(ctx, -hl * 0.12, -W * 0.2, L * 0.16, W * 0.4, hw * 0.2);
     ctx.fill();
     ctx.fillStyle = lv.accent;
     ctx.beginPath();

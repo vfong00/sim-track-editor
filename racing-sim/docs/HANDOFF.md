@@ -3,6 +3,68 @@
 Work on the `racing-sim` branch in `racing-sim/`. Phases 0–7 are done (7 as a CLI), plus the work in
 `docs/PLAN.md` → **Feature map** → "Done since Phase 6". The same section lists what is next.
 
+**Next: the racing sprint**, phases A–I in `docs/PLAN.md` → Feature map → "Next: the racing
+sprint". They run in order: each one changes what the next one tunes against.
+
+## Sprint loop (every phase)
+
+1. **Design note first** (for B, D, E and G especially): what changes and how it's measured.
+   The user agrees it before any code.
+2. **Build**, iterating on a few seeds.
+3. **Measure** with `batch` against the last phase's baselines.
+4. **Watch list** for the user: scenario, timestamp, what to look for. Required, not extra:
+   the user watching races as a marshal catches what the numbers miss.
+5. **Full suite once**, re-save baselines if the user agrees, then one commit for the phase
+   (only when the user asks).
+6. **Hand off.** Update this file and the sprint section of `docs/PLAN.md`: what landed, what's
+   still open, what the next phase should know. Then write the next phase's kickoff prompt
+   under "Kickoff prompt" below, replacing the old one, and show it to the user. If the app can
+   start sessions, also propose the next phase as a new session with that prompt as the brief,
+   so the user can start it with a click.
+
+Watch set for the whole sprint, so phases compare like for like: F1 constructors at Monza and
+Yas, GT3 and MX-5 at Laguna, and the safety-car race.
+
+## Kickoff prompt
+
+The ending phase rewrites this. It should stand on its own for a fresh session: which phase,
+its goal and scope from `docs/PLAN.md`, what the last phase left open, the files to start
+from, and what done looks like. Keep it to about 15 lines and point to this file and the plan
+rather than copying them.
+
+> Racing sprint, phase A (the rest of it). Read `racing-sim/docs/HANDOFF.md` (rules, sprint
+> loop) and the sprint section of `racing-sim/docs/PLAN.md` first.
+>
+> The racecraft fixes landed in "racing-sim: racecraft rules for attackers and defenders". Still to do in phase A:
+> 1. The lane-edge kink for driven cars: `tests/effects.test.ts` (drift angle, nose into the
+>    turn) fails on it. Lanes are the racing line shifted sideways and bunch at the road edge,
+>    so sideways motion kinks there (`driveInLane` in `src/core/race/car.ts`, lanes in
+>    `src/core/race/lanes.ts`). Stop it smoothly at the edge. Don't loosen the test.
+> 2. Monza (`scenarios/f1-constructors-monza.json`, seed 1) at 5:27: Alvarez rides the wall
+>    through the chicane with jerky throttle. A controller bug (`src/core/agents/controller.ts`).
+> 3. Kerbs in the physics, as a surface grip layer (grip by position on the road) that rain
+>    will reuse later. A kerb costs some grip and can spin a car that puts the power down on
+>    it. The mask exists already (`kerbsFor` in `src/view/draw.ts`).
+>
+> The baselines in `baselines/` are from before that commit; incidents are up 63–228% against
+> them, which phases B and C are meant to bring down. Ask the user whether to re-save them at
+> the end of A. Done: all three fixed, a watch list for the user, the full suite passes, and
+> the kickoff prompt for phase B written here.
+
+## Racecraft rules (agreed with the user, F1 style)
+
+1. An attacker carries the most speed it can and never gives up its tow while pulling out.
+2. Overlap at turn-in decides who gets the corner. Overlap only counts if the defender had
+   time to see it.
+3. The defender gets one move before braking. No moving back, no moving under braking.
+4. The attacker is only entitled to the other side. Braking early can be right, to set up the
+   exit or keep the tow.
+5. Cars behind a battle expect early, uneven braking and use the whole width of the road.
+
+The rules exist for safety and feasibility. Three wide is the same rule as two wide: is there
+room for it? Within the rules, choices are a mixed strategy (phase B), not one fixed move. Check
+changes against these rules, and bring up cases they don't settle instead of tuning around them.
+
 Same rules as before: follow the plan's design rules; run `npm test` and `npm run typecheck`;
 keep `npm run dev` running (launch config `racing-sim-dev` in `.claude/launch.json`), add
 visible output and verify it in the browser at **1x**; commit as "racing-sim: ..." and don't

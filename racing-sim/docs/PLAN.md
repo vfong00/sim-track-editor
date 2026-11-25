@@ -348,9 +348,78 @@ Size: S = an hour or two, M = a session, L = a phase of its own.
   (`HAZARD_RESERVE`). No car hits a wreck already at rest in 192 example races (12 examples ×
   16 seeds; 4 in 96 before); DNFs in those races roughly halved.
 
-**Next, in order**
-1. One of the bigger sessions: driving styles with corner lines and lap 1 (with car size
-   per preset), marshalling with penalties, or real-map tracks.
+**Next: the racing sprint (agreed 2026-11-24)**
+
+These phases build on each other: each one changes what the next one tunes against, so they
+run in order. Everything else on this map is standalone and waits for after the sprint. The
+racecraft rules the phases are checked against are under "Racecraft rules" in the handoff.
+
+- **A. Land the racecraft fixes, and kerbs.** S–M
+  - Commit the racecraft fixes so far: an attacker keeps its tow while pulling out, the room
+    rule into a corner, the give-up rules, spins that move in map space, and cars that drive
+    round a queue or tuck in behind instead of steering off. Full suite once, re-save
+    baselines if agreed.
+  - The lane-edge kink for driven cars (the drift-angle test fails on it).
+  - Monza: Alvarez riding the wall through the chicane with jerky throttle (a controller bug).
+  - Kerbs in the physics (see "Racing and sim (small)"): the line may use a little kerb at the
+    apex and exit. A kerb costs grip, so it's a little slower to ride, and it can spin a car
+    that puts the power down on it. Build it as a surface grip layer (grip by position on the
+    road), since rain reuses it.
+- **B. Racecraft decisions.** M
+  - Both drivers play a mixed strategy, because a predictable driver can be read.
+  - Defender: which side to cover (inside, the side the attacker shows, or the line to protect
+    the exit), when to move (a late move before braking is legal), and how much room to leave
+    a car that isn't alongside yet (aggressive drivers shut the door more often).
+  - Attacker: probe the covered side or switch, a dummy (show one side, switch once before
+    braking), and when to back out (by racecraft and bravery, so the occasional bad gap still
+    happens).
+  - Reading the opponent: each battle remembers the other driver's choices, and a high
+    racecraft driver leans against them.
+  - Rule 5: cars behind a battle expect early, uneven braking and use the whole road.
+  - Measure: how varied the choices are per driver, contacts and passes with `batch`.
+- **C. Starts and lap 1.** M
+  - Lights out, reaction time and launch variation ("Race starts" above).
+  - Cars keep their grid side down to T1 and arrive two or three wide; restarts the same way.
+  - Car size per preset (under "Driving styles" below): whether three wide fits depends on it.
+  - Measure: lap-1 contacts and DNFs on F1 Yas, GT3 and MX-5 Laguna.
+- **D. Driving styles and corner lines.** L ("Driving styles, corner lines and lap 1" below,
+  less the lap-1 part)
+  - Handling styles: late and hard vs early and smooth braking, V vs U lines, throttle.
+  - Pace is skill times how well the style fits the car and the track, so some styles are
+    innately quicker in some cars. Each style needs a cost so no style wins everywhere; until
+    tyres exist that's errors and lock-ups.
+  - Three lines per corner (inside, outside, the cutback), and styles feed B's decisions
+    (divebombers dive, U-line drivers try the outside and the switchback).
+  - Keep the roster's lap-time spread near today's; skill still decides the order overall.
+- **E. Tyres and fuel.** M–L
+  - Wear and temperature that cost grip, so pushing, sliding and following in dirty air cost
+    later in the stint. Track temperature sets how quickly tyres come in and go off.
+  - Fuel: the car gets lighter as it burns fuel, so laps get quicker through a stint. Refuels
+    as a strategy option, built with the pit lane in F.
+  - Re-tune D: tyres give each style its long-run cost. Expect less tow ping-pong.
+- **F. Pit stops and strategy.** L
+  - A pit lane (path, speed limit, boxes) and stops: tyres, refuels.
+  - Strategy: stint length, undercut and overcut.
+  - The traced tracks have no pit lane geometry, so it's drawn by hand per track for now.
+  - Long races (shelved below) if stints need more than 60 minutes.
+- **G. Rain.** M–L
+  - Not a flat slowdown. Uniform lower grip barely moves the best line. Rain lines come from
+    grip that varies across the road: the rubbered racing line, paint and kerbs get slippery,
+    so drivers go off line; standing water in places; a dry line that forms on the racing
+    line as it dries. Exits are traction limited, so lines go more V shaped (brake straight,
+    turn, get the car straight early).
+  - Reuses A's surface grip layer, plus wet, intermediate and slick tyres (E) and the stop to
+    change them (F). Spray makes following harder.
+- **H. Marshalling.** M–L ("Marshalling, flags and penalties" below)
+  - Flags, VSC, safety car and red flag, penalties judged from the blame already recorded,
+    avoiding action and track limits, the stewards' room.
+- **I. Auto-director and a first playable mode.** M
+  - The director camera follows battles and cuts to incidents.
+  - "You be the steward": the director takes you to each incident, you make the call, and it
+    shows how close you were to the auto-marshal's decision.
+
+**After the sprint (standalone)**: real-map tracks (XL), corner names with them, scenery and
+track looks, phone layout, other playability.
 
 **Done: batch baseline.** `batch --save` writes each race's numbers to `baselines/<name>.json`
 (the commit and a hash of the scenario file go with them); later batches print the change,

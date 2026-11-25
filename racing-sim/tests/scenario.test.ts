@@ -38,12 +38,17 @@ const base = (): Scenario => ({
  */
 function wreckHits(r: Race): string[] {
   // Only wrecks that were already at rest a reaction time earlier: in a pile-up, a car that
-  // came to rest half a second ago can't be avoided by the one right behind it.
+  // came to rest half a second ago can't be avoided by the one right behind it. And only cars
+  // still being driven: one spinning or crashing has no control left to steer round anything.
   const react = Math.round(1.5 / r.dt);
-  return r.events.filter((e) => e.type === 'contact' && e.cars.some((x) => {
+  const status = (k: number, x: number) => r.frames[k][x * FRAME_STRIDE + 4];
+  const helpless = (k: number, x: number) => status(k, x) === STATUS.spin || status(k, x) === STATUS.crash;
+  return r.events.filter((e) => {
+    if (e.type !== 'contact') return false;
     const k = Math.max(0, Math.round(e.t / r.dt) - 2);
-    return r.frames[k][x * FRAME_STRIDE + 4] === STATUS.out && r.frames[Math.max(0, k - react)][x * FRAME_STRIDE + 4] === STATUS.out;
-  })).map((e) => `${e.t.toFixed(1)} ${e.text}`);
+    const wreck = e.cars.find((x) => status(k, x) === STATUS.out && status(Math.max(0, k - react), x) === STATUS.out);
+    return wreck !== undefined && !e.cars.some((x) => x !== wreck && helpless(k, x));
+  }).map((e) => `${e.t.toFixed(1)} ${e.text}`);
 }
 
 const sameLog = (a: Race, b: Race) =>

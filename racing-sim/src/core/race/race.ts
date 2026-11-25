@@ -1,5 +1,5 @@
 import { type DriverSpec, type Entrant, racePace } from '../agents/driver';
-import { avoidSlowCar, trafficControls, type Near } from '../agents/controller';
+import { avoidSlowCar, RACING_SHARE, trafficControls, type Near } from '../agents/controller';
 import { CLASS_GAP, type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
 import { CarModel, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type PhysicsParams, STANDARD_CAR } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
@@ -395,7 +395,8 @@ export class Race {
       if (gap >= L / 2) gap -= L;
       else if (gap < -L / 2) gap += L;
       if (gap > 300 || gap < -60) continue;
-      out.push({ j: o.idx, gap, dd: o.d - me.d, d: o.d, v: o.st.v });
+      const racing = o.status === 'run' && o.offEvent < 0 && o.st.v >= RACING_SHARE * o.plans.envelope(o.st.s, o.st.delta);
+      out.push({ j: o.idx, gap, dd: o.d - me.d, d: o.d, v: o.st.v, racing, aLong: o.st.aLong });
     }
     return out;
   }
@@ -558,10 +559,12 @@ export class Race {
     const prev = this.cars.map((c) => c.st.dist);
     const edgeWall = this.opts.incidents === false;
     // Squeezed over the edge by a car alongside counts as a touch for blaming an off on it,
-    // even when the two never actually touch (the squeezed driver gave way).
+    // even when the two never actually touch (the squeezed driver gave way). Not by a car at a
+    // standstill: steering round a wreck onto the grass isn't being squeezed by it (it was logged
+    // as contact with the wreck, from a car creeping by at walking pace).
     ctls.forEach((ctl, i) => {
       const j = ctl.squeezedBy ?? -1;
-      if (j >= 0) { this.cars[i].lastTouchT = this.t; this.cars[i].lastTouchWith = j; }
+      if (j >= 0 && this.cars[j].st.v > 1) { this.cars[i].lastTouchT = this.t; this.cars[i].lastTouchWith = j; }
     });
     this.cars.forEach((c, i) => { if (c.status !== 'out') stepCar(c.st, ctls[i], c.model, this.lanes, dt, edgeWall); });
     this.moveSafetyCar();

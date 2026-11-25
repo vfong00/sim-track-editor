@@ -13,7 +13,19 @@ export interface Near {
   dd: number;
   d: number;
   v: number;
+  /**
+   * Driving normally: running, on the road, at RACING_SHARE or more of its own planned speed where
+   * it is. Never a hazard, however slow: a car at the apex of a hairpin is going a third of the
+   * speed of one still braking for it, and was taken for a wreck (the follower braked to stop for
+   * it, dropped its attack and steered round it, 50 m back).
+   */
+  racing?: boolean;
+  /** Its longitudinal acceleration last tick (m/s², negative braking); absent = not braking. */
+  aLong?: number;
 }
+
+/** Share of its own planned speed above which a running car on the road counts as racing (Near.racing). */
+export const RACING_SHARE = 0.7;
 
 /** Lateral clearance two cars keep when side by side (centre to centre). */
 export const SIDE_GAP = HIT_W + 0.6;
@@ -80,6 +92,17 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   const lineAhead = lanes.lineD(st.s + st.v * SIDE_LOOK);
   for (const o of near) {
     if (Math.abs(o.gap) >= ALONGSIDE || Math.abs(o.dd) < 1.2) continue;
+    // Crawling in a queue, a car stopped behind me with no overlap isn't beside me. Counting it
+    // held a car stopped behind a spun one: a car stopped just behind on the open side left "no
+    // room" either way, and six cars queued behind the spin. (At speed a car just behind still
+    // counts: ignoring it let cars cut across the nose of one a car's length back.)
+    if (o.gap <= -HIT_LEN && o.v < 3 && st.v < 8) continue;
+    // A car ahead that doesn't overlap me isn't beside me either: if its line crosses mine I lift
+    // and tuck in behind (the gap rule), not steer away from it. Steering away put the car a
+    // length behind onto the grass, out of a slow corner with half the road empty on the other
+    // side (MX-5 at Laguna T13, five cars in a few seconds). A wreck or a crawling car still
+    // counts: steering round it, the side spacing is what keeps me clear of it.
+    if (o.gap >= HIT_LEN + 0.5 && o.racing) continue;
     // Only a car leaning in (closer than SQUEEZE) squeezes; within the spacing margin the
     // driver holds the edge and lets the other car make room.
     const by = Math.abs(o.dd) < SQUEEZE ? o.j : -1;
@@ -123,7 +146,7 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   const aCorner = Math.abs(st.v * st.v * lanes.kappa(st.s, st.delta));
   const bHaz = brakeGain * me.model.maxBrake(st.v, Math.min(aCorner, 0.95 * me.model.gripLimit(fx, st.v)), fx);
   for (const o of near) {
-    const hazard = o.v < slow;
+    const hazard = o.v < slow && !o.racing;
     if (o.gap <= 0 || o.gap > (hazard ? 40 + 4 * st.v : look)) continue;
     // Alongside (overlapping lengthwise) and not touching sideways: a car beside me, not one to
     // queue behind. The side spacing and collisions deal with it. Counting it here (it was within
@@ -141,6 +164,19 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     }
     const overlap = dist < HIT_W + 0.2;
     if (!overlap) continue;
+    // A committed attacker pulling out of the tow keeps the speed it carries: held to the
+    // defender's speed until it was clear sideways, it gave the whole tow back on the straight
+    // (Monza T5: 358 down to the leader's 340 km/h 200 m before braking, the gap stuck at 10 m).
+    // Only while the defender isn't braking, and only if it will be clear before it would reach
+    // the defender's gearbox at the speed it is closing.
+    if (o.j === relax.commit && !hazard && (o.aLong ?? 0) > -3 && Math.abs(o.d - targetD) >= HIT_W + 0.2) {
+      const away = Math.sign(targetD - o.d);
+      const vdMax = Math.min(3, 0.5 + 0.08 * st.v);
+      const vOut = Math.max(0.3, (Math.max(0, st.vDelta * away) + vdMax) / 2);
+      const clearIn = (HIT_W + 0.2 - Math.abs(o.d - me.d)) / vOut;
+      const closing = st.v - o.v;
+      if (closing <= 0 || clearIn < (o.gap - HIT_LEN - 0.5) / closing) continue;
+    }
     const bo = me.model.maxBrake(o.v, 0);
     const room = attacked ? o.gap - HIT_LEN - TOW_ROOM : o.gap - HIT_LEN - 1.0 - 0.03 * st.v;
     const bb = hazard ? bHaz : attacked ? b / brakeGain : b;
@@ -204,7 +240,7 @@ export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): {
   let haz: Near | null = null, hazIn: Near | null = null;
   for (const o of near) {
     if (o.gap <= -HIT_LEN || o.gap > look) continue;
-    if (o.v > Math.max(6, 0.5 * st.v)) continue;
+    if (o.v > Math.max(6, 0.5 * st.v) || o.racing) continue;
     // In my way now, or where my lane (or the one I want) will be when I get there.
     const at = st.s + Math.max(0, o.gap);
     const dd = Math.min(Math.abs(o.dd), Math.abs(o.d - lanes.dOf(at, st.delta)), Math.abs(o.d - lanes.dOf(at, wantDelta)));
@@ -222,7 +258,7 @@ export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): {
   // Either side of the hazard. If both are shut, either side of any other slow car lying beside
   // it: two wrecks side by side block one side of each other, and the way through is past both
   // (only trying the nearer one's sides left a queue stopped behind them for good).
-  const slowCar = (o: Near) => o.v < Math.max(6, 0.5 * st.v);
+  const slowCar = (o: Near) => o.v < Math.max(6, 0.5 * st.v) && !o.racing;
   const sides = (o: Near) => [o.d + SIDE_GAP + 0.4, o.d - SIDE_GAP - 0.4];
   let best = pickSide(sides(haz));
   if (Number.isNaN(best)) {
@@ -240,7 +276,7 @@ export function avoidSlowCar(me: DriverView, near: Near[], wantDelta: number): {
       // reaches up beside or ahead of me: one wholly behind (another wreck I've already passed)
       // isn't in the way going forward.
       const blocked = near.some((o) => o !== haz && o.gap < haz!.gap + 15 && Math.abs(o.d - d) < HIT_W + 0.3 &&
-        (o.v < Math.max(6, 0.5 * st.v) ? o.gap > -HIT_LEN : Math.abs(o.gap) < ALONGSIDE));
+        (o.v < Math.max(6, 0.5 * st.v) && !o.racing ? o.gap > -HIT_LEN : Math.abs(o.gap) < ALONGSIDE));
       if (blocked) continue;
       if (Number.isNaN(best) || Math.abs(d - want) < Math.abs(best - want)) best = d;
     }
