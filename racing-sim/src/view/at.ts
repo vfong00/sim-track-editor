@@ -1,4 +1,22 @@
-import { FRAME_STRIDE, lanePlansFor, type LanePlans, MODE, type Race, STATUS } from '../core';
+import { type DecisionLog, FRAME_STRIDE, lanePlansFor, type LanePlans, MODE, type Race, STATUS } from '../core';
+
+/** A racecraft decision in words, for the follow panel ("Dummy on Abreu", "Covers the inside late from Chen"). */
+export function decisionText(d: DecisionLog, name: (i: number) => string): string {
+  const o = name(d.other);
+  if (d.role === 'attack') {
+    switch (d.kind) {
+      case 'inside': return `Goes for the inside on ${o}`;
+      case 'outside': return `Goes round the outside of ${o}`;
+      case 'dummy': return `Dummy on ${o}: shows the inside, then switches`;
+      case 'hold': return `Holds back from ${o}: no room for another car`;
+      case 'stay': return `Keeps the move on ${o} going, door shut`;
+    }
+  }
+  const late = d.kind.endsWith('-late') ? ' late' : '';
+  const cover = d.kind.replace(/-late$/, '');
+  if (cover === 'line') return `Holds the line against ${o}, for the exit`;
+  return `Covers ${cover === 'inside' ? 'the inside' : 'the side shown'}${late} from ${o}`;
+}
 
 /**
  * The race as it stood at viewer time `t`, read only from the logs (rule 4). The race itself
@@ -43,6 +61,18 @@ export class RaceAt {
   /** Out of the race (crashed, retiring or retired). */
   out(i: number): boolean {
     return this.status(i) >= STATUS.crash;
+  }
+
+  /** Car i's latest racecraft decision (phase B) made in the last `within` seconds, or null. */
+  decision(i: number, within = 6): DecisionLog | null {
+    const ds = this.r.decisions;
+    for (let k = ds.length - 1; k >= 0; k--) {
+      const d = ds[k];
+      if (d.t > this.t) continue;
+      if (d.t < this.t - within) break;
+      if (d.car === i) return d;
+    }
+    return null;
   }
 
   mode(i: number): 'line' | 'attack' | 'defend' {

@@ -161,5 +161,20 @@ function batchReport(name: string, b: BatchSummary): string {
     `  Per race: passes ${pm(b.passes)}, contacts ${pm(b.contacts)} (lap 1 ${pm(b.lap1Contacts)}), incidents ${pm(b.incidents)}, spins ${pm(b.spins)}, DNFs ${pm(b.dnfs)}`,
     `  Stuck time ${pm(b.stuckTime, 0)} car-s, in a train ${(100 * b.trainShare.mean).toFixed(0)}% of the time, behind a slower class ${pm(b.trafficTime, 0)} car-s`,
     `  Chaos ${pm(b.chaos, 2)} (${chaos}: 0 = finish as they started, 1 = grid order means nothing)`,
+    ...choiceRows(b, w),
   ].join('\n');
+}
+
+/** Racecraft choices per driver (phase B): attack plans, covers, and how varied they are. */
+function choiceRows(b: BatchSummary, w: number): string[] {
+  if (!b.drivers.some((d) => Object.keys(d.choices).length)) return [];
+  const c = (d: BatchSummary['drivers'][number], key: string) => String(d.choices[key] ?? 0).padStart(4);
+  const late = (d: BatchSummary['drivers'][number]) => String(Object.entries(d.choices).filter(([k]) => k.endsWith('-late')).reduce((a, [, v]) => a + v, 0)).padStart(4);
+  const cover = (d: BatchSummary['drivers'][number], k: string) => String((d.choices[`defend:${k}`] ?? 0) + (d.choices[`defend:${k}-late`] ?? 0)).padStart(4);
+  return [
+    '',
+    `  Racecraft choices (attack: inside / outside / dummy, held back, stayed in; defend: inside / mirror / line, of them late; variety 0–1)`,
+    `  ${'Driver'.padEnd(w)}    in  out  dum hold stay     in  mir line late  variety`,
+    ...b.drivers.map((d) => `  ${d.name.padEnd(w)}  ${c(d, 'attack:inside')} ${c(d, 'attack:outside')} ${c(d, 'attack:dummy')} ${c(d, 'attack:hold')} ${c(d, 'attack:stay')}   ${cover(d, 'inside')} ${cover(d, 'mirror')} ${cover(d, 'line')} ${late(d)}     ${Number.isNaN(d.variety) ? '   -' : d.variety.toFixed(2)}`),
+  ];
 }

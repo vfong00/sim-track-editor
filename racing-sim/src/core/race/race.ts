@@ -1,6 +1,6 @@
 import { type DriverSpec, type Entrant, racePace } from '../agents/driver';
 import { avoidSlowCar, RACING_SHARE, trafficControls, type Near } from '../agents/controller';
-import { CLASS_GAP, type Craft, type CraftCar, newCraft, raceCraft, type CraftContext } from '../agents/racecraft';
+import { CLASS_GAP, type Craft, type CraftCar, type CraftChoice, newCraft, raceCraft, type CraftContext, ROOM_LEVEL } from '../agents/racecraft';
 import { CarModel, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type PhysicsParams, STANDARD_CAR } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
@@ -78,6 +78,17 @@ export interface RaceEvent {
    * mistake, contact or off that caused it; a rejoin points at its off.
    */
   cause?: number;
+  /**
+   * The car blamed (entrant index), where the sim judged it: a squeeze over the edge is the
+   * squeezer's fault if the car squeezed was level (owed room), else the squeezed car's own.
+   */
+  blame?: number;
+}
+
+/** A racecraft decision (phase B), for variety per driver: which car, against whom, what it chose. */
+export interface DecisionLog extends CraftChoice {
+  t: number;
+  car: number;
 }
 
 /**
@@ -201,6 +212,8 @@ export interface RaceCar {
   /** Last touch with another car (any closing speed, or a squeeze over the edge) and with whom. */
   lastTouchT: number;
   lastTouchWith: number;
+  /** The last touch was a squeeze over the edge with the car level beside the squeezer (owed room). */
+  lastTouchLevel: boolean;
   /** When the car's wheels first went over the road edge in the current excursion (NaN = on the road). */
   edgeT: number;
   /** Lasting grip loss from contact (share), and the level the current plans were made for. */
@@ -315,6 +328,8 @@ export class Race {
   readonly scLog: number[] = [];
   /** Race-craft mode of every car for each frame (MODE codes), for viewers. */
   readonly modeLog: Uint8Array[] = [];
+  /** Racecraft decisions (phase B), in order. */
+  readonly decisions: DecisionLog[] = [];
   /** Track grip changes (the first entry is the start). */
   readonly gripLog: { t: number; level: number }[] = [];
   /** Damage changes: the grip-loss level a car's plans were made for, from time t. */
@@ -352,7 +367,7 @@ export class Race {
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
         status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, drift: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
-        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN, outSince: NaN, cleared: false, crossTimes: [],
+        lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, lastTouchLevel: true, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN, outSince: NaN, cleared: false, crossTimes: [],
       };
     });
     for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
@@ -422,6 +437,7 @@ export class Race {
     const dec = raceCraft(this.views[i], near, this.views, ctx);
     c.following = dec.following;
     c.wake = dec.ctl.effects && (dec.ctl.effects.drag < 1 || dec.ctl.effects.grip < 1) ? 1 : -1;
+    if (dec.choice) this.decisions.push({ t: this.t, car: i, ...dec.choice });
     if (dec.mistake) {
       const corner = this.corners[dec.mistake.corner]?.name ?? '';
       c.cause = this.emit('mistake', [i], dec.mistake.kind === 'lockup' ? `${this.name(i)} locks up into ${corner}` : `${this.name(i)} runs wide at ${corner}`);
@@ -571,7 +587,14 @@ export class Race {
     // as contact with the wreck, from a car creeping by at walking pace).
     ctls.forEach((ctl, i) => {
       const j = ctl.squeezedBy ?? -1;
-      if (j >= 0 && this.cars[j].st.v > 1) { this.cars[i].lastTouchT = this.t; this.cars[i].lastTouchWith = j; }
+      if (j >= 0 && this.cars[j].st.v > 1) {
+        const c = this.cars[i], L = this.track.length;
+        let g = c.st.s - this.cars[j].st.s;
+        if (g >= L / 2) g -= L; else if (g < -L / 2) g += L;
+        c.lastTouchT = this.t;
+        c.lastTouchWith = j;
+        c.lastTouchLevel = g >= -ROOM_LEVEL;
+      }
     });
     this.cars.forEach((c, i) => { if (c.status !== 'out') stepCar(c.st, ctls[i], c.model, this.lanes, dt, edgeWall); });
     this.moveSafetyCar();
@@ -596,6 +619,7 @@ export class Race {
       A.lastTouchT = B.lastTouchT = this.t;
       A.lastTouchWith = hit.b;
       B.lastTouchWith = hit.a;
+      A.lastTouchLevel = B.lastTouchLevel = true;
       if (hit.closing > 1 && !edgeWall) this.contactIncidents(hit, this.pairEvent.get(key) ?? -1);
     }
     if (!edgeWall) this.incidents();
@@ -721,8 +745,12 @@ export class Race {
       // Drift angle for the viewer: up to DRIFT.max where a spin becomes likely (square root, so
       // small slides show too), easing in and out. Pure display: nothing reads it back.
       if (c.status === 'run') {
-        const target = DRIFT.max * Math.sqrt(Math.min(1, excess / I.spinFrom)) * Math.sign(this.lanes.kappa(c.st.s, c.st.delta));
-        c.drift += (target - c.drift) * Math.min(1, dt * (Math.abs(target) > Math.abs(c.drift) ? DRIFT.rise : DRIFT.fall));
+        // Steering back onto the road from over the edge, the car's path bends back toward the
+        // road, against the corner: the drift goes, quickly (it was drawn nose into the corner
+        // while the car turned the other way, equal field seed 1 at T1).
+        const returning = Math.abs(c.d) > this.lanes.lim - 0.2 && c.st.vDelta * Math.sign(c.d) < -0.5;
+        const target = returning ? 0 : DRIFT.max * Math.sqrt(Math.min(1, excess / I.spinFrom)) * Math.sign(this.lanes.kappa(c.st.s, c.st.delta));
+        c.drift += (target - c.drift) * Math.min(1, dt * (returning || Math.abs(target) > Math.abs(c.drift) ? DRIFT.rise : DRIFT.fall));
       } else c.drift = 0;
       if (c.status === 'run' && !c.finished) {
         if (excess > I.slideLog && this.t - c.lastSlideLog > 3) {
@@ -763,7 +791,11 @@ export class Race {
         // carry a car off: log it now.
         if (cause < 0 && near(c.lastTouchT)) {
           const j = c.lastTouchWith;
-          cause = c.cause = this.emit('contact', [i, j], `Contact: ${this.name(j)} squeezes ${this.name(i)} wide`);
+          // Owed room (level beside the squeezer): the squeezer's fault. Not level: it had no
+          // claim to the space and ran out of road (Monza T9, a car a length back on the inside).
+          const level = c.lastTouchLevel;
+          cause = c.cause = this.emit('contact', [i, j], level ? `Contact: ${this.name(j)} squeezes ${this.name(i)} wide` : `Contact: ${this.name(i)} runs out of room beside ${this.name(j)}`);
+          this.events[cause].blame = level ? j : i;
         } else if (cause < 0 && near(c.lastSlideT)) cause = c.cause = this.emit('slide', [i], `${this.name(i)} slides wide at ${this.cornerName(c.st.s)}`);
         c.offEvent = this.emit('off', [i], `${this.name(i)} off at ${this.cornerName(c.st.s)}`, cause);
       } else if (c.offEvent >= 0 && c.status === 'run' && Math.abs(c.d) <= this.lanes.lim) {

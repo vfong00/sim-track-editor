@@ -10,7 +10,9 @@ import { RaceAt } from '../src/view/at';
  */
 describe('viewer state at a time, from the logs', () => {
   const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/rookie-rocket-rain.json', import.meta.url).pathname, 'utf8')) as Scenario;
-  const opts = () => loadScenario(scn).options;
+  // A seed whose race has a grip change and contact damage. Any change to the driving changes the
+  // races: re-pick it then (phase B moved it from the fixture's 42 to 44).
+  const opts = () => loadScenario({ ...scn, seed: 44 }).options;
   const full = new Race(opts()).run();
 
   it('the full race had grip changes and damage to check against', () => {

@@ -367,7 +367,12 @@ racecraft rules the phases are checked against are under "Racecraft rules" in th
     apex and exit. A kerb costs grip, so it's a little slower to ride, and it can spin a car
     that puts the power down on it. Build it as a surface grip layer (grip by position on the
     road), since rain reuses it.
-- **B. Racecraft decisions.** M
+- **B. Racecraft decisions.** M. **Done 2026-11-26** (see the handoff → "Phase B: what landed").
+  Contacts fell 20–66% across the watch set, lap-1 contacts 13–72%, passes 3–30% (Monza 127 → 116
+  a race). Added from the user's Monza rulings: exit room (rule 6) and corner capacity (rule 7).
+  Left open: rule 1 pinned at 15% of cases at Monza (an attacker pulls out to a side the
+  defender's line closes; the side choice, maybe with D's corner lines), and no rule checks on
+  lap 1 yet (C).
   - Both drivers play a mixed strategy, because a predictable driver can be read.
   - Defender: which side to cover (inside, the side the attacker shows, or the line to protect
     the exit), when to move (a late move before braking is legal), and how much room to leave

@@ -6,9 +6,9 @@ import { brakeAt, PUFF_LIFE, puffsAt, SPARK_LIFE, skidMarksAt, sparksAt } from '
 const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.json', import.meta.url).pathname, 'utf8')) as Scenario;
 
 describe('effects from the logs', () => {
-  // A seed whose race has a contact and a lock-up (with race-pace scatter the equal field spreads
-  // out, and the fixture's own seed no longer has both).
-  const race = new Race(loadScenario({ ...scn, seed: 4, race: { ...scn.race, incidentRate: 2 } }).options).run();
+  // A seed whose race has a contact and a lock-up (the fixture's own seed doesn't have both).
+  // Any change to the driving changes the races: re-pick it then (phase B moved it from 4 to 6).
+  const race = new Race(loadScenario({ ...scn, seed: 6, race: { ...scn.race, incidentRate: 2 } }).options).run();
   const first = (type: string) => race.events.find((e) => e.type === type);
 
   it('the race has the moments to test with', () => {

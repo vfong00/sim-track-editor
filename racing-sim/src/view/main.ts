@@ -5,7 +5,7 @@ import {
 } from '../core';
 import { ScenarioEditor } from '../editor/scenario-editor';
 import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
-import { RaceAt } from './at';
+import { decisionText, RaceAt } from './at';
 import { drawCar, drawTrack, fitView, fmtTime, type View } from './draw';
 import { brakeAt, drawParticles, drawSkidMarks, puffsAt, skidMarksAt, sparksAt } from './effects';
 import { type Livery, liveries } from './livery';
@@ -484,9 +484,17 @@ function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
     <div class="row"><span class="lbl">Last lap</span><span>${laps.length ? fmtTime(laps[laps.length - 1]) : '–'}</span></div>
     <div class="row"><span class="lbl">Best lap</span><span>${laps.length ? fmtTime(Math.min(...laps)) : '–'}</span></div>
     ${idealRows(s, at, i)}
+    ${racecraftRow(s, at, i)}
     ${damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(damage * 100).toFixed(1)}% grip</span></div>` : ''}
     ${at.out(i) ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
   renderStats(s, i);
+}
+
+/** The followed car's latest racecraft decision (phase B), for a few seconds after it's made. */
+function racecraftRow(s: Session, at: RaceAt, i: number): string {
+  const d = at.decision(i);
+  if (!d) return '';
+  return `<div class="row"><span class="lbl">Racecraft</span><span class="craft" title="The driver's latest choice in a battle: attack plans and defensive covers are picked by weight (a mixed strategy), and a high racecraft driver leans against what this rival has done before.">${decisionText(d, (j) => s.race.name(j))}</span></div>`;
 }
 
 /** Time against the car's best lap at this point of the lap: green ahead, red behind. */

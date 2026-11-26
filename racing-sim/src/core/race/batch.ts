@@ -1,3 +1,4 @@
+import { log } from '../fmath';
 import { Race, type RaceOptions, type RaceStats } from './race';
 
 /** Mean and standard error of the mean (0 with fewer than two samples). */
@@ -35,6 +36,33 @@ export interface DriverSummary {
   finishes: number[];
   /** Best lap over the batch (Infinity if no lap was completed). */
   bestLap: number;
+  /** Racecraft decisions over the batch, by `role:kind` (e.g. `attack:dummy`, `defend:mirror-late`). */
+  choices: Record<string, number>;
+  /**
+   * How varied the driver's choices are: the normalised entropy (0 = always the same, 1 = evenly
+   * spread) of its attack plans and of its covers, averaged over the roles it played. NaN = none.
+   */
+  variety: number;
+}
+
+/** Attack plans and defensive covers that count toward variety (`hold` and `stay` are outcomes, not plans; late is timing). */
+export const ATTACK_PLANS = ['inside', 'outside', 'dummy'];
+export const COVERS = ['inside', 'mirror', 'line'];
+
+/** Normalised entropy of counts (0 = one kind only, 1 = all equally often); NaN for no samples. */
+export function evenness(counts: number[]): number {
+  const n = counts.reduce((a, b) => a + b, 0);
+  if (!n || counts.length < 2) return NaN;
+  let h = 0;
+  for (const c of counts) if (c > 0) h -= (c / n) * log(c / n);
+  return h / log(counts.length);
+}
+
+/** Variety of a driver's choices (see `DriverSummary.variety`). */
+export function varietyOf(choices: Record<string, number>): number {
+  const count = (role: string, kinds: string[]) => kinds.map((k) => Object.entries(choices).filter(([key]) => key === `${role}:${k}` || key === `${role}:${k}-late`).reduce((a, [, v]) => a + v, 0));
+  const parts = [evenness(count('attack', ATTACK_PLANS)), evenness(count('defend', COVERS))].filter((x) => !Number.isNaN(x));
+  return parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : NaN;
 }
 
 /** Per-race numbers of a single run, the input a batch summary is built from. */
@@ -55,6 +83,8 @@ export interface RunResult {
   chaos: number;
   /** Simulated race time (s). */
   time: number;
+  /** Racecraft decisions (car = entrant index). */
+  decisions?: { car: number; role: string; kind: string }[];
 }
 
 export interface BatchSummary {
@@ -104,6 +134,7 @@ export function runOne(options: RaceOptions): RunResult {
     lap1Contacts: race.events.filter((e) => e.type === 'contact' && e.lap <= 1).length,
     chaos: moved / n / randomShuffle(n),
     time: race.t,
+    decisions: race.decisions.map((d) => ({ car: d.car, role: d.role, kind: d.kind })),
   };
 }
 
@@ -124,6 +155,8 @@ export function summarize(runs: RunResult[], ms = 0): BatchSummary {
     const pos = ins.map(({ r, slot }) => r.order.indexOf(slot) + 1);
     const finishes = new Array(n).fill(0);
     pos.forEach((p) => finishes[p - 1]++);
+    const choices: Record<string, number> = {};
+    for (const { r, slot } of ins) for (const d of r.decisions ?? []) if (d.car === slot) choices[`${d.role}:${d.kind}`] = (choices[`${d.role}:${d.kind}`] ?? 0) + 1;
     return {
       name,
       races: ins.length,
@@ -134,6 +167,8 @@ export function summarize(runs: RunResult[], ms = 0): BatchSummary {
       position: spread(pos),
       finishes,
       bestLap: Math.min(...ins.map(({ r, slot }) => r.bestLaps[slot])),
+      choices,
+      variety: varietyOf(choices),
     };
   });
   const of = (f: (r: RunResult) => number) => spread(runs.map(f));

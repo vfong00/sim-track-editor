@@ -1,3 +1,4 @@
+import { exp } from '../fmath';
 import type { CarState, Controls } from '../race/car';
 import { CAR_WIDTH, clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet, offShare, RUNOFF_GRIP } from '../race/lanes';
 import { type CarModel, dirtyEffects, type PhysicsParams } from '../physics/model';
@@ -26,6 +27,8 @@ export const DIVE_FROM = 150;
  */
 export const PULL_GAP = 3;
 export const PULL_TIME = 1.0;
+/** Sideways speed (m/s) a pull-out really gets on average, accelerating across (for its timing). */
+export const PULL_LATERAL = 2;
 /** …or with braking for the corner PULL_LEAD s ahead, within DIVE_GAP metres (centre to centre). */
 export const DIVE_GAP = 12;
 export const PULL_LEAD = 2.0;
@@ -96,9 +99,87 @@ export interface Craft {
   hold: number;
   /** Corner an attack was given up for (the door shut with no overlap): no new move into it. */
   gaveUp: number;
+  /** Attacking (phase B): the plan for this move. */
+  plan: AttackPlan;
+  /** Defending (phase B): the cover chosen for this corner, and whether the move waits until just before braking. */
+  cover: Cover;
+  late: boolean;
+  /** Defending: the move has been made (the side is set). */
+  moved: boolean;
+  /** Corner for which the "stay in the gap" draw was made when the door shut, and its outcome. */
+  stayCorner: number;
+  stay: boolean;
+  /** What I've seen each rival do (by entrant index): reading the opponent. */
+  memory: Map<number, Seen>;
 }
 
-export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, rhythmLap: -1, rhythm: 0, mistake: null, hold: NaN, gaveUp: -1 });
+/**
+ * An attacker's plan (phase B): go for the inside, go round the outside, or show one side and
+ * switch once before braking (the dummy).
+ */
+export type AttackPlan = 'inside' | 'outside' | 'dummy';
+/**
+ * A defender's cover (phase B): the inside, the side the attacker shows (`mirror`), or the
+ * racing line, to protect the exit.
+ */
+export type Cover = 'inside' | 'mirror' | 'line';
+
+/** A rival's choices as I've seen them: which side it covered when defending, which it took when attacking (relative to the corner). */
+export interface Seen {
+  cover: { inside: number; outside: number; line: number };
+  attack: { inside: number; outside: number };
+}
+const newSeen = (): Seen => ({ cover: { inside: 0, outside: 0, line: 0 }, attack: { inside: 0, outside: 0 } });
+const seenOf = (cr: Craft, j: number) => { let s = cr.memory.get(j); if (!s) cr.memory.set(j, (s = newSeen())); return s; };
+
+export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, rhythmLap: -1, rhythm: 0, mistake: null, hold: NaN, gaveUp: -1, plan: 'inside', cover: 'inside', late: false, moved: false, stayCorner: -1, stay: false, memory: new Map() });
+
+/** A racecraft decision, for the log (variety per driver in `batch`). */
+export interface CraftChoice {
+  role: 'attack' | 'defend';
+  /** The rival. */
+  other: number;
+  /** Attack: the plan (`inside`, `outside`, `dummy`), or `hold` (no room for another car into the corner), `stay` (kept a move going with the door shut). Defend: the cover, with `-late` for a late move. */
+  kind: string;
+  corner: number;
+}
+
+/**
+ * Cars a corner has room for side by side: two into a slow corner or a chicane (whatever the
+ * road width: the cars converge on one apex), else by width, at most three.
+ */
+export const SLOW_CORNER = 60;
+export function cornerRoom(corner: Corner | null, lim: number): number {
+  const byWidth = 1 + Math.floor((2 * lim) / (SIDE_GAP + 0.3));
+  if (!corner || corner.radius < SLOW_CORNER) return Math.min(2, byWidth);
+  return Math.min(3, byWidth);
+}
+
+/** Pick one key by weight with one uniform draw. */
+function pick<K extends string>(w: Record<K, number>, u: number): K {
+  const keys = Object.keys(w) as K[];
+  const total = keys.reduce((a, k) => a + Math.max(0, w[k]), 0);
+  let x = u * total;
+  for (const k of keys) { x -= Math.max(0, w[k]); if (x <= 0) return k; }
+  return keys[keys.length - 1];
+}
+
+/**
+ * How strongly a driver plays against a rival's habit: 0 = ignores it, more = leans away from
+ * what the rival does most. Scaled by racecraft (a high racecraft driver reads the opponent).
+ */
+export const READ_GAIN = 2.5;
+/** A defender's late move waits until braking is this many seconds away. */
+export const LATE_LEAD = 0.8;
+/** Chance, times bravery × (1 − racecraft), that an attacker keeps a move going when the door shuts. */
+export const STAY_RATE = 0.3;
+/** The dummy switches sides when braking is within this many seconds. */
+export const DUMMY_LEAD = 1.0;
+/** Exit room: a car level beside me on the outside of the exit is owed EXIT_MARGIN (controller.ts) more side spacing, up to EXIT_LEN past the apex. */
+export const EXIT_LEN = 80;
+/** Rule 5: a battle within this distance ahead (m) makes a following car brake with this share of its braking and hold its place across the road. */
+export const BATTLE_RANGE = 60;
+export const BATTLE_BRAKE = 0.9;
 
 export interface CraftContext {
   t: number;
@@ -129,6 +210,8 @@ export interface CraftDecision {
   following: number;
   /** A mistake that started this tick, for the event feed. */
   mistake: Mistake | null;
+  /** A racecraft decision made this tick, for the decision log. */
+  choice?: CraftChoice;
 }
 
 /** Path distance (m) from s to sample `apex`, going forward. */
@@ -220,6 +303,11 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     }
     vEnv *= cr.push + cr.rhythm;
   }
+  // Over the plan's top speed with no braking ahead (the plan is flat for the next second): that's
+  // speed carried from a tow, not a corner to slow for. Stay flat out and let drag take it off.
+  // Braking down to the clean-air top speed was the attacker giving its tow up as it pulled out
+  // (Monza, phase B: 103 → 95 m/s in half a second, beside the car it was passing; rule 1).
+  if (st.v > vEnv && flatOut(me, st.delta, depth, ahead)) vEnv = st.v;
   // In the run-off: corner speed ∝ √grip, and the driver's only aim is to get back on the road.
   const off = offShare(lanes.track, me.d);
   if (off > 0) vEnv *= Math.sqrt(1 - off * (1 - RUNOFF_GRIP));
@@ -227,6 +315,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const braking = vEnv < st.v - 1;
   let wantDelta = 0;
   let started: Mistake | null = null;
+  let choice: CraftChoice | undefined;
   const view = { st, d: me.d, model: me.model, plans, lanes, dt, effects };
 
   // --- Mistakes in progress override everything else.
@@ -292,6 +381,12 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const slotTaken = (tj: number, tg: number, td: number, side: number) => near.some((o) =>
     o.j !== tj && o.gap > -HIT_LEN && o.gap < tg + ALONGSIDE && side * (o.d - td) > 1.2 && side * (o.d - me.d) > -HIT_W);
 
+  // --- Cars contesting the corner with car `t` (ahead of me): t, me, every car already beside
+  // it or about to be (within ALONGSIDE of it nose to tail, off its line), and every car already
+  // committed to passing it.
+  const contesting = (t: Near) => 2 + near.filter((o) => o.j !== t.j && o.gap > 0 && Math.abs(o.gap - t.gap) < ALONGSIDE && Math.abs(o.d - t.d) > 1.2).length
+    + cars.filter((c) => c.idx !== me.idx && c.craft.mode === 'attack' && c.craft.commit && c.craft.other === t.j && !near.some((o) => o.j === c.idx && o.gap > 0 && Math.abs(o.gap - t.gap) < ALONGSIDE)).length;
+
   // --- Blue flag: a class quicker car pulling out to pass me. I drop my own battle (attack or
   // defence) and give it the side it is going for, until it is by.
   let yieldTo: Near | null = null;
@@ -317,10 +412,29 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     const want = lapping ? 1 : drv.aggression * 0.15 + Math.max(0, faster) * 0.8 + (closing > 1 ? 0.3 : 0) + TOW_URGE * depth.tow;
     // (Not into a corner: a class quicker car may go anywhere it has room, or on a twisty track
     // there's almost nowhere it can start.)
-    if (close && (lapping || toCorner > 60) && me.rng.next() < want) {
-      // Prefer the inside of the next corner, else the other side, if there's room.
+    // Room for another car into the corner (phase B): the target, me, every car already beside
+    // it, and every car already committed to passing it. A slow corner or a chicane takes two
+    // (Monza T4/T5, four cars into it: the third and fourth only made contact). A class quicker
+    // car goes by anywhere.
+    const full = !lapping && contesting(front) > cornerRoom(corner, lim);
+    const go = close && (lapping || toCorner > 60) && me.rng.next() < want;
+    if (go && full) {
+      choice = { role: 'attack', other: front.j, kind: 'hold', corner: ci };
+    } else if (go) {
+      // The plan (phase B, a mixed strategy so the move can't be read): inside, outside, or the
+      // dummy. A high racecraft driver leans against what this defender has covered before.
       const inside = corner ? corner.dir : 1;
-      for (const side of [inside, -inside]) {
+      const seen = seenOf(cr, front.j).cover;
+      const n = seen.inside + seen.outside + seen.line + 3;
+      const lean = (share: number) => exp(-READ_GAIN * drv.racecraft * (share - 1 / 3));
+      const plan = lapping ? 'inside' : pick<AttackPlan>({
+        inside: (0.6 + 0.4 * drv.aggression) * lean((seen.inside + 1) / n),
+        outside: (0.3 + 0.3 * (1 - drv.aggression)) * lean((seen.outside + 1) / n),
+        dummy: 0.35 * drv.racecraft * lean((seen.inside + 1) / n),
+      }, me.rng.next());
+      // Outside first for the outside plan; the dummy shows the inside and switches.
+      const first = plan === 'outside' ? -inside : inside;
+      for (const side of [first, -first]) {
         // The inside is open if the leader isn't covering it (the racing line approaches from
         // the outside, so usually it is); the outside needs room beside the leader now. (The
         // inside check was `side·lim − side·d`, which for a right-hander is d − lim: never
@@ -335,6 +449,8 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
         cr.corner = ci;
         cr.commit = lapping;
         cr.swapped = false;
+        cr.plan = side === first ? plan : side === inside ? 'inside' : 'outside';
+        choice = { role: 'attack', other: front.j, kind: cr.plan, corner: ci };
         break;
       }
     }
@@ -358,17 +474,44 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       // (the gap rule lets an attacker close tighter than a follower). Then one committed move
       // out: once the run would carry it alongside, or in the braking zone close enough to dive.
       if (!cr.commit) {
-        const run = o.gap - HIT_LEN < PULL_GAP + PULL_TIME * Math.max(0, st.v - o.v);
+        // Early enough to be clear sideways before reaching the leader's gearbox: from a deep tow
+        // at Monza the run is 7–8 m/s, and moving across a car's width takes over a second (rule 1:
+        // pulled out late, the attacker had to brake to the leader's speed beside it).
+        const clearTime = (HIT_W + 0.2 - Math.min(HIT_W + 0.2, Math.abs(o.dd))) / PULL_LATERAL + 0.3;
+        const run = o.gap - HIT_LEN < PULL_GAP + Math.max(PULL_TIME, clearTime) * Math.max(0, st.v - o.v);
         // Braking for the corner within PULL_LEAD s: pull out now, at the end of the straight,
         // while the inside line can still be taken at this speed (in the braking zone it can't,
         // and the attacker ended up braking in line with the leader).
         const brakingSoon = plans.envelope(ahead + st.v * PULL_LEAD, st.delta, depth.tow, depth.dirty) < st.v - 1;
-        if (run || (brakingSoon && o.gap < DIVE_GAP)) {
+        // No room for another car into the corner since the move began (a third car came
+        // alongside): stay in the tow.
+        const roomFor = classQuicker(me, cars[cr.other]) || ci !== cr.corner || contesting(o) <= cornerRoom(corner, lim);
+        if (roomFor && (run || (brakingSoon && o.gap < DIVE_GAP))) {
           // The leader's line swings across the road; if our side has no room, use the other.
           if ((!room(cr.side) || busy(cr.side)) && room(-cr.side) && !busy(-cr.side)) cr.side = -cr.side;
           // No slot on either side: stay in the tow and wait.
-          if (room(cr.side) && !busy(cr.side)) cr.commit = true;
+          if (room(cr.side) && !busy(cr.side)) {
+            cr.commit = true;
+            // The defender sees which side the move went for (reading the opponent).
+            if (corner) seenOf(cars[cr.other].craft, me.idx).attack[cr.side === corner.dir ? 'inside' : 'outside']++;
+          }
         }
+      }
+      // Committed but not yet level, and the corner has filled up (a car came alongside the
+      // target on the other side): back out, there's no room for three.
+      if (cr.commit && corner && ci === cr.corner && toCorner < DIVE_FROM && o.gap > ROOM_LEVEL && !classQuicker(me, cars[cr.other]) && contesting(o) > cornerRoom(corner, lim)) {
+        cr.mode = 'line';
+        cr.gaveUp = ci;
+        choice = { role: 'attack', other: cr.other, kind: 'hold', corner: ci };
+      }
+      // The dummy: shown one side, switch to the other once, just before braking, if it's open.
+      if (cr.commit && cr.plan === 'dummy' && !cr.swapped && corner && ci === cr.corner && o.gap > HIT_LEN && !braking &&
+        plans.envelope(ahead + st.v * DUMMY_LEAD, st.delta, depth.tow, depth.dirty) < st.v - 1 && room(-cr.side) && !busy(-cr.side)) {
+        const mem = seenOf(cars[cr.other].craft, me.idx).attack;
+        mem[cr.side === corner.dir ? 'inside' : 'outside']--;
+        cr.side = -cr.side;
+        cr.swapped = true;
+        mem[cr.side === corner.dir ? 'inside' : 'outside']++;
       }
       // A class quicker car goes by wherever there's road: while not yet alongside, if the
       // slower car's line has closed our side (it often runs on the edge), take the other.
@@ -387,8 +530,17 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
           cr.side = -cr.side;
           cr.swapped = true;
         } else {
-          cr.mode = 'line';
-          cr.gaveUp = ci;
+          // Back out, mostly. A brave driver with little racecraft sometimes keeps the move going
+          // into the gap that isn't there (once per corner, drawn when the door shuts).
+          if (cr.stayCorner !== ci) {
+            cr.stayCorner = ci;
+            cr.stay = me.rng.next() < STAY_RATE * drv.bravery * (1 - drv.racecraft);
+            if (cr.stay) choice = { role: 'attack', other: cr.other, kind: 'stay', corner: ci };
+          }
+          if (!cr.stay) {
+            cr.mode = 'line';
+            cr.gaveUp = ci;
+          }
         }
       }
       if (cr.mode !== 'attack') {
@@ -420,20 +572,39 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     // A class quicker car isn't a rival: hold the line and let it by.
     if (!classQuicker(threat, me) && (attacking || behind.v > st.v + 1.5) && behind.gap > -15 && me.rng.next() < drv.racecraft * 0.6) {
       cr.mode = 'defend';
-      cr.side = corner.dir;
       cr.corner = ci;
       cr.other = behind.j;
+      // The cover (phase B, a mixed strategy): the inside, the side the attacker shows, or the
+      // line to protect the exit; early, or late (just before braking, still legal). A high
+      // racecraft driver leans toward the side this attacker has gone for before.
+      const seen = seenOf(cr, behind.j).attack;
+      const pIn = (seen.inside + 1) / (seen.inside + seen.outside + 2);
+      const lean = exp(READ_GAIN * drv.racecraft * (pIn - 0.5));
+      cr.cover = pick<Cover>({ inside: (0.5 + 0.3 * drv.aggression) * lean, mirror: (0.25 + 0.35 * drv.racecraft) / lean, line: 0.25 }, me.rng.next());
+      cr.late = cr.cover !== 'line' && me.rng.next() < 0.2 + 0.4 * drv.aggression * drv.racecraft;
+      cr.moved = false;
+      cr.side = 0;
+      choice = { role: 'defend', other: behind.j, kind: cr.cover + (cr.late ? '-late' : ''), corner: ci };
     }
     cr.defendedCorner = ci; // the decision (either way) is made once per corner
   }
   if (cr.mode === 'defend') {
     if (ci !== cr.corner) cr.mode = 'line';
     else {
+      // The move: now, or (late) once braking is LATE_LEAD s away. Mirror covers the side the
+      // attacker shows then (in line behind: the inside).
+      if (!cr.moved && !braking && (!cr.late || plans.envelope(ahead + st.v * LATE_LEAD, st.delta, depth.tow, depth.dirty) < st.v - 1)) {
+        cr.moved = true;
+        const a = near.find((o) => o.j === cr.other);
+        cr.side = cr.cover === 'line' ? 0 : cr.cover === 'mirror' && a && Math.abs(a.dd) > 1.2 ? Math.sign(a.dd) : corner!.dir;
+        // The attacker sees which side was covered (reading the opponent).
+        seenOf(cars[cr.other].craft, me.idx).cover[cr.side === 0 ? 'line' : cr.side === corner!.dir ? 'inside' : 'outside']++;
+      }
       // One move, made before braking. Under braking, no more moving across: follow the line
       // from where the move left us (at Monza T5 a late cover swung 7 m across under braking,
       // into a car already committed to the inside).
       if (braking && Number.isNaN(cr.hold)) cr.hold = st.delta;
-      wantDelta = Number.isNaN(cr.hold) ? clamp(cr.side * (lim - 1), -lim, lim) - lineD : cr.hold;
+      wantDelta = !Number.isNaN(cr.hold) ? cr.hold : cr.moved && cr.side !== 0 ? clamp(cr.side * (lim - 1), -lim, lim) - lineD : 0;
     }
   }
   if (cr.mode !== 'defend') cr.hold = NaN;
@@ -451,6 +622,53 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const owed = owedRoom(near, corner, toCorner);
   // --- Side by side into a corner: whoever is on the inside keeps the inside line.
   if (cr.mode === 'line' && corner && toCorner < 150 && anyAlongside && allOutside) wantDelta = st.delta;
+
+  // --- Rule 5: a battle just ahead (a committed pass, or two cars side by side) brakes early and
+  // unevenly. A car following it into a corner keeps its place across the road (the whole road
+  // is in use, not one line) and brakes with a wider margin.
+  // Only a car in line behind (not one pulled out beside the train: holding its place there and
+  // braking early made it give up its tow on the straight, Monza T1), and only with braking
+  // for the corner close.
+  let battle = false;
+  const inLine = !!front && Math.abs(front.dd) < HIT_W;
+  if (cr.mode === 'line' && !ctx.neutral && corner && toCorner < 200 && inLine && plans.envelope(ahead + st.v * 1.5, st.delta, depth.tow, depth.dirty) < st.v - 1) {
+    for (const o of near) {
+      if (o.gap <= HIT_LEN || o.gap > BATTLE_RANGE || !o.racing) continue;
+      const c = cars[o.j].craft;
+      if ((c.mode === 'attack' && c.commit) || near.some((x) => x.j !== o.j && x.gap > HIT_LEN && Math.abs(x.gap - o.gap) < ALONGSIDE && Math.abs(x.d - o.d) > 1.2)) { battle = true; break; }
+    }
+    if (battle && anyAlongside === false) wantDelta = st.delta;
+  }
+
+  // --- Rule 3, for every car (an attacker diving on the car ahead too): under braking, no move
+  // toward a car pulled out close behind me on that side (Monza T5: a car diving on the car in
+  // front moved 1 m across into the one pulled out behind it). Following the line is not a move.
+  // From half a second before braking: a move started then is still going under braking (the
+  // car can't stop moving across at once).
+  if ((braking || plans.envelope(ahead + st.v * 0.5, st.delta, depth.tow, depth.dirty) < st.v - 1) && !ctx.neutral && avoid.hazard < 0) {
+    for (const o of near) {
+      if (o.gap >= 0 || o.gap < -12 || Math.abs(o.dd) < 1 || Math.abs(o.dd) > 4 || o.v < 10) continue;
+      if ((wantDelta - st.delta) * Math.sign(o.dd) > 0) wantDelta = st.delta;
+    }
+  }
+
+  // --- Exit room: a car level beside me on the outside of the exit (its centre no more than
+  // ROOM_LEVEL behind mine) is owed room to the end of the exit; a car further back isn't (it
+  // backs out, and if it runs out of road that's its own off).
+  let exitRoom = -1;
+  {
+    const L = lanes.track.length;
+    let exitOut = 0;
+    for (const c of ctx.corners) {
+      const past = (((st.s - c.apex * lanes.track.ds) % L) + L) % L;
+      if (past < EXIT_LEN) { exitOut = -c.dir; break; }
+    }
+    let best = Infinity;
+    if (exitOut !== 0) for (const o of near) {
+      if (Math.abs(o.gap) >= ALONGSIDE || Math.abs(o.dd) < 1.2 || Math.sign(o.dd) !== exitOut || o.gap < -ROOM_LEVEL || o.v < 10) continue;
+      if (Math.abs(o.dd) < best) { best = Math.abs(o.dd); exitRoom = o.j; }
+    }
+  }
   if (avoid.hazard >= 0) wantDelta = avoidSlowCar(view, near, wantDelta).delta;
 
   // Only in the braking zone (the envelope asks to slow down) and before the turn-in: the car
@@ -462,13 +680,16 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const braveNow = brave > 1 && vEnv < st.v && toCorner > 30;
   if (braveNow) vEnv = Math.min(st.v, vEnv * brave);
   if (cr.mode !== 'attack') cr.commit = false;
-  const tc = trafficControls(view, near, wantDelta, vEnv, undefined, { ...(cr.mode === 'attack' ? relax : {}), ...(owed >= 0 ? { yieldTo: owed } : {}) });
+  const tc = trafficControls(view, near, wantDelta, vEnv, battle ? BATTLE_BRAKE : undefined, { ...(cr.mode === 'attack' ? relax : {}), ...(owed >= 0 ? { yieldTo: owed } : {}), ...(exitRoom >= 0 ? { exitRoom } : {}) });
   // Moving across the road: respect the speed of the lane we're heading for too, so a car isn't
   // carried onto a tighter line faster than it can take it.
   let vLane = plans.envelope(ahead, tc.ctl.deltaTarget, depth.tow, depth.dirty);
   if (braveNow) vLane = Math.min(st.v, vLane * brave);
+  // A lane that's only capping top speed (no braking in it for the next second) isn't a limit
+  // on speed carried from a tow (rule 1; see vEnv above).
+  if (flatOut(me, tc.ctl.deltaTarget, depth, ahead)) vLane = Math.max(vLane, st.v);
   const ctl = { ...tc.ctl, vTarget: Math.min(tc.ctl.vTarget, vLane), effects, ...(cr.mode === 'attack' && cr.commit ? { lateralSpeed: COMMIT_LATERAL } : {}) };
-  return { ctl, following: tc.following, mistake: started };
+  return { ctl, following: tc.following, mistake: started, ...(choice ? { choice } : {}) };
 }
 
 /** How far behind mine (m, centre to centre) a car on my inside can be and still have earned the corner: front wheels about level with my mirrors. */
@@ -492,6 +713,16 @@ export function owedRoom(near: Near[], corner: Corner | null, toCorner: number):
 }
 
 /**
+ * Whether lane `delta`'s plan is flat for the next second (no braking in it): only its top speed,
+ * which a car carrying speed from a tow may be over without needing to slow down.
+ */
+function flatOut(me: CraftCar, delta: number, depth: { tow: number; dirty: number }, ahead: number): boolean {
+  const env = (s: number) => me.plans.envelope(s, delta, depth.tow, depth.dirty);
+  const now = env(ahead);
+  return env(ahead + me.st.v * 0.5) >= now - 0.5 && env(ahead + me.st.v) >= now - 0.5;
+}
+
+/**
  * A driver doesn't steer onto a lane it can't take at its current speed: at the cornering limit
  * there is no grip left to slow down, so tightening the line mid-corner would only slide. Moves
  * the wanted offset back toward the current one until the lane's braking envelope (just ahead
@@ -508,7 +739,10 @@ function feasibleDelta(me: CraftCar, want: number, depth: { tow: number; dirty: 
   // braking zone (the pack into T1 on lap 1, a defender) doubled the spins and contacts.
   const cap = (s: number) => (againstLane ? Math.min(st.v, env(s, st.delta)) : st.v);
   const need = [slack * cap(ahead), slack * cap(later)];
-  const ok = (delta: number) => env(ahead, delta) >= need[0] && env(later, delta) >= need[1];
+  // A lane with no braking in it for the next second can be taken at any speed the car has
+  // (speed carried from a tow is over its plan's top speed, which made every lane look too fast
+  // to take: the attacker could hardly pull out, Monza, phase B).
+  const ok = (delta: number) => flatOut(me, delta, depth, ahead) || (env(ahead, delta) >= need[0] && env(later, delta) >= need[1]);
   if (ok(want)) return want;
   for (let f = 0.75; f > 0; f -= 0.25) {
     const d = st.delta + (want - st.delta) * f;

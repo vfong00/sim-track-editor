@@ -76,7 +76,15 @@ export interface GapRuleRelax {
    * line to the apex crosses its path), so I tuck in behind it instead of turning in on it.
    */
   yieldTo?: number;
+  /**
+   * Exit room (phase B): a car level beside me on the outside of the corner exit. I keep
+   * EXIT_MARGIN more spacing from it and look further ahead for it, instead of running out to the
+   * edge on top of it.
+   */
+  exitRoom?: number;
 }
+/** Extra side spacing (m) for a car owed exit room. */
+export const EXIT_MARGIN = 0.4;
 /** Nose-to-tail margin (m) an attacker keeps while closing up in the tow. */
 export const TOW_ROOM = 1.5;
 
@@ -111,12 +119,17 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     const oS = st.s + o.gap;
     const driving = o.v >= Math.max(6, 0.5 * st.v) && Math.abs(o.d) <= lanes.lim;
     const oAhead = driving ? clamp(lanes.lineD(oS + o.v * SIDE_LOOK) + o.d - lanes.lineD(oS), -lanes.lim, lanes.lim) : o.d;
+    // Owed exit room: more spacing, and judged where both will be twice as far on as well.
+    const owed = o.j === relax.exitRoom;
+    const gapO = owed ? SIDE_GAP + EXIT_MARGIN : SIDE_GAP;
+    const far = owed && driving ? clamp(lanes.lineD(oS + o.v * 2 * SIDE_LOOK) + o.d - lanes.lineD(oS), -lanes.lim, lanes.lim) : oAhead;
+    const lineFar = owed ? lanes.lineD(st.s + st.v * 2 * SIDE_LOOK) : lineAhead;
     if (o.dd > 0) {
-      if (o.d - SIDE_GAP - lineD < hi) { hi = o.d - SIDE_GAP - lineD; hiBy = by; }
-      hiAim = Math.min(hiAim, o.d - SIDE_GAP - lineD, oAhead - SIDE_GAP - lineAhead);
+      if (o.d - gapO - lineD < hi) { hi = o.d - gapO - lineD; hiBy = by; }
+      hiAim = Math.min(hiAim, o.d - gapO - lineD, oAhead - gapO - lineAhead, far - gapO - lineFar);
     } else {
-      if (o.d + SIDE_GAP - lineD > lo) { lo = o.d + SIDE_GAP - lineD; loBy = by; }
-      loAim = Math.max(loAim, o.d + SIDE_GAP - lineD, oAhead + SIDE_GAP - lineAhead);
+      if (o.d + gapO - lineD > lo) { lo = o.d + gapO - lineD; loBy = by; }
+      loAim = Math.max(loAim, o.d + gapO - lineD, oAhead + gapO - lineAhead, far + gapO - lineFar);
     }
   }
   // Aim within the road, but side spacing wins: a car squeezed onto the grass stays there until

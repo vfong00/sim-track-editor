@@ -1,19 +1,25 @@
 # Handoff: next session
 
-Work on the `racing-sim` branch in `racing-sim/`. Phases 0–7 are done (7 as a CLI), plus the work in
+Work on `main` in `racing-sim/` (the old `racing-sim` branch is merged and gone). Fetch first:
+the user works from two computers. Phases 0–7 are done (7 as a CLI), plus the work in
 `docs/PLAN.md` → **Feature map** → "Done since Phase 6". The same section lists what is next.
 
-**Next: the racing sprint**, phases A–I in `docs/PLAN.md` → Feature map → "Next: the racing
+**Next: phase C of the racing sprint** (A and B are done), phases A–I in `docs/PLAN.md` → Feature map → "Next: the racing
 sprint". They run in order: each one changes what the next one tunes against.
 
 ## Sprint loop (every phase)
 
-1. **Design note first** (for B, D, E and G especially): what changes and how it's measured.
-   The user agrees it before any code.
-2. **Build**, iterating on a few seeds.
+The user's order for each phase (agreed 2026-11-24):
+
+1. **Open with one message**, then wait for the user's go:
+   - checks failing or pinned and bugs left from earlier phases that this phase should fix;
+   - the high-level design for this phase: what changes and how it's measured;
+   - race moments for the user to adjudicate (scenario, seed, time, cars, the question), the
+     ones whose answer changes the design. Find real ones in the watch set where you can.
+2. **Build** on the user's go, iterating on a few seeds.
 3. **Measure** with `batch` against the last phase's baselines.
-4. **Watch list** for the user: scenario, timestamp, what to look for. Required, not extra:
-   the user watching races as a marshal catches what the numbers miss.
+4. **Watch list** for the user: scenario, timestamp, what to look for. The user's testing is
+   optional, but the list is required: watching races as a marshal catches what the numbers miss.
 5. **Tests, full suite once**, re-save baselines if the user agrees, then one commit for the
    phase (only when the user asks). Tests come in three kinds:
    - invariants (determinism, no NaNs, sectors add up, wreck avoidance): keep them as they are;
@@ -38,26 +44,77 @@ its goal and scope from `docs/PLAN.md`, what the last phase left open, the files
 from, and what done looks like. Keep it to about 15 lines and point to this file and the plan
 rather than copying them.
 
-> Racing sprint, phase B (racecraft decisions). Read `racing-sim/docs/HANDOFF.md` (rules, sprint
-> loop, "Phase A: what landed") and phase B in the sprint section of `racing-sim/docs/PLAN.md`.
+> Racing sprint, phase C (starts and lap 1). Read `racing-sim/docs/HANDOFF.md` (rules 1–7,
+> sprint loop, "Phase B: what landed") and phase C in the sprint section of `racing-sim/docs/PLAN.md`.
 >
-> Start with the design note (sprint loop step 1) and get the user's agreement before code: the
-> mixed strategy for defender and attacker, reading the opponent, and rule 5 (cars behind a
-> battle). Say how each is measured: variety of choices per driver, contacts and passes in `batch`.
+> Open with one message (sprint loop step 1) and wait for the user's go: fixes from B you want
+> to make, the design (lights out, reaction and launch, cars keeping their grid side to T1,
+> restarts, car size per preset), and real lap-1 moments for the user to adjudicate.
 >
-> Open from phase A, to settle in the note:
-> - Rule 3 check (`tests/racecraft-rules.test.ts`) is pinned at 5 violations a race (16 in 4 Yas
->   races); B is to bring it to none. Some may be a defender held on the road edge while the line
->   moves under it; look at the listed moments first.
-> - The Monza exit squeeze: alongside through a chicane, the car on the outside of the exit gets
->   run onto the grass (rule 2 covers turn-in only). Ask the user whether exit room is a rule.
-> - The dirty-air check fails (committed so): dirty air hardly holds a faster car up since A.
->   Numbers under "Phase A: what landed".
-> - Incidents: compare with `batch` against the baselines the user chose at the end of A.
+> Open from phase B:
+> - Lap 1 is now most of the contact: lap-1 contacts are 5.1 of 9.7 a race (F1 Monza), 5.1 of
+>   7.6 (F1 Yas), 18.4 of 34 (MX-5 Laguna). The rule checks start at lap 2, so lap 1 has none yet.
+> - Car size per preset changes `cornerRoom` (two or three wide) and the side spacing.
+> - Rule 1 is pinned at 15% of cases (Monza): an attacker pulls out to a side the defender's line
+>   then closes, and gives the move up. A side-choice fix, maybe with D's corner lines.
+> - Re-pick the seeds in `tests/effects.test.ts` and `tests/view-at.test.ts` if races change.
 >
-> Files: `src/core/agents/racecraft.ts`, `src/core/agents/controller.ts`. Time-box measuring
-> (memory: plan test depth first). Done: the agreed note built, rule checks for every new rule,
-> a watch list, the full suite passing, and the phase C kickoff written here.
+> Files: `src/core/race/race.ts` (grid, start), `src/core/agents/racecraft.ts`. Baselines to
+> compare against: `baselines/phase-a/` (16 seeds) unless the user re-saves them for B. Done: the
+> agreed design built, a lap-1 rule check, a watch list, the full suite passing, and the phase D
+> kickoff written here.
+
+## Phase B: what landed (2026-11-26)
+
+Measured against Phase A batches saved for the watch set at 16 seeds (`baselines/phase-a/`,
+from 61f0087; the official `baselines/*.json` are unchanged). All paired by seed.
+
+- **Mixed strategy** (`racecraft.ts`): an attacker picks a plan by weight (`inside`, `outside`,
+  `dummy`: show the inside, switch once within `DUMMY_LEAD` of braking); a defender picks a cover
+  (`inside`, `mirror` the side shown, `line` to protect the exit) and early or late (within
+  `LATE_LEAD` of braking, still legal). Aggression and racecraft shape the weights.
+- **Reading the opponent**: each driver remembers each rival's covers and attack sides
+  (`Craft.memory`); high racecraft leans against the habit (`READ_GAIN`).
+- **Backing out**: when the door shuts, a brave, low-racecraft driver sometimes stays in the
+  gap (`STAY_RATE`); otherwise it gives the move up as before.
+- **Corner capacity** (rule 7, `cornerRoom`): no move into a corner that would make one car too
+  many, checked when the move starts, at the pull-out, and while committed but not yet level.
+- **Rule 3 for every car**, from half a second before braking (a move started then is still
+  going under braking). **Exit room** (rule 6, `GapRuleRelax.exitRoom`, `EXIT_MARGIN`).
+  **Rule 5**: a car in line behind a battle near a braking zone holds its place across the road
+  and brakes with `BATTLE_BRAKE` of its braking.
+- **Squeeze blame**: a squeeze off the road is the squeezer's fault only if the squeezed car was
+  level (`lastTouchLevel`); else "X runs out of room beside Y". `RaceEvent.blame` records it.
+- **Tow speed kept** (rule 1 bug, found by the extended check): a car over its plan's top speed
+  from a tow braked down to it on pulling out, and `feasibleDelta` thought every lane too fast to
+  take, so pull-outs crawled. A lane with no braking in it for the next second (`flatOut`) no
+  longer limits speed. Pull-outs also start early enough to clear sideways (`PULL_LATERAL`).
+- **Decision log**: `Race.decisions` (`DecisionLog`); `batch` prints each driver's choices and a
+  variety score (normalised entropy of plans and covers; F1 drivers 0.8–0.95). Viewer: the
+  follow panel's Racecraft row shows the latest decision for 6 s (`RaceAt.decision`,
+  `decisionText`).
+- **Viewer fix**: a car steering back onto the road was drawn drifting into the corner it left.
+
+Batch, 16 seeds, Phase A → Phase B:
+
+| Scenario | Passes | Contacts | Lap-1 contacts | Incidents | DNFs |
+|---|---|---|---|---|---|
+| F1 Monza | 127.5 → 115.8 | 18.8 → 9.7 | 7.9 → 5.1 | 20.0 → 10.5 | 0.50 → 0.88 |
+| F1 Yas | 66.4 → 63.3 | 13.6 → 7.6 | 10.5 → 5.1 | 10.7 → 7.9 | 0.44 → 0.13 |
+| GT3 Laguna | 44.4 → 35.1 | 10.4 → 3.5 | 7.7 → 2.2 | 9.7 → 5.4 | 0.44 → 0.19 |
+| MX-5 Laguna | 192.4 → 187.4 | 45.9 → 34.0 | 22.4 → 18.4 | 33.1 → 27.9 | 1.56 → 1.88 |
+| Safety car Yas | 34.4 → 24.1 | 8.6 → 6.9 | 6.5 → 5.6 | 8.6 → 5.3 | 0.25 → 0.13 |
+
+Rule checks (`RULE_SEEDS=16`, F1 at Yas and Monza, 32 races), Phase A → B: rule 3 12 → 0; rule 2
+15 of 938 → 2 of 818; rule 1 27 of 265 → 15 of 208; exit room 0 → 0; capacity 22 → 1; rule 5 7
+of 2694 → 2 of 1907. Check changes, all agreed or explained to the user: rule 3 counts a move on
+the road as well as against the line (the line moving under a car isn't a move); rule 1 counts
+lifting (from `pedals`), not slowing, and not a car queued in its own lane or braking for its
+own lane's corner; Monza added to all of them. Dirty air holds again: held-up races 10 with it,
+5 without (16 seeds × 3 gaps), so its assertion is back, counted in races.
+
+Seeds re-picked because the races changed: `tests/effects.test.ts` (6), `tests/view-at.test.ts` (44),
+the kerb-spin check in `tests/racecraft-rules.test.ts` (3 and 4).
 
 ## Phase A: what landed (2026-11-24)
 
@@ -99,10 +156,21 @@ rather than copying them.
 1. An attacker carries the most speed it can and never gives up its tow while pulling out.
 2. Overlap at turn-in decides who gets the corner. Overlap only counts if the defender had
    time to see it.
-3. The defender gets one move before braking. No moving back, no moving under braking.
+3. The defender gets one move before braking. No moving back, no moving under braking. This
+   binds any car with an attacker pulled out beside it, including one that is itself diving on
+   the car ahead (phase B). Following the racing line is not a move.
 4. The attacker is only entitled to the other side. Braking early can be right, to set up the
    exit or keep the tow.
 5. Cars behind a battle expect early, uneven braking and use the whole width of the road.
+6. Exit room (phase B, from the user's Monza rulings): a car level at the apex (its centre no
+   more than `ROOM_LEVEL` behind) is owed room to the end of the exit. A car further back
+   isn't: if it runs out of road, that's its own off (Monza T9: Fontaine ahead the whole way,
+   Bianchi not entitled). Squeeze contacts carry `blame` on the event accordingly.
+7. Corner capacity (phase B): a slow corner or chicane takes two cars side by side, a faster
+   one up to three (`cornerRoom`). Don't start, or keep, a move that would make one too many
+   (Monza T4/T5 with four cars contesting it: the attacks never made sense when the outside was
+   open). Multi-car corners are where the two-car rules break down; the user judges these by
+   who is really wheel to wheel with whom.
 
 The rules exist for safety and feasibility. Three wide is the same rule as two wide: is there
 room for it? Within the rules, choices are a mixed strategy (phase B), not one fixed move. Check
@@ -124,8 +192,10 @@ npm on this Mac: Artifactory may be unreachable. Install with
   take `preset` and override any field.
 - **Racing line** (`src/core/track/line.ts`): minimum curvature, coarse to fine. Lanes
   (`src/core/race/lanes.ts`) are the line shifted sideways, eased off the road edge.
-- **Racecraft** (`src/core/agents/racecraft.ts`): attack, dive for the inside (`DIVE_FROM`),
-  defend, slipstream (`WAKE_RANGE` or `WAKE_TIME` back) and dirty air (`DIRTY_RANGE`).
+- **Racecraft** (`src/core/agents/racecraft.ts`): attack (plans `inside` / `outside` / `dummy`),
+  dive for the inside (`DIVE_FROM`), defend (covers `inside` / `mirror` / `line`, early or late),
+  rival memory, corner capacity, exit room, slipstream (`WAKE_RANGE` or `WAKE_TIME` back) and
+  dirty air (`DIRTY_RANGE`). Decisions are logged in `Race.decisions`.
 - **Drivers**: the fixed roster (`src/core/agents/roster.ts`), 30 drivers named A–Z by overall ability (M and N mid-pack; A, M, R and W have two);
   a test keeps the order. Scenarios use speed / consistency / risk (`driverFromRatings`).
   `pace` is the limit (qualifying); races run at `racePace` (a margin set by consistency) via
@@ -158,6 +228,9 @@ npm on this Mac: Artifactory may be unreachable. Install with
 ## Known soft spots
 
 - A 6%-faster car sometimes spins after contact on a late dive instead of passing.
+- Rule 1 at Monza (phase B): an attacker sometimes pulls out to a side the defender's line then
+  closes (on a curving straight), finds no room and gives the move up, lifting beside the
+  defender. Pinned at 15% of cases in `tests/racecraft-rules.test.ts`.
 - Overtaking: late lunges are rare and capped, and on a corner exit nobody owns their lane (a car
   alongside gets edged out and lifts). Causes and fixes in `docs/PLAN.md` → "Overtaking bugs".
 - Many Phase 4 checks use 4–8 seeds and sit near their thresholds. Use the batch runner
