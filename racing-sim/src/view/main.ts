@@ -921,17 +921,35 @@ function toggleSpoilers() {
   syncViewOpts();
 }
 
+/** The build version at the top right (remembered; on by default). */
+declare const __VERSION__: string;
+let showVersion = localStorage.getItem('racing-sim.version') !== '0';
+function syncVersion() {
+  const el = $('version');
+  el.textContent = typeof __VERSION__ === 'string' ? __VERSION__ : '';
+  el.title = 'Build: last commit and its date';
+  el.hidden = !showVersion;
+}
+function toggleVersion() {
+  showVersion = !showVersion;
+  localStorage.setItem('racing-sim.version', showVersion ? '1' : '0');
+  syncVersion();
+  syncViewOpts();
+}
+syncVersion();
+
 function toggleNames() {
   showNames = !showNames;
   syncViewOpts();
 }
 
 /** What the ⚙ menu can show or hide, with each one's key (the key handler above must match). */
-const VIEW_OPTS: { id: string; label: string; key: string; title: string; on: () => boolean; toggle: () => void }[] = [
+const VIEW_OPTS: { id: string; label: string; key?: string; title: string; on: () => boolean; toggle: () => void }[] = [
   { id: 'line', label: 'Racing line', key: 'l', title: 'The racing line, dashed on the track', on: () => showLine, toggle: toggleLine },
   { id: 'names', label: 'Names', key: 'n', title: 'Driver names over the cars', on: () => showNames, toggle: toggleNames },
   { id: 'inputs', label: 'Inputs', key: 'i', title: 'Throttle and brake on the speed trace, worked out from the car\'s speed', on: () => showInputs, toggle: toggleInputs },
   { id: 'spoilers', label: 'Spoilers', key: 's', title: 'Show every event of the race in the feed and on the timeline, not just what you have watched', on: () => showSpoilers, toggle: toggleSpoilers },
+  { id: 'version', label: 'Version', title: 'The build (last commit and its date) at the top right', on: () => showVersion, toggle: toggleVersion },
   { id: 'curv', label: 'Curvature colours', key: 'k', title: 'Debug view: colour the track edges by curvature, green straight to red tight, instead of kerbs', on: () => showCurvature, toggle: toggleCurvature },
 ];
 /** Every other keyboard shortcut, for the ⚙ menu (the key handler above must match). */
@@ -952,7 +970,7 @@ const KEYS: [string[], string][] = [
 
 function buildViewMenu() {
   $('viewOpts').innerHTML = VIEW_OPTS.map((o) =>
-    `<button data-opt="${o.id}" role="menuitemcheckbox" title="${o.title} (${o.key})"><span class="ck">✓</span><span class="lb">${o.label}</span><kbd>${o.key}</kbd></button>`).join('');
+    `<button data-opt="${o.id}" role="menuitemcheckbox" title="${o.title}${o.key ? ` (${o.key})` : ''}"><span class="ck">✓</span><span class="lb">${o.label}</span>${o.key ? `<kbd>${o.key}</kbd>` : ''}</button>`).join('');
   $('viewKeys').innerHTML = KEYS.map(([ks, d]) => `<span class="k">${ks.map((k) => `<kbd>${k}</kbd>`).join('')}</span><span class="d">${d}</span>`).join('');
   // A toggle leaves the menu open, so several can be flipped in one go.
   $('viewOpts').addEventListener('click', (e) => {

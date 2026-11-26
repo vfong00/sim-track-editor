@@ -16,6 +16,7 @@
       .grp button { border-radius: 0; }
       .grp button:first-child { border-radius: 4px 0 0 4px; }
       .grp button:last-child { border-radius: 0 4px 4px 0; }
+      #version { pointer-events: none; opacity: .5; white-space: nowrap; font-size: 11px; margin-left: 8px; font-variant-numeric: tabular-nums; }
       #info { pointer-events: none !important; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
       #bar > * { pointer-events: auto; }
       .menu { position: relative; }
@@ -201,6 +202,7 @@
       <button id="close" hidden>Close loop</button>
       <button id="backRace" hidden title="Back to the race, where you left it">◀ Back to race</button>
       <span id="info"></span>
+      <span id="version"></span>
     </div>
     <div id="tower" class="panel"></div>
     <div id="hud" class="panel"><div id="hud-live"></div><div id="hud-stats"></div></div>
