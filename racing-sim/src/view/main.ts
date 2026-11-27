@@ -447,10 +447,7 @@ function craftTag(mode: string, finished: boolean): string {
 }
 
 const FEED_TYPES = new Set(['start', 'jump', 'pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'cleared', 'grip', 'safety-car']);
-const FEED_MAX = 40;
 let feedKey = '';
-/** Events ahead of the replay the feed shows (watched before, or spoilers), nearest first. */
-const FEED_AHEAD = 10;
 /**
  * Event feed: passes, mistakes, contact and incidents up to the viewer clock, newest first. An
  * off is shown until its rejoin line ("off at T5, rejoins P9") replaces it.
@@ -470,15 +467,26 @@ function renderFeed(s: Session) {
   const key = `${evs.length}/${rejoined.size}/${ahead}`;
   if (key === feedKey) return;
   feedKey = key;
-  // Around the replay: the next few events ahead (greyed), then the latest ones behind it.
-  const nextUp = evs.filter((e) => e.t > s.clock).slice(0, FEED_AHEAD);
-  const behind = evs.filter((e) => e.t <= s.clock);
-  const shown = [...behind.slice(-(FEED_MAX - nextUp.length)), ...nextUp];
-  const rows = shown.reverse().map((e) =>
-    `<div class="ev ${e.type}${e.t > s.clock ? ' ahead' : ''}" data-i="${e.cars[0] ?? ''}" data-t="${e.t}" title="Click: watch this moment"><span class="tm">L${e.lap} ${fmtTime(e.t)}</span><span class="tx">${e.text}</span></div>`).join('');
+  // Every event watched so far (with spoilers, the race so far computed), ahead of the replay
+  // greyed. The feed scrolls; it keeps the replay's latest event in view unless the user has
+  // scrolled away from it to read.
+  const nowK = evs.reduce((k, e, j) => (e.t <= s.clock ? j : k), -1);
+  const shown = evs.map((e, j) => ({ e, now: j === nowK }));
+  if (!feedOldest) shown.reverse();
+  const rows = shown.map(({ e, now }) =>
+    `<div class="ev ${e.type}${e.t > s.clock ? ' ahead' : ''}${now ? ' now' : ''}" data-i="${e.cars[0] ?? ''}" data-t="${e.t}" title="Click: watch this moment"><span class="tm">L${e.lap} ${fmtTime(e.t)}</span><span class="tx">${e.text}</span></div>`).join('');
   const dnf = evs.filter((e) => e.t <= s.clock && (e.type === 'crash' || e.type === 'retire')).length;
+  const top = feed.scrollTop;
   feed.innerHTML = `<div class="hd">Race events · ${evs.filter((e) => e.t <= s.clock && e.type === 'pass').length} passes${dnf ? ` · ${dnf} DNF` : ''}</div>${rows || '<div class="ev"><span></span><span class="tm">Nothing yet</span></div>'}`;
+  const now = feed.querySelector('.ev.now') as HTMLElement | null;
+  if (feedFollow && now) {
+    // Keep the latest event in view with two rows of what comes next: below it oldest first, above it newest first.
+    const h = now.offsetHeight;
+    feed.scrollTop = Math.max(0, feedOldest ? now.offsetTop + 3 * h - feed.clientHeight : now.offsetTop - 2 * h);
+  } else feed.scrollTop = top;
 }
+/** The feed follows the replay until the user scrolls it away from the latest event (scrolling back to it resumes). */
+let feedFollow = true;
 
 function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
   const c = s.race.cars[i];
@@ -497,11 +505,12 @@ function renderHud(s: Session, at: RaceAt, i: number, v: number, pos: number) {
     ${racecraftRow(s, at, i)}
     ${damage > 0 ? `<div class="row"><span class="lbl">Damage</span><span>−${(damage * 100).toFixed(1)}% grip</span></div>` : ''}
     ${at.out(i) ? '<div class="row"><span class="lbl">Status</span><span style="color:#ff4d4d">Retired</span></div>' : ''}`;
-  renderStats(s, i);
+  renderStats(s, at, i);
 }
 
 /** The followed car's latest racecraft decision (phase B), for a few seconds after it's made. */
 function racecraftRow(s: Session, at: RaceAt, i: number): string {
+  if (!showCraft) return '';
   const d = at.decision(i);
   if (!d) return '';
   return `<div class="row"><span class="lbl">Racecraft</span><span class="craft" title="The driver's latest choice in a battle: attack plans and defensive covers are picked by weight (a mixed strategy), and a high racecraft driver leans against what this rival has done before.">${decisionText(d, (j) => s.race.name(j))}</span></div>`;
@@ -532,16 +541,24 @@ function idealRows(s: Session, at: RaceAt, i: number): string {
     const pct = `${(d.pace * 100).toFixed(1)}%`;
     return `<div class="row" title="Clean air at the limit, using ${pct} of the car's grip (their speed rating)"><span class="lbl">Ideal push lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>`;
   }
+  return '';
+}
+
+/** In a race, the ideal race lap: in the Driver & car section (shown when it's expanded). */
+function idealRaceRow(s: Session, at: RaceAt, i: number): string {
+  if (s.race.opts.session === 'qualifying') return '';
   const pct = `${(s.race.paceOf(s.race.cars[i].entrant) * 100).toFixed(1)}%`;
-  return `<div class="row" title="Clean air at race pace, using ${pct} of the car's grip (their speed rating less a race margin for consistency and bravery), with the grip and damage now. Tyre wear isn't in it yet."><span class="lbl">Ideal race lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>`;
+  return `<div class="sr" title="Clean air at race pace, using ${pct} of the car's grip (their speed rating less a race margin for consistency and bravery), with the grip and damage now. Tyre wear isn't in it yet."><span class="lbl">Ideal race lap</span><span>${fmtTime(at.plans(i).lapTime)}</span><span></span></div>`;
 }
 
 /** Driver ratings and car spec of the followed car, each ranked in the field (only re-rendered when it changes). */
 let statsKey = '';
 /** Driver and car stats: collapsed unless the user opened them (remembered; a new key, so the old default-open setting doesn't carry over). */
 let statsOpen = localStorage.getItem('racing-sim.statsOpen') === '1';
-function renderStats(s: Session, i: number) {
-  const key = `${i}/${statsOpen}`;
+function renderStats(s: Session, at: RaceAt, i: number) {
+  // The ideal race lap changes with grip and damage: part of the key.
+  const ideal = statsOpen ? idealRaceRow(s, at, i) : '';
+  const key = `${i}/${statsOpen}/${ideal}`;
   if (key === statsKey) return;
   statsKey = key;
   // Watching a qualifying run: rank against the race's field, not the one car on track.
@@ -553,7 +570,7 @@ function renderStats(s: Session, i: number) {
   hudStats.innerHTML = `<div class="st"><div class="tg" title="Show or hide the driver and car stats"><span>Driver &amp; car</span><span>${statsOpen ? '▾' : '▸'}</span></div>
     ${st.blurb.car === null ? `<div class="prof">${st.blurb.driver}</div>`
       : `<div class="prof"><span class="pl">Driver:</span> ${st.blurb.driver}</div><div class="prof"><span class="pl">Car:</span> ${st.blurb.car}</div>`}
-    ${statsOpen ? `<div class="sub">Driver</div>${rows(st.driver)}<div class="sub">Car</div>${rows(st.car)}` : ''}</div>`;
+    ${statsOpen ? `${ideal ? `<div class="sub">Pace</div>${ideal}` : ''}<div class="sub">Driver</div>${rows(st.driver)}<div class="sub">Car</div>${rows(st.car)}` : ''}</div>`;
 }
 
 let last = performance.now();
@@ -908,13 +925,21 @@ function buildControls() {
     if (!(e.target as HTMLElement).closest('.tg')) return;
     statsOpen = !statsOpen;
     localStorage.setItem('racing-sim.statsOpen', statsOpen ? '1' : '0');
-    if (S && followIdx >= 0) renderStats(S, followIdx);
+    if (S && followIdx >= 0) renderStats(S, new RaceAt(S.race, S.clock), followIdx);
+  });
+  feed.addEventListener('wheel', () => { feedFollow = false; }, { passive: true });
+  feed.addEventListener('touchmove', () => { feedFollow = false; }, { passive: true });
+  feed.addEventListener('scroll', () => {
+    // Back at the latest event: follow again.
+    const now = feed.querySelector('.ev.now') as HTMLElement | null;
+    if (now && now.offsetTop >= feed.scrollTop && now.offsetTop + now.offsetHeight <= feed.scrollTop + feed.clientHeight) feedFollow = true;
   });
   feed.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest('.ev') as HTMLElement | null;
     if (!row?.dataset.t) return;
     // Watch it again: a few seconds before it happened, following the car involved.
     if (row.dataset.i) pick(Number(row.dataset.i));
+    feedFollow = true;
     seek(Number(row.dataset.t) - 4);
   });
   addEventListener('resize', resize);
@@ -941,6 +966,23 @@ let showLine = localStorage.getItem('racing-sim.line') !== '0';
 function toggleLine() {
   showLine = !showLine;
   localStorage.setItem('racing-sim.line', showLine ? '1' : '0');
+  syncViewOpts();
+}
+
+/** The followed car's racecraft choices in its panel (remembered; off by default). */
+let showCraft = localStorage.getItem('racing-sim.craft') === '1';
+function toggleCraft() {
+  showCraft = !showCraft;
+  localStorage.setItem('racing-sim.craft', showCraft ? '1' : '0');
+  syncViewOpts();
+}
+/** Event feed order: oldest first (remembered; the default) or newest first. */
+let feedOldest = localStorage.getItem('racing-sim.feedOrder') !== 'newest';
+function toggleFeedOrder() {
+  feedOldest = !feedOldest;
+  localStorage.setItem('racing-sim.feedOrder', feedOldest ? 'oldest' : 'newest');
+  feedKey = '';
+  feedFollow = true;
   syncViewOpts();
 }
 
@@ -981,6 +1023,8 @@ const VIEW_OPTS: { id: string; label: string; key?: string; title: string; on: (
   { id: 'names', label: 'Names', key: 'n', title: 'Driver names over the cars', on: () => showNames, toggle: toggleNames },
   { id: 'inputs', label: 'Inputs', key: 'i', title: 'Throttle and brake on the speed trace, worked out from the car\'s speed', on: () => showInputs, toggle: toggleInputs },
   { id: 'spoilers', label: 'Spoilers', key: 's', title: 'Show every event of the race in the feed and on the timeline, not just what you have watched', on: () => showSpoilers, toggle: toggleSpoilers },
+  { id: 'craft', label: 'Racecraft choices', title: 'The followed driver\'s latest attack or defence choice in their panel', on: () => showCraft, toggle: toggleCraft },
+  { id: 'feedorder', label: 'Events oldest first', title: 'The event feed in race order (off: newest first)', on: () => feedOldest, toggle: toggleFeedOrder },
   { id: 'version', label: 'Version', title: 'The build (last commit and its date) at the top right', on: () => showVersion, toggle: toggleVersion },
   { id: 'curv', label: 'Curvature colours', key: 'k', title: 'Debug view: colour the track edges by curvature, green straight to red tight, instead of kerbs', on: () => showCurvature, toggle: toggleCurvature },
 ];
