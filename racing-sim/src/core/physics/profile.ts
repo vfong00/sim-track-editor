@@ -64,6 +64,8 @@ export function solveSpeedProfile(path: PathLike, model: CarModel, opts: Profile
     if (vj < v[j]) v[j] = vj;
   };
   const backward = (i: number, j: number) => {
+    // Braking (≥ 0) can only lower v[i] if the next node is slower: skip the rest.
+    if (v[j] >= v[i]) return;
     // Brake capacity depends on v[i] itself (drag, cornering load): two fixed-point rounds.
     const f = at(i);
     let est = Math.min(v[i], v[j]);
