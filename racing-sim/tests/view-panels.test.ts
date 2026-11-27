@@ -67,7 +67,10 @@ describe('follow panel stats', () => {
     expect(statRows(spec, 0).blurb.car).toBeNull();
     expect(st.driver.map((r) => `${r.label} ${r.value} · ${r.rank}`)).toEqual([
       'Pace 97.9% · 2nd of 3', 'Race pace 94.2% · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
-      'Racecraft 0.84 · 2nd of 3', 'Incident risk ×0.74 · 1st of 3',
+      'Racecraft 0.84 · 2nd of 3',
+      // No style given (a generated field): every dial neutral.
+      'Braking mid 0.50 · all equal', 'Line U–V 0.50 · all equal', 'Throttle mid 0.50 · all equal', 'Kerbs 0.50 · all equal',
+      'Incident risk ×0.74 · 1st of 3',
     ]);
     expect(st.car[0]).toMatchObject({ label: 'Top speed', value: '324 km/h', rank: '1st of 3' });
     expect(st.car[2].rank).toBe('all equal');

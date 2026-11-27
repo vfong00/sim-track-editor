@@ -1,5 +1,6 @@
 import { log } from '../fmath';
-import { Race, type RaceOptions, type RaceStats } from './race';
+import { HIT_LEN } from './lanes';
+import { FRAME_STRIDE, Race, type RaceOptions, type RaceStats, STATUS } from './race';
 
 /** Mean and standard error of the mean (0 with fewer than two samples). */
 export interface Spread {
@@ -79,6 +80,10 @@ export interface RunResult {
   incidents: number;
   /** Contacts while the leader was on lap 1 (the start and the first corners). */
   lap1Contacts: number;
+  /** Passes that weren't on a car that had just spun or gone off (phase D: the passing that is racing). */
+  racingPasses?: number;
+  /** Lap-1 pinches (amended rule 3: a braking car moving across toward a car alongside), see `lap1Pinches`. */
+  lap1Pinches?: number;
   /** Position-change score of this race (see `BatchSummary.chaos`). */
   chaos: number;
   /** Simulated race time (s). */
@@ -132,6 +137,8 @@ export function runOne(options: RaceOptions): RunResult {
     stats,
     incidents: stats.offs + stats.spins + race.events.filter((e) => e.type === 'crash').length,
     lap1Contacts: race.events.filter((e) => e.type === 'contact' && e.lap <= 1).length,
+    racingPasses: race.events.filter((e) => e.type === 'pass' && !/ after /.test(e.text)).length,
+    lap1Pinches: lap1Pinches(race),
     chaos: moved / n / randomShuffle(n),
     time: race.t,
     decisions: race.decisions.map((d) => ({ car: d.car, role: d.role, kind: d.kind })),
@@ -188,6 +195,41 @@ export function summarize(runs: RunResult[], ms = 0): BatchSummary {
     chaos: of((r) => r.chaos),
     ms,
   };
+}
+
+/**
+ * Lap-1 pinches, from the log (phase C's amended rule 3, moved here from tests/lap1-rules.test.ts
+ * in phase D because the count is noisy: a tuning number, kept in the baselines). Until the
+ * leader starts lap 2: a car braking (losing more than 8 m/s² over 0.1 s) moves more than 0.3 m
+ * across toward a car alongside it (overlapping within 2 m, 1.2–4.5 m to the side), ending
+ * closer than 3 m, and the other car didn't move toward it as much. One per pair per second.
+ */
+export function lap1Pinches(r: Race): number {
+  const L = r.track.length, W = Math.round(0.1 / r.dt), n = r.cars.length;
+  const lap2 = r.events.find((e) => e.lap >= 2)?.t ?? r.t;
+  const end = Math.min(r.frames.length, Math.ceil(lap2 / r.dt));
+  const at = (k: number, i: number) => { const f = r.frames[k], o = i * FRAME_STRIDE; return { s: f[o], d: f[o + 1], v: f[o + 2], status: f[o + 4] }; };
+  const gap = (a: { s: number }, b: { s: number }) => { let g = b.s - a.s; if (g >= L / 2) g -= L; else if (g < -L / 2) g += L; return g; };
+  const last = new Map<number, number>();
+  let bad = 0;
+  for (let k = W; k < end; k++) {
+    for (let b = 0; b < n; b++) {
+      const B = at(k, b), B0 = at(k - W, b);
+      if (B.status !== STATUS.run || (B.v - B0.v) / (W * r.dt) > -8) continue;
+      for (let a = 0; a < n; a++) {
+        if (a === b) continue;
+        const A = at(k, a), dd = A.d - B.d;
+        if (A.status !== STATUS.run || A.v < 10 || Math.abs(gap(B, A)) >= HIT_LEN + 2 || Math.abs(dd) < 1.2 || Math.abs(dd) > 4.5) continue;
+        const onRoad = Math.sign(dd) * (B.d - B0.d), A0 = at(k - W, a);
+        if (onRoad <= 0.3 || Math.abs(dd) >= 3.0 || -Math.sign(dd) * (A.d - A0.d) >= onRoad) continue;
+        const key = b * 100 + a;
+        if (k - (last.get(key) ?? -1e9) < 1 / r.dt) continue;
+        last.set(key, k);
+        bad++;
+      }
+    }
+  }
+  return bad;
 }
 
 /**

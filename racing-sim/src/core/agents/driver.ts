@@ -1,5 +1,6 @@
 import { hypot } from '../fmath';
-import type { CarSpec } from '../physics/model';
+import type { CarSpec, DriverStyle } from '../physics/model';
+import type { LaneSet } from '../race/lanes';
 import { STANDARD_CAR } from '../physics/model';
 import type { Rng } from '../rng';
 
@@ -19,6 +20,8 @@ export interface DriverSpec {
   racecraft: number;
   /** How much later than normal the driver brakes when attacking. */
   bravery: number;
+  /** How the driver uses the grip (phase D); absent = the car's own limit, plain (no style). */
+  style?: DriverStyle;
 }
 
 /**
@@ -66,6 +69,8 @@ export interface Entrant {
   driver: DriverSpec;
   /** The lap that set the grid (s): a qualifying lap, or the ideal lap for a rating grid. Absent for other grids. */
   gridTime?: number;
+  /** The lanes around this car's own line (its class and style, phase D); absent = the race's. */
+  lanes?: LaneSet;
   /** Qualifying grid: the run's seed (to re-run and watch it), its timed laps and what happened. */
   quali?: { seed: number; laps: number[]; sectors: number[][]; note: string };
 }

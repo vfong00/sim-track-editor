@@ -6,6 +6,7 @@ export * from './track/generate';
 export * from './track/png';
 export * from './track/png-decode';
 export * from './track/line';
+export * from './track/fastline';
 export * from './track/surface';
 export * from './physics/model';
 export * from './physics/profile';

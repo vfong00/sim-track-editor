@@ -1,4 +1,4 @@
-import { KERB_STRIPE, KERB_WIDTH, kerbsFor, RUNOFF, STATUS, type Track, type TrackPath, type Vec } from '../core';
+import { KERB_STRIPE, KERB_WIDTH, RUNOFF, STATUS, surfaceFor, type Track, type TrackPath, type Vec } from '../core';
 import type { Livery } from './livery';
 
 export interface View {
@@ -76,8 +76,9 @@ export function drawTrack(ctx: CanvasRenderingContext2D, t: Track, v: View, line
       }
       ctx.stroke();
     }
-    if (line) {
-      const kerb = kerbsFor(t, line);
+    {
+      // The track's kerbs (the ones the physics uses), whatever line is drawn and whether it is.
+      const kerb = surfaceFor(t).kerbs;
       const off = t.width / 2 - KERB_WIDTH / 2;
       const at = (i: number, side: number) => ({ x: t.xs[i] + t.nx[i] * side * off, y: t.ys[i] + t.ny[i] * side * off });
       ctx.lineWidth = Math.max(1, KERB_WIDTH * v.scale);

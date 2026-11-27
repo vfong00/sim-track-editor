@@ -1,3 +1,4 @@
+import type { DriverStyle } from '../physics/model';
 import { DRIVER_COLORS, type SimpleRatings } from './driver';
 
 /**
@@ -16,46 +17,47 @@ import { DRIVER_COLORS, type SimpleRatings } from './driver';
 export interface RosterDriver extends SimpleRatings {
   name: string;
   color: string;
+  style: DriverStyle;
 }
 
-const R: [string, number, number, number][] = [
-  // name, speed, consistency, risk
-  ['Nakamura', 0.58, 0.73, 0.52],
-  ['Alvarez', 0.79, 0.96, 0.32],
-  ['Garcia', 0.57, 0.9, 0.44],
-  ['Chen', 0.8, 0.84, 0.49],
-  ['Reyes', 0.28, 0.83, 0.3],
-  ['Petrov', 0.29, 0.85, 0.15],
-  ['Jovanovic', 0.44, 0.91, 0.33],
-  ['Schmidt', 0.31, 0.74, 0.44],
-  ['Eriksen', 0.55, 0.92, 0.34],
-  ['Murphy', 0.32, 0.89, 0.54],
-  ['Ito', 0.66, 0.78, 0.68],
-  ['Hughes', 0.47, 0.91, 0.9],
-  ['Dlamini', 0.7, 0.88, 0.6],
-  ['Bianchi', 0.62, 0.95, 0.25],
-  ['Quinn', 0.52, 0.7, 0.8],
-  ['Fontaine', 0.74, 0.8, 0.7],
-  ['Olsen', 0.4, 0.82, 0.6],
-  ['Laurent', 0.36, 0.93, 0.4],
-  ['Kowalski', 0.48, 0.86, 0.5],
-  ['Tanaka', 0.2, 0.78, 0.75],
+const R: [string, number, number, number, number, number, number, number][] = [
+  // name, speed, consistency, risk, then style (phase D, provisional): braking, line (U 0 to V 1), throttle, kerbs
+  ['Nakamura', 0.58, 0.73, 0.52, 0.6, 0.4, 0.6, 0.5],
+  ['Alvarez', 0.79, 0.96, 0.32, 0.35, 0.3, 0.3, 0.4],
+  ['Garcia', 0.57, 0.9, 0.44, 0.5, 0.6, 0.4, 0.5],
+  ['Chen', 0.8, 0.84, 0.49, 0.6, 0.7, 0.6, 0.6],
+  ['Reyes', 0.28, 0.83, 0.3, 0.4, 0.5, 0.3, 0.3],
+  ['Petrov', 0.29, 0.85, 0.15, 0.25, 0.3, 0.2, 0.2],
+  ['Jovanovic', 0.44, 0.91, 0.33, 0.45, 0.6, 0.4, 0.4],
+  ['Schmidt', 0.31, 0.74, 0.44, 0.5, 0.5, 0.6, 0.6],
+  ['Eriksen', 0.55, 0.92, 0.34, 0.4, 0.4, 0.4, 0.5],
+  ['Murphy', 0.32, 0.89, 0.54, 0.6, 0.6, 0.5, 0.5],
+  ['Ito', 0.66, 0.78, 0.68, 0.75, 0.7, 0.7, 0.7],
+  ['Hughes', 0.47, 0.91, 0.9, 0.95, 0.8, 0.7, 0.6],
+  ['Dlamini', 0.7, 0.88, 0.6, 0.6, 0.3, 0.6, 0.7],
+  ['Bianchi', 0.62, 0.95, 0.25, 0.3, 0.2, 0.3, 0.3],
+  ['Quinn', 0.52, 0.7, 0.8, 0.8, 0.6, 0.9, 0.8],
+  ['Fontaine', 0.74, 0.8, 0.7, 0.7, 0.8, 0.7, 0.6],
+  ['Olsen', 0.4, 0.82, 0.6, 0.6, 0.4, 0.6, 0.5],
+  ['Laurent', 0.36, 0.93, 0.4, 0.4, 0.5, 0.5, 0.4],
+  ['Kowalski', 0.48, 0.86, 0.5, 0.55, 0.5, 0.5, 0.5],
+  ['Tanaka', 0.2, 0.78, 0.75, 0.8, 0.7, 0.8, 0.7],
   // Phase 7: 30 drivers on A–Z (ranks 15–16 of 30 are M and N, the middle of the pack). A, M, R
   // and W have two drivers. New names go at the end, so generated fields keep their drivers.
-  ['Abreu', 0.87, 0.84, 0.6], // quicker than Alvarez over a lap, scrappier over a race
-  ['Moreau', 0.45, 0.83, 0.35],
-  ['Ruiz', 0.45, 0.72, 0.9],
-  ['Ueda', 0.29, 0.72, 0.8],
-  ['Vargas', 0.08, 0.84, 0.4],
-  ['Weber', 0.12, 0.8, 0.35],
-  ['Walsh', 0.25, 0.7, 0.95],
-  ['Xu', 0.16, 0.72, 0.6],
-  ['Yilmaz', 0.05, 0.78, 0.5],
-  ['Zhou', 0.02, 0.75, 0.45],
+  ['Abreu', 0.87, 0.84, 0.6, 0.7, 0.8, 0.7, 0.8], // quicker than Alvarez over a lap, scrappier over a race
+  ['Moreau', 0.45, 0.83, 0.35, 0.4, 0.3, 0.4, 0.4],
+  ['Ruiz', 0.45, 0.72, 0.9, 0.9, 0.7, 0.9, 0.9],
+  ['Ueda', 0.29, 0.72, 0.8, 0.8, 0.5, 0.7, 0.6],
+  ['Vargas', 0.08, 0.84, 0.4, 0.4, 0.4, 0.5, 0.4],
+  ['Weber', 0.12, 0.8, 0.35, 0.35, 0.6, 0.4, 0.3],
+  ['Walsh', 0.25, 0.7, 0.95, 0.95, 0.9, 0.95, 0.9],
+  ['Xu', 0.16, 0.72, 0.6, 0.6, 0.5, 0.6, 0.5],
+  ['Yilmaz', 0.05, 0.78, 0.5, 0.5, 0.4, 0.5, 0.5],
+  ['Zhou', 0.02, 0.75, 0.45, 0.45, 0.5, 0.4, 0.5],
 ];
 
-export const ROSTER: readonly RosterDriver[] = R.map(([name, speed, consistency, risk], i) => ({
-  name, speed, consistency, risk, color: DRIVER_COLORS[i % DRIVER_COLORS.length],
+export const ROSTER: readonly RosterDriver[] = R.map(([name, speed, consistency, risk, braking, line, throttle, kerbs], i) => ({
+  name, speed, consistency, risk, color: DRIVER_COLORS[i % DRIVER_COLORS.length], style: { braking, line, throttle, kerbs },
 }));
 
 /** Overall ability for ordering the roster (see the comment at the top): higher is better. */

@@ -28,6 +28,8 @@ export interface Near {
 
 /** Share of its own planned speed above which a running car on the road counts as racing (Near.racing). */
 export const RACING_SHARE = 0.7;
+/** …or of it while queued behind another car (following it under the gap rule). */
+export const QUEUE_SHARE = 0.4;
 
 /** Lateral clearance two cars keep when side by side (centre to centre). */
 export let SIDE_GAP = HIT_W + 0.6;
@@ -210,7 +212,13 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     }
     const bo = me.model.maxBrake(o.v, 0);
     const room = (attacked ? o.gap - HIT_LEN - TOW_ROOM : o.gap - HIT_LEN - 1.0 - 0.03 * st.v) - (hazard ? 0 : relax.extraRoom ?? 0);
-    const bb = hazard ? bHaz : attacked ? b / brakeGain : b;
+    // Behind a car that is braking, plan my braking at the speed we're both slowing to: a winged
+    // car brakes far harder at 360 km/h than at the bottom of the braking zone, and planned at its
+    // speed now, an F1 car 50 m behind one braking early for Yas T5 ran into it (phase D).
+    let bb = hazard ? bHaz : attacked ? b / brakeGain : b;
+    // Not an attacker (it brakes as late as it dares, by the rules for a move), and planned at the
+    // middle of the speeds: at the bottom it kept every car so far back that passes halved at Yas.
+    if (!hazard && !attacked && (o.aLong ?? 0) < -3) bb = Math.min(bb, brakeGain * me.model.maxBrake((st.v + o.v) / 2, 0, fx));
     // An attacker doesn't hold the tow's lower drag against its braking (that alone kept it
     // ~10 m back at speed, too far to pull out), but does count the grip dirty air costs it: a
     // winged car tucked in at 1.5 m into a 300 km/h braking zone otherwise ran into the leader.

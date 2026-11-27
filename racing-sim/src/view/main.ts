@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import {
   buildTrack, CAR_LENGTH, CAR_WIDTH, dataUrlBytes, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, LaneSet, parseScenario,
-  LIGHTS, pngPixels, qualifyingRun, readPng, Race, type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
+  LIGHTS, pngPixels, qualifyingRun, readPng, Race, type Scenario, NEUTRAL_STYLE, ScenarioBuildError, scenarioLanes, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
 } from '../core';
 import { ScenarioEditor } from '../editor/scenario-editor';
 import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
@@ -154,7 +154,8 @@ async function runScenario(s: Scenario): Promise<boolean> {
   setDrawing(false);
   info.textContent = `Building ${s.name}…`;
   try {
-    const { track, lanes } = await trackFor(s.track);
+    const { track } = await trackFor(s.track);
+    const lanes = scenarioLanes(s, track);
     const race = new Race(scenarioRaceOptions(s, track, lanes));
     const overview = fitView(track.centerline(), canvas.width, canvas.height, OVERVIEW_PAD * (devicePixelRatio || 1));
     S = { track, lanes, race, scenario: structuredClone(s), overview, allView: overview, cam: { ...overview }, battleOff: { x: 0, y: 0 }, clock: 0, watched: 0, label: s.name, resultShown: false };
@@ -548,7 +549,18 @@ function idealRows(s: Session, at: RaceAt, i: number): string {
 function idealRaceRow(s: Session, at: RaceAt, i: number): string {
   if (s.race.opts.session === 'qualifying') return '';
   const pct = `${(s.race.paceOf(s.race.cars[i].entrant) * 100).toFixed(1)}%`;
-  return `<div class="sr" title="Clean air at race pace, using ${pct} of the car's grip (their speed rating less a race margin for consistency and bravery), with the grip and damage now. Tyre wear isn't in it yet."><span class="lbl">Ideal race lap</span><span>${fmtTime(at.plans(i).lapTime)}</span><span></span></div>`;
+  return `<div class="sr" title="Clean air at race pace, using ${pct} of the car's grip (their speed rating less a race margin for consistency and bravery), with the grip and damage now. Tyre wear isn't in it yet."><span class="lbl">Ideal race lap</span><span>${fmtTime(at.plans(i).lapTime)}</span><span></span></div>${styleFitRow(at, i)}`;
+}
+
+/** How much the driver's style gains or costs in this car on this track: their ideal lap against the same lap driven neutral (phase D). */
+function styleFitRow(at: RaceAt, i: number): string {
+  const e = at.r.cars[i].entrant;
+  if (!e.driver.style) return '';
+  const mine = at.plans(i).lapTime, neutral = at.plans(i, NEUTRAL_STYLE).lapTime;
+  const pct = (mine / neutral - 1) * 100;
+  const text = `${pct <= 0 ? '−' : '+'}${Math.abs(pct).toFixed(2)}%`;
+  const word = pct < -0.05 ? 'suits the car' : pct > 0.05 ? "doesn't suit the car" : 'neutral';
+  return `<div class="sr" title="Their ideal race lap against the same driver with a neutral style (every dial 0.5), in this car on this track. Styles also differ in mistakes, not counted here."><span class="lbl">Style fit</span><span>${text}</span><span class="rk">${word}</span></div>`;
 }
 
 /** Driver ratings and car spec of the followed car, each ranked in the field (only re-rendered when it changes). */

@@ -4,7 +4,7 @@ Work on `main` in `racing-sim/` (the old `racing-sim` branch is merged and gone)
 the user works from two computers. Phases 0–7 are done (7 as a CLI), plus the work in
 `docs/PLAN.md` → **Feature map** → "Done since Phase 6". The same section lists what is next.
 
-**Next: phase D of the racing sprint** (A, B and C are done), phases A–I in `docs/PLAN.md` → Feature map → "Next: the racing
+**Next: phase E of the racing sprint** (A–D are done), phases A–I in `docs/PLAN.md` → Feature map → "Next: the racing
 sprint". They run in order: each one changes what the next one tunes against.
 
 ## Sprint loop (every phase)
@@ -44,28 +44,92 @@ its goal and scope from `docs/PLAN.md`, what the last phase left open, the files
 from, and what done looks like. Keep it to about 15 lines and point to this file and the plan
 rather than copying them.
 
-> Racing sprint, phase D (driving styles and corner lines). Read `racing-sim/docs/HANDOFF.md`
-> (rules 1–7 and 3 amended, sprint loop, "Phase C: what landed") and phase D in the sprint section
-> of `racing-sim/docs/PLAN.md`.
+> Racing sprint, phase E (tyres and fuel). Read `racing-sim/docs/HANDOFF.md` (rules 1–9, sprint
+> loop, "Phase D: what landed") and phase E in the sprint section of `racing-sim/docs/PLAN.md`.
 >
-> Open with one message (sprint loop step 1) and wait for the user's go: fixes from C you want to
-> make, the design (handling styles, three lines per corner, styles feeding B's decisions, kerbs
-> as width), and real race moments for the user to adjudicate.
+> Open with one message (sprint loop step 1) and wait for the user's go: fixes from D you want to
+> make, the design (wear and temperature that cost grip, track temperature, fuel burn, re-tuning
+> D's styles with tyres as their long-run cost, tow ping-pong), and real race moments for the user
+> to adjudicate, with the viewer's build fingerprint.
 >
-> Open from phase C:
-> - Rule checks pinned back above 0 with real car sizes: rule 3 (5 in 8 races), rule 2 (1 of 295),
->   corner capacity (2), rule 5 (1 of 585), all multi-car moments at Monza T1/T2 laps 2–3 and one
->   Yas braking zone. The lap-1 pinch count halved (43.6 → 22.5 a race) but is noisy.
-> - Passes fell 19–45% (the user accepted: there was never a right number). Look for passes that
->   should happen: GT3 Laguna has 15 stretches in 6 seeds of a car ≥0.4 s/lap quicker stuck within
->   1 s for 2.5+ laps (seed 1: Jovanovic behind Ueda the whole race, 1 s/lap quicker).
-> - The rolling start (`race.start: 'rolling'`) arrives at T1 too tight: squeezes for the field.
+> Open from phase D:
+> - Styles' only cost is mistakes: tyres should give each its long-run cost (a late, hard braker
+>   and an aggressive throttle wear the tyres; a U driver's sliding too). Roster styles are
+>   provisional (`roster.ts`): show the user the list once tyres move the fit.
+> - Kerbs hardly widen the line (0.9 grip isn't worth 0.6 m); the user may want kerbs cheaper.
+> - V and U drivers share each class's line (a point-mass car has no rotation): vehicle dynamics
+>   is on PLAN → Later.
+> - Proposed check change awaiting the user: track character 2× → 1.5× (`racing-tracks.test.ts`).
 > - Re-pick the seeds in `tests/effects.test.ts` and `tests/safety-car.test.ts` if races change.
 >
-> Files: `src/core/agents/racecraft.ts`, `src/core/agents/controller.ts`, `src/core/track/line.ts`.
-> Baselines: `baselines/phase-b/` (16 seeds, from f36283f); re-save for C if the user agrees.
-> Done: the agreed design built, rule checks for it, a watch list, the full suite passing, and the
-> phase E kickoff written here.
+> Files: `src/core/physics/model.ts` (grip use), `src/core/race/lanes.ts` (plans, lines),
+> `src/core/agents/racecraft.ts`. Baselines: `baselines/phase-d/` (16 seeds).
+> Done: the agreed design built, rule checks for it, `batch` against the baselines, a watch list,
+> the full suite passing, and the phase F kickoff written here.
+
+## Phase D: what landed (2026-11-27)
+
+Measured against phase C batches for the watch set at 16 seeds (`baselines/phase-c/`, saved
+from 14549a8, the same races as 7af9c6a), paired by seed. NUMBERS.
+
+- **The fastest line** (`src/core/track/fastline.ts`). The old racing line (`racingLine`) never
+  converged at the fine scale, so it got slower the more road it had (GT3 Laguna 85.5 s at 3 m
+  from the edge, 86.7 s at 1.5 m). Now: the least-bending line solved exactly (`bendLine`, a
+  banded least-squares solve with the edges as an active set), then lap-time descent for the car
+  (`refineLine`: smooth bumps every 10 m, each one's effect timed on a window of the lap), from
+  both it and the old line, keeping the quicker. One line per car class (`fastLanes`, cached per
+  track, class and grip; F1 teams share their class's line), timed with the braking drivers plan
+  with. Laps about 2–5% quicker for the same cars (F1 Yas 84.9 → 82.6 s, MX-5 Laguna 100.1 →
+  98.2 s on the plan). 2–8 s to work out per class on this Mac; the viewer and `batch` cache it.
+  `new LaneSet(track)` still builds the old line (the tests that don't care keep it).
+- **Kerbs as width** (`lineBounds`): the line keeps EDGE_KEEP (0.6 m, 1.5 m centre to edge, as
+  before) from a plain edge and may go KERB_REACH (0.6 m) further onto a kerb. It hardly does: at
+  0.9 grip the width isn't worth it (longer kerbs, or 0.95 grip, didn't change a lap). Kerbs stay
+  where phase A put them (from the geometric line, `surfaceFor`), so they don't move with lines.
+  0.4 m from the edge left a sliding car no room: spins more than doubled at Laguna.
+- **Each car on its own line**: `Entrant.lanes`, `RaceCar.lanes`; a car's `st.delta` is from its
+  own line. Collisions put the other car's sideways speed in one frame (`collide.ts`).
+- **Styles** (`DriverStyle`: braking, line, throttle, kerbs, each 0–1; `gripUse` in `model.ts`):
+  - the car's balance (`CarSpec.trail`, the exponent of its grip limit: MX-5 and civilian 2, road
+    1.95, GT3 1.85, LMP 1.8, F1 1.7; F1 cars are 1.7: a stand-in for weight distribution);
+  - line: a U driver uses all the car's combined grip and 97% of its peak braking and traction,
+    a V driver (V_SHAPE 1.7) less combined grip and all of the peak. MX-5 suits U, F1 suits V,
+    GT3 the middle (±0.1–0.4% a lap); braking style: the share of the brakes planned (0.915–0.965,
+    ±0.1%); throttle: traction share 95–100% (±0.03%); kerbs: how far a driver leans onto a kerb
+    where the line runs near one (`kerbLean`, real corners only).
+  - Costs (until tyres): late brakers lock up more, U drivers run wide more, aggressive throttle
+    gets loose on the power (new mistake, `power`) and spins on kerbs more.
+  - Lines don't change with style: worked out per style, the fastest lines differed by under 10 cm
+    (a point-mass car has no rotation). Visible U/V lines wait for vehicle dynamics (PLAN → Later).
+  - Roster styles are provisional (`roster.ts`), from each driver's risk and consistency: for the
+    user to review. Scenarios take `drivers[].style`. The viewer's Driver & car shows the dials, the
+    car's balance and the style fit (ideal lap against the same driver neutral).
+- **Three lines per corner** (`racecraft.ts`): racing, inside (the dive), outside (`outsideLine`: a
+  car's width outside the racing line from 120 m before the apex, eased back after it; worked out
+  from the corner, not from the leader). The cutback (`cutback` plan): when the defender dives,
+  or a quicker car is held up in dirty air, run the outside line through the corner and attack on
+  the way out. The switchback: the outside plan weighs 2.5× when the next braking corner turns the
+  other way within 200 m (the user's Monza T9/T10 ruling). Styles weigh the plans: late brakers
+  dive, U drivers go round the outside, V drivers cut back. An attacker waiting in the tow takes
+  its own line when the leader is 2 m off its line with braking close (the Abreu ruling).
+- **Fixes from C**:
+  - flat-out kinks aren't corners for racecraft (`brakingCorners`): attacks ended and defences
+    began on Laguna's front-straight kinks;
+  - a pass ends once the attacker is clear ahead (Abreu, leading, shadowed Alvarez across Monza's
+    straight: the move only ended a car and a half later);
+  - a car queued behind another at a hairpin stays "racing" down to 40% of its plan (`QUEUE_SHARE`):
+    taken for a wreck, it made Eriksen brake at 11 g out of a 360 km/h tow at Yas seed 2;
+  - attack choices are logged at the pull-out, not when a car starts waiting in the tow;
+  - double-file restarts after a rolling start (`doubleFile`, columns fixed as the form-up lap
+    starts, side held to the first braking zone after the green); standing starts restart single
+    file; the example `gt3-laguna-seca-rolling.json` (rolling start, safety car on lap 4);
+  - batch metrics: racing passes (not after an incident) and lap-1 pinches (moved from the lap-1
+    test, too noisy for a unit test).
+- **Rule checks**: no hard braking on a straight with nothing to brake for; the middle car of three
+  holds its line; lines (faster with room, drivable, kerb bounds); style fit (`tests/lines.test.ts`).
+- **Check changes, proposed to the user**: track character (Phase 4), straights ≥ 2× the twisty
+  track's passes → 1.5× (phase C 75 vs 20, D 70 vs 45 at 16 seeds: the corner lines let stuck
+  cars by on the twisty one).
 
 ## Phase C: what landed (2026-11-26)
 
@@ -222,6 +286,12 @@ the kerb-spin check in `tests/racecraft-rules.test.ts` (3 and 4).
    (Monza T4/T5 with four cars contesting it: the attacks never made sense when the outside was
    open). Multi-car corners are where the two-car rules break down; the user judges these by
    who is really wheel to wheel with whom.
+8. Three wide (phase D, from the plan's room rules): the middle car of three holds its line under
+   braking. Checked from the log (`tests/racecraft-rules.test.ts`).
+9. Lines and choices (phase D, from the user's rulings): the outside of a corner is the inside of
+   the next one if it turns the other way soon after (the switchback, Monza T9/T10); an attacker
+   doesn't copy a leader's off-line approach just to keep a tow near a braking zone. No hard
+   braking on a straight with nothing to brake for (Eriksen in a tow at Yas seed 2).
 
 The rules exist for safety and feasibility. Three wide is the same rule as two wide: is there
 room for it? Within the rules, choices are a mixed strategy (phase B), not one fixed move. Check

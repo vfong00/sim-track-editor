@@ -291,6 +291,87 @@ describe('racecraft rules, from the race log [slow]', () => {
     expect(cases).toBeGreaterThan(0);
     expect(bad).toBeLessThanOrEqual(LIMITS.battleShare * cases);
   });
+
+  it('no hard braking on a straight with nothing to brake for (phase D: Eriksen in a tow at Yas)', () => {
+    // A running car braking harder than 15 m/s² (over 0.1 s) where its own plan isn't slowing
+    // within 1.5 s, with no car in its lane within 15 m ahead, no car alongside within 1 m, and
+    // nothing spun or stopped within 300 m ahead. The user's Yas seed 2 ruling: braking out of a
+    // tow for no reason is illogical. Counted per car per 3 s.
+    let bad = 0, cases = 0;
+    const seen: string[] = [];
+    for (const r of races) {
+      const { at, gap, n, frames, W, k0 } = view(r);
+      const last = new Map<number, number>();
+      for (let k = Math.max(W, k0); k < frames; k += 3) {
+        for (let a = 0; a < n; a++) {
+          const A = at(k, a), A0 = at(k - W, a);
+          if (A.status !== STATUS.run || A.v < 30) continue;
+          const c = r.cars[a];
+          // Its own plan brakes anywhere in the next 1.5 s (into a corner, or the last of the
+          // braking before an apex: looking only 1.5 s on saw the corner's exit there).
+          const off = A.d - c.lanes.lineD(A.s);
+          if ([0, 0.25, 0.5, 0.75, 1, 1.25, 1.5].some((x) => c.plans.envelope(A.s + x * A.v, off) < A.v - 1)) continue;
+          cases++;
+          if ((A0.v - A.v) / (W * r.dt) < 15) continue;
+          if (k - (last.get(a) ?? -1e9) < 3 / r.dt) continue;
+          let reason = false;
+          for (let b = 0; b < n && !reason; b++) {
+            if (b === a) continue;
+            const B = at(k, b), g = gap(A, B);
+            // A car ahead in my lane that's slower than me (the gap rule), or close.
+            if (g > 0 && g < 80 && Math.abs(B.d - A.d) < HIT_W + 0.6 && (B.v < A.v || g < 15 + HIT_LEN)) reason = true;
+            else if (Math.abs(g) < HIT_LEN && Math.abs(B.d - A.d) < HIT_W + 1) reason = true;
+            else if (g > 0 && g < 300 && (B.status !== STATUS.run || B.v < 10)) reason = true;
+          }
+          if (reason) continue;
+          last.set(a, k);
+          bad++;
+          if (seen.length < 5) seen.push(`${label.get(r)} t=${(k * r.dt).toFixed(1)} ${r.name(a)}`);
+        }
+      }
+    }
+    console.log(`straight braking: ${bad} in ${cases} car-ticks on a straight`, seen);
+    expect(cases).toBeGreaterThan(0);
+    expect(bad).toBeLessThanOrEqual(LIMITS.straightBrake);
+  });
+
+  it('three wide: the middle car holds its line under braking', () => {
+    // Three cars overlapping nose to tail (within HIT_LEN of the middle one), one on each side of
+    // it 1.2 m or more away, the middle car braking (over 5 m/s²). Violation: within 0.5 s the
+    // middle car moves 0.6 m or more toward either neighbour (from the PLAN's room rules: the
+    // middle car of three holds its line).
+    let bad = 0, cases = 0;
+    const seen: string[] = [];
+    for (const r of races) {
+      const { at, gap, n, frames, W, k0 } = view(r);
+      const last = new Map<number, number>();
+      for (let k = Math.max(W, k0); k < frames - 30; k += 5) {
+        for (let m = 0; m < n; m++) {
+          const M = at(k, m), M0 = at(k - W, m);
+          if (M.status !== STATUS.run || (M0.v - M.v) / (W * r.dt) < 5) continue;
+          let left = -1, right = -1;
+          for (let b = 0; b < n; b++) {
+            if (b === m) continue;
+            const B = at(k, b);
+            if (B.status !== STATUS.run || Math.abs(gap(M, B)) >= HIT_LEN) continue;
+            if (B.d - M.d >= 1.2 && (left < 0 || B.d < at(k, left).d)) left = b;
+            if (M.d - B.d >= 1.2 && (right < 0 || B.d > at(k, right).d)) right = b;
+          }
+          if (left < 0 || right < 0) continue;
+          if (k - (last.get(m) ?? -1e9) < 2 / r.dt) continue;
+          last.set(m, k);
+          cases++;
+          const later = at(Math.min(frames - 1, k + Math.round(0.5 / r.dt)), m);
+          if (Math.abs(later.d - M.d) >= 0.6 && later.status === STATUS.run) {
+            bad++;
+            if (seen.length < 5) seen.push(`${label.get(r)} t=${(k * r.dt).toFixed(1)} ${r.name(m)} between ${r.name(left)} and ${r.name(right)}`);
+          }
+        }
+      }
+    }
+    console.log(`three wide, middle car moves: ${bad} of ${cases} cases`, seen);
+    expect(bad).toBeLessThanOrEqual(LIMITS.middleShare * Math.max(1, cases));
+  });
 });
 
 /**
@@ -305,7 +386,7 @@ describe('racecraft rules, from the race log [slow]', () => {
 // back, all on laps 2–3 at Monza T1/T2 and one Yas braking zone, multi-car moments with the
 // bigger cars. Phase B had 0 for each. Rule 1 came down from its 15% pin to 1 of 57 (the flatOut
 // fix). For D: get these back to 0. Counts are for the default 4 seeds of each track.
-const LIMITS = { brakeMove: 5, roomShare: 0.004, towShare: 0.15, exitShare: 0, capacity: 2, battleShare: 0.002 };
+const LIMITS = { brakeMove: 5, roomShare: 0.004, towShare: 0.15, exitShare: 0, capacity: 2, battleShare: 0.002, straightBrake: 0, middleShare: 0 };
 
 describe('kerbs, from the race log [slow]', () => {
   // Incident-prone, and seeds with kerb spins in them to check (2 each; 1 and 2 had them until

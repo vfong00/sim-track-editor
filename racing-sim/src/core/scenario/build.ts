@@ -1,8 +1,8 @@
 import { AVERAGE_RATINGS, DRIVER_COLORS, driverFromRatings, type Entrant } from '../agents/driver';
 import { overallAbility, ROSTER, type RosterDriver, rosterDriver } from '../agents/roster';
 import { polylineSelfIntersects, type Vec } from '../math';
-import { CAR_PRESETS, STANDARD_CAR, type CarSpec } from '../physics/model';
-import { LaneSet } from '../race/lanes';
+import { CAR_PRESETS, type CarSpec, NEUTRAL_STYLE, STANDARD_CAR } from '../physics/model';
+import { fastLanes, type LaneSet } from '../race/lanes';
 import { qualifyingResult, qualifyingRun } from '../race/qualifying';
 import { lanePlansFor, type RaceOptions, type ScriptedEvent } from '../race/race';
 import { makeRng } from '../rng';
@@ -89,7 +89,7 @@ export function carSpecs(s: Scenario): Map<string, CarSpec> {
       grip: c.grip ?? base.grip,
       brake: c.brake ?? base.brake,
       downforce: c.downforce ?? base.downforce ?? 0,
-      ...(c.preset ? { preset: c.preset } : {}),
+      ...(c.preset ? { preset: c.preset, trail: CAR_PRESETS[c.preset].trail } : {}),
     }];
   }));
 }
@@ -133,7 +133,7 @@ export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
       id: d.name,
       color: d.color ?? base.color ?? DRIVER_COLORS[(DRIVER_COLORS.length - 1 - list.length + 40 * DRIVER_COLORS.length) % DRIVER_COLORS.length],
       car: cars.get(d.car)!,
-      driver: driverFromRatings(d.name, ratings, d.advanced),
+      driver: { ...driverFromRatings(d.name, ratings, d.advanced), style: { ...(rosterDriver(d.name)?.style ?? NEUTRAL_STYLE), ...d.style } },
     });
   });
   if (s.field) {
@@ -150,18 +150,20 @@ export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
       const rd = free[k];
       if (rd) {
         const ratings = { speed: toward(AVERAGE_RATINGS.speed, rd.speed), consistency: toward(AVERAGE_RATINGS.consistency, rd.consistency), risk: toward(AVERAGE_RATINGS.risk, rd.risk) };
-        list.push({ id: rd.name, color: rd.color, car: cars.get(f.car)!, driver: driverFromRatings(rd.name, ratings) });
+        list.push({ id: rd.name, color: rd.color, car: cars.get(f.car)!, driver: { ...driverFromRatings(rd.name, ratings), style: rd.style } });
         continue;
       }
       const name = `${free[k % Math.max(1, free.length)]?.name ?? 'Driver'} ${Math.floor(k / Math.max(1, free.length)) + 1}`;
       const ratings = { speed: r(AVERAGE_RATINGS.speed, FIELD_SPREAD.speed), consistency: r(AVERAGE_RATINGS.consistency, FIELD_SPREAD.consistency), risk: r(AVERAGE_RATINGS.risk, FIELD_SPREAD.risk) };
-      list.push({ id: name, color: DRIVER_COLORS[list.length % DRIVER_COLORS.length], car: cars.get(f.car)!, driver: driverFromRatings(name, ratings) });
+      list.push({ id: name, color: DRIVER_COLORS[list.length % DRIVER_COLORS.length], car: cars.get(f.car)!, driver: { ...driverFromRatings(name, ratings), style: NEUTRAL_STYLE } });
     }
   }
+  // Each car on its own class's line (phase D).
+  for (const e of list) e.lanes = carLanes(s, lanes.track, e.car);
   const order = s.race.gridOrder ?? 'as-listed';
   // Rating = clean-air lap time of the car and driver; ties keep list order.
   if (order === 'rating' || order === 'reverse-rating' || order === 'qualifying') {
-    const ideal = (e: Entrant) => lanePlansFor(lanes, e.car, e.driver.pace, s.physics).plans.lapTime;
+    const ideal = (e: Entrant) => lanePlansFor(e.lanes ?? lanes, e.car, e.driver.pace, s.physics, e.driver.style).plans.lapTime;
     // Session seeds: their own stream, like the random grid's, drawn in list order.
     const rng = makeRng((s.seed ^ 0x2c1b3c6d) >>> 0);
     const timed = list.map((e): Entrant => {
@@ -188,9 +190,40 @@ export function scenarioEntrants(s: Scenario, lanes: LaneSet): Entrant[] {
 const stableSort = <T>(a: T[], cmp: (x: T, y: T) => number) =>
   a.map((x, i) => [x, i] as const).sort((p, q) => cmp(p[0], q[0]) || p[1] - q[1]).map((p) => p[0]);
 
-/** Race options for a scenario on a built track (pass `lanes` to reuse a cached lane set). */
+/** The car most of the field drives (ties: the first listed). */
+export function mainCar(s: Scenario): CarSpec {
+  const cars = carSpecs(s);
+  const count = new Map<string, number>();
+  for (const d of s.drivers ?? []) count.set(d.car, (count.get(d.car) ?? 0) + 1);
+  if (s.field) count.set(s.field.car, (count.get(s.field.car) ?? 0) + s.field.count);
+  let best = s.cars[0].id;
+  for (const c of s.cars) if ((count.get(c.id) ?? 0) > (count.get(best) ?? 0)) best = c.id;
+  return cars.get(best)!;
+}
+
+/**
+ * The car a class's line is worked out for: the preset itself for a preset car (a team's tweaks
+ * share their class's line; F1 constructors would otherwise take ten), else the car as specified.
+ */
+export function lineCar(spec: CarSpec): CarSpec {
+  if (!spec.preset) return spec;
+  const { label: _label, ...p } = CAR_PRESETS[spec.preset];
+  return { id: spec.preset, ...p, preset: spec.preset };
+}
+
+/** The lanes a car races on: around its class's fastest line (cached per track and class). */
+export function carLanes(s: Scenario, track: Track, spec: CarSpec): LaneSet {
+  return fastLanes(track, lineCar(spec), s.physics);
+}
+
+/** The lanes a scenario races on (corners, the safety car, the line drawn): its main car's. */
+export function scenarioLanes(s: Scenario, track: Track): LaneSet {
+  return carLanes(s, track, mainCar(s));
+}
+
+/** Race options for a scenario on a built track (pass `lanes` to reuse a lane set built for it). */
 export function scenarioRaceOptions(s: Scenario, track: Track, lanes?: LaneSet): RaceOptions {
-  lanes ??= new LaneSet(track);
+  lanes ??= scenarioLanes(s, track);
   const entrants = scenarioEntrants(s, lanes);
   const index = new Map(entrants.map((e, i) => [e.driver.name, i]));
   // Stable by lap, so same-lap events fire in the order written.

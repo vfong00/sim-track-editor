@@ -1,13 +1,13 @@
 import { type DriverSpec, type Entrant, racePace } from '../agents/driver';
-import { avoidSlowCar, RACING_SHARE, trafficControls, type Near, useCarSize } from '../agents/controller';
+import { avoidSlowCar, QUEUE_SHARE, RACING_SHARE, trafficControls, type Near, useCarSize } from '../agents/controller';
 import { CLASS_GAP, type Craft, type CraftCar, type CraftChoice, newCraft, raceCraft, type CraftContext, ROOM_LEVEL } from '../agents/racecraft';
-import { CarModel, carSize, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type PhysicsParams, STANDARD_CAR } from '../physics/model';
+import { CarModel, carSize, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type DriverStyle, gripUse, type PhysicsParams, STANDARD_CAR } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
 import type { Track } from '../track/track';
 import { type CarState, type Controls, newCarState, stepCar } from './car';
 import { type Contact, resolveCollisions } from './collide';
-import { CAR_WIDTH, HIT_LEN, isOffRoad, LanePlans, LaneSet } from './lanes';
+import { brakeUseFor, CAR_WIDTH, geometricLine, HIT_LEN, isOffRoad, LanePlans, LaneSet } from './lanes';
 import { DT } from './lap';
 
 export interface RaceOptions {
@@ -64,6 +64,8 @@ export const GRID_SLOT = 7;
  * leader reaches the line: green. (The formation lap itself, behind the safety car, isn't driven.)
  */
 export const ROLLING = { back: 150, share: 0.35 };
+/** Double-file restart columns: this share of the half-width either side of the centre. */
+export const RESTART_COLUMN = 0.45;
 
 /**
  * Standing start (phase C): one red light a second from t = 1 until all five are on, a random
@@ -151,6 +153,8 @@ export const INCIDENTS = {
    */
   kerbSpinFrom: 0.9,
   kerbSpinRate: 0.006,
+  /** …only putting the power down (m/s² of acceleration): not cruising near top speed through a kink (phase D). */
+  kerbSpinPower: 1,
   /** Contact: spin odds rise from contactSpin m/s of closing speed over contactSpinSpan (times how off-centre). */
   contactSpin: 3,
   contactSpinSpan: 6,
@@ -191,6 +195,8 @@ export const incidentScale = (d: DriverSpec) => scaleRaw(d) / 0.65;
 export interface RaceCar {
   idx: number;
   entrant: Entrant;
+  /** The lanes around this car's own line (phase D: its class and style); its st.delta is measured from that line. */
+  lanes: LaneSet;
   model: CarModel;
   plans: LanePlans;
   st: CarState;
@@ -307,17 +313,17 @@ const planCache = new WeakMap<LaneSet, Map<string, LanePlans>>();
  * The key covers every input (rule 5): the spec, the full physics and the pace; the lane set
  * (track and racing line) is the WeakMap key. Shared by races and by scenario grid ordering.
  */
-export function lanePlansFor(lanes: LaneSet, spec: CarSpec, pace: number, physics: Partial<PhysicsParams> = {}): { model: CarModel; plans: LanePlans } {
+export function lanePlansFor(lanes: LaneSet, spec: CarSpec, pace: number, physics: Partial<PhysicsParams> = {}, style?: DriverStyle): { model: CarModel; plans: LanePlans } {
   let cache = planCache.get(lanes);
   if (!cache) planCache.set(lanes, (cache = new Map()));
-  const model = new CarModel(spec, physics);
+  const model = new CarModel(spec, physics, gripUse(spec, style));
   const p = model.physics;
-  const key = JSON.stringify([spec, p, pace]);
+  const key = JSON.stringify([spec, p, pace, style ?? null]);
   let plans = cache.get(key);
   const dirty = dirtyEffects(p.dirtyAir, 1);
   if (!plans) cache.set(key, (plans = new LanePlans(lanes, model, { grip: pace, drag: 1 },
-    { grip: pace, drag: 1 - p.slipstream }, { grip: pace * dirty.grip, aero: dirty.aero, drag: 1 })));
-  return { model, plans };
+    { grip: pace, drag: 1 - p.slipstream }, { grip: pace * dirty.grip, aero: dirty.aero, drag: 1 }, brakeUseFor(style))));
+  return { model: plans.model, plans };
 }
 
 /**
@@ -380,7 +386,8 @@ export class Race {
     this.rng = makeRng(opts.seed);
     this.physics = { ...DEFAULT_PHYSICS, ...opts.physics };
     this.gripLog.push({ t: 0, level: this.physics.gripLevel });
-    this.corners = findCorners(this.lanes.line);
+    // Named from the geometric line, so T-numbers don't move with the class lines (phase D).
+    this.corners = findCorners(geometricLine(track));
     this.nextCorner = nextCornerTable(track.n, this.corners);
     const quali = opts.session === 'qualifying';
     // The field's car size: the largest preset in it (a mixed field judges every pair by the biggest).
@@ -393,15 +400,16 @@ export class Race {
     this.lightsOut = quali || rolling ? 0 : LIGHTS.count * LIGHTS.every + LIGHTS.holdMin + (LIGHTS.holdMax - LIGHTS.holdMin) * this.rng.next();
     this.cars = entrants.map((e, idx) => {
       const { model, plans } = this.plansFor(e, 0);
+      const lanes = e.lanes ?? this.lanes;
       // Race: a staggered two-wide grid behind the line. Qualifying: on the racing line, at speed,
       // QUALI_RUNUP m back (further cars a run-up apart).
       const s0 = quali ? -QUALI_RUNUP * (idx + 1) : -5 - slot * idx - (rolling ? ROLLING.back : 0);
       const s = ((s0 % track.length) + track.length) % track.length;
-      const d = quali ? this.lanes.lineD(s) : (idx % 2 === 0 ? 1 : -1) * Math.min(3.2, this.lanes.lim - 1);
-      const st = newCarState(s, d - this.lanes.lineD(s), quali ? plans.speed(s, 0) : rolling ? Math.min(this.rollingSpeed(), plans.speed(s, 0)) : 0, s0);
+      const d = quali ? lanes.lineD(s) : (idx % 2 === 0 ? 1 : -1) * Math.min(3.2, this.lanes.lim - 1);
+      const st = newCarState(s, d - lanes.lineD(s), quali ? plans.speed(s, 0) : rolling ? Math.min(this.rollingSpeed(), plans.speed(s, 0)) : 0, s0);
       const rng = this.rng.fork();
       return {
-        idx, entrant: e, model, plans, st, d, rng,
+        idx, entrant: e, lanes, model, plans, st, d, rng,
         ...(quali || rolling ? { startDelay: 0, launch: 1 } : this.standingStart(e, rng)),
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
@@ -409,7 +417,7 @@ export class Race {
         lastSlideLog: -Infinity, lastSlideT: -Infinity, lastTouchT: -Infinity, lastTouchWith: -1, lastTouchLevel: true, edgeT: NaN, damage: 0, damageLevel: 0, stillSince: NaN, outSince: NaN, cleared: false, crossTimes: [],
       };
     });
-    for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
+    for (const c of this.cars) c.d = c.lanes.dOf(c.st.s, c.st.delta);
     this.log();
     if (quali) this.emit('start', [], 'Qualifying: on a flying lap');
     if (rolling) this.emit('start', [], 'Rolling start: the field in formation');
@@ -443,7 +451,7 @@ export class Race {
   /** Car model and lane plans for an entrant with `damage` grip loss (shared across races on the lanes). */
   private plansFor(e: Entrant, damage: number): { model: CarModel; plans: LanePlans } {
     const spec = damage > 0 ? { ...e.car, grip: e.car.grip * (1 - damage) } : e.car;
-    return lanePlansFor(this.lanes, spec, this.paceOf(e), this.physics);
+    return lanePlansFor(e.lanes ?? this.lanes, spec, this.paceOf(e), this.physics, e.driver.style);
   }
 
   /** Share of the car's grip a driver uses in this session: a margin under the limit in a race. */
@@ -482,7 +490,11 @@ export class Race {
       if (gap >= L / 2) gap -= L;
       else if (gap < -L / 2) gap += L;
       if (gap > 300 || gap < -60) continue;
-      const racing = o.status === 'run' && o.offEvent < 0 && o.st.v >= RACING_SHARE * o.plans.envelope(o.st.s, o.st.delta);
+      // Queued behind another car it is still racing, down to QUEUE_SHARE of its plan: a car slowed
+      // behind another at a hairpin apex was taken for a wreck, and a car 300 m back at full speed
+      // dropped its attack and braked for it (Yas seed 2, phase D: Eriksen in Hughes's tow).
+      const env = o.plans.envelope(o.st.s, o.st.delta);
+      const racing = o.status === 'run' && o.offEvent < 0 && (o.st.v >= RACING_SHARE * env || (o.following >= 0 && o.st.v >= QUEUE_SHARE * env));
       out.push({ j: o.idx, gap, dd: o.d - me.d, d: o.d, v: o.st.v, racing, spinning: o.status === 'spin' || o.status === 'crash', aLong: o.st.aLong });
     }
     return out;
@@ -492,20 +504,21 @@ export class Race {
   protected controls(i: number, near: Near[]) {
     const c = this.cars[i];
     if (this.opts.ai === 'traffic') {
-      const ahead = c.st.s + (c.st.v * this.dt) / this.lanes.stretch(c.st.s, c.st.delta);
-      const view = { st: c.st, d: c.d, model: c.model, plans: c.plans, lanes: this.lanes, dt: this.dt };
+      const ahead = c.st.s + (c.st.v * this.dt) / c.lanes.stretch(c.st.s, c.st.delta);
+      const view = { st: c.st, d: c.d, model: c.model, plans: c.plans, lanes: c.lanes, dt: this.dt };
       const dec = trafficControls(view, near, avoidSlowCar(view, near, 0).delta, c.plans.envelope(ahead, c.st.delta));
       c.following = dec.following;
       return dec.ctl;
     }
-    const ctx: CraftContext = { t: this.t, dt: this.dt, lanes: this.lanes, corners: this.corners, nextCorner: this.nextCorner, physics: this.physics, neutral: this.sc !== null, push: this.opts.session === 'qualifying' };
+    const ctx: CraftContext = { t: this.t, dt: this.dt, lanes: c.lanes, corners: this.corners, nextCorner: this.nextCorner, physics: this.physics, neutral: this.sc !== null, push: this.opts.session === 'qualifying' };
     const dec = raceCraft(this.views[i], near, this.views, ctx);
     c.following = dec.following;
     c.wake = dec.ctl.effects && (dec.ctl.effects.drag < 1 || dec.ctl.effects.grip < 1) ? 1 : -1;
     if (dec.choice) this.decisions.push({ t: this.t, car: i, ...dec.choice });
     if (dec.mistake) {
       const corner = this.corners[dec.mistake.corner]?.name ?? '';
-      c.cause = this.emit('mistake', [i], dec.mistake.kind === 'lockup' ? `${this.name(i)} locks up into ${corner}` : `${this.name(i)} runs wide at ${corner}`);
+      const k = dec.mistake.kind;
+      c.cause = this.emit('mistake', [i], k === 'lockup' ? `${this.name(i)} locks up into ${corner}` : k === 'power' ? `${this.name(i)} gets loose on the power out of ${corner}` : `${this.name(i)} runs wide at ${corner}`);
     }
     return dec.ctl;
   }
@@ -579,8 +592,17 @@ export class Race {
         this.emit('safety-car', [], sc.endLap > this.laps ? 'Safety car in: the race finishes under yellow' : 'Safety car in this lap');
       }
     } else if (this.leaderLap >= sc.endLap || this.leaderFinished) {
+      const two = this.doubleFile();
       this.sc = null;
-      if (!this.leaderFinished) this.emit('safety-car', [], 'Green flag: racing resumes');
+      this.columnsSet = false;
+      if (two) for (const c of this.cars) {
+        if (c.dnf || c.finished) continue;
+        c.craft.lap1Done = false;
+        c.craft.gridD = Number.isNaN(c.craft.column) ? c.d : c.craft.column;
+        c.craft.column = NaN;
+        c.craft.holdTo = c.st.dist + this.track.length;
+      }
+      if (!this.leaderFinished) this.emit('safety-car', [], two ? 'Green flag: racing resumes, two wide' : 'Green flag: racing resumes');
     }
   }
 
@@ -600,7 +622,22 @@ export class Race {
     }
     // Only cars in the queue: running on the road. A stopped, crawling or off-road car is a
     // hazard to drive round (the avoidance rules), not a car to queue behind.
-    for (const o of this.cars) {
+    const col = this.doubleFile() ? c.craft.column : NaN;
+    if (!Number.isNaN(col)) {
+      // Double file: queue behind the nearest car ahead in my column; the first car of the second
+      // column lines up beside the leader of the queue.
+      const q = this.queue();
+      let o: RaceCar | null = null, g = Infinity;
+      for (const x of q) {
+        if (x === c || x.craft.column !== col) continue;
+        const gx = (((x.st.s - c.st.s) % L) + L) % L;
+        if (gx > 0 && gx < L / 2 && gx < g) { g = gx; o = x; }
+      }
+      if (o) { gap = g; vAhead = o.st.v; want = SC.gap; }
+      else if (q[0] && q[0] !== c && q[0].craft.column !== col) {
+        gap = (((q[0].st.s - c.st.s) % L) + L) % L; vAhead = q[0].st.v; want = 0.5;
+      }
+    } else for (const o of this.cars) {
       if (o === c || o.dnf || o.finished || o.status !== 'run' || o.offEvent >= 0 || o.st.v < 5) continue;
       const g = (((o.st.s - c.st.s) % L) + L) % L;
       if (g > 0 && g < gap) { gap = g; vAhead = o.st.v; want = SC.gap; }
@@ -610,6 +647,32 @@ export class Race {
     const v = gap >= want ? Math.sqrt(vAhead * vAhead + 2 * SC.brake * (gap - want)) : Math.max(0, vAhead + SC.close * (gap - want));
     return Math.min(catchUp, v);
   }
+
+  /**
+   * Restarts follow the start (phase D): after a rolling start the field forms up two wide on the
+   * safety car's last lap and keeps its side to the first braking zone after the green, as at the
+   * start; after a standing start it restarts single file (F1).
+   */
+  private doubleFile(): boolean {
+    return this.rolling && !!this.sc && this.leaderLap >= this.sc.endLap - 1;
+  }
+  private queueCache: { tick: number; cars: RaceCar[] } = { tick: -1, cars: [] };
+  /** Cars in the safety-car queue, in road order. */
+  private queue(): RaceCar[] {
+    if (this.queueCache.tick !== this.tick) {
+      const cars = this.cars.filter((o) => !o.dnf && !o.finished && o.status === 'run' && o.offEvent < 0 && o.st.v >= 5);
+      cars.sort((a, b) => b.st.dist - a.st.dist);
+      this.queueCache = { tick: this.tick, cars };
+    }
+    return this.queueCache.cars;
+  }
+  /** Double file: give each car in the queue its column once, as the form-up lap starts (alternating in road order). */
+  private formColumns(): void {
+    if (!this.doubleFile() || this.columnsSet) return;
+    this.columnsSet = true;
+    this.queue().forEach((c, q) => { c.craft.column = (q % 2 === 0 ? 1 : -1) * RESTART_COLUMN * this.lanes.lim; });
+  }
+  private columnsSet = false;
 
   /** Fire the scripted events that are due (the leader has started their lap). */
   private scripted(): void {
@@ -645,16 +708,19 @@ export class Race {
         }
       }
     }
+    this.formColumns();
     const ctls = this.cars.map((c, i): Controls => {
       if (this.t < c.startDelay || c.status === 'stopped' || c.status === 'out') return { vTarget: 0, deltaTarget: c.st.delta };
       if (c.status === 'spin' || c.status === 'crash') return { vTarget: 0, deltaTarget: c.st.delta, free: true };
       if (c.status === 'retiring') {
         // Losing power: slow down gently and pull over to the nearer edge of the road.
         const edge = (c.d >= 0 ? 1 : -1) * (this.lanes.lim - 0.3);
-        return { vTarget: Math.max(0, c.st.v - 4 * this.dt), deltaTarget: edge - this.lanes.lineD(c.st.s) };
+        return { vTarget: Math.max(0, c.st.v - 4 * this.dt), deltaTarget: edge - c.lanes.lineD(c.st.s) };
       }
       const ctl = this.controls(i, this.neighbours(i));
-      if (this.sc && !c.finished) ctl.vTarget = Math.min(ctl.vTarget, this.queueSpeed(c));
+      if (this.sc && !c.finished) {
+        ctl.vTarget = Math.min(ctl.vTarget, this.queueSpeed(c));
+      }
       if (this.rolling && !this.green) ctl.vTarget = Math.min(ctl.vTarget, this.rollingSpeed());
       // Off the line: a poor launch (wheelspin, bog-down) gets only part of the drive.
       if (c.launch < 1 && this.t < c.startDelay + LAUNCH.time) {
@@ -679,11 +745,11 @@ export class Race {
         c.lastTouchLevel = g >= -ROOM_LEVEL;
       }
     });
-    this.cars.forEach((c, i) => { if (c.status !== 'out') stepCar(c.st, ctls[i], c.model, this.lanes, dt, edgeWall); });
+    this.cars.forEach((c, i) => { if (c.status !== 'out') stepCar(c.st, ctls[i], c.model, c.lanes, dt, edgeWall); });
     this.moveSafetyCar();
     this.t += dt;
     this.tick++;
-    for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
+    for (const c of this.cars) c.d = c.lanes.dOf(c.st.s, c.st.delta);
 
     for (const hit of resolveCollisions(this.cars, this.lanes, edgeWall)) {
       const key = Math.min(hit.a, hit.b) * 1000 + Math.max(hit.a, hit.b);
@@ -832,7 +898,7 @@ export class Race {
         // road, against the corner: the drift goes, quickly (it was drawn nose into the corner
         // while the car turned the other way, equal field seed 1 at T1).
         const returning = Math.abs(c.d) > this.lanes.lim - 0.2 && c.st.vDelta * Math.sign(c.d) < -0.5;
-        const target = returning ? 0 : DRIFT.max * Math.sqrt(Math.min(1, excess / I.spinFrom)) * Math.sign(this.lanes.kappa(c.st.s, c.st.delta));
+        const target = returning ? 0 : DRIFT.max * Math.sqrt(Math.min(1, excess / I.spinFrom)) * Math.sign(c.lanes.kappa(c.st.s, c.st.delta));
         c.drift += (target - c.drift) * Math.min(1, dt * (returning || Math.abs(target) > Math.abs(c.drift) ? DRIFT.rise : DRIFT.fall));
       } else c.drift = 0;
       if (c.status === 'run' && !c.finished) {
@@ -848,9 +914,11 @@ export class Race {
         if (rate > 0 && c.st.v > 10 && c.rng.next() < rate * dt) this.startSpin(c, this.causeOf(c) >= 0 || c.offEvent < 0 ? this.causeOf(c) : c.offEvent);
         // Power down on a kerb: near the limit of grip under throttle, the ridges can break the
         // rear loose. Odds by how much of the car is on it and how close to the limit it is.
-        else if (c.status === 'run' && c.st.aLong > 0 && c.st.v > 10 && c.st.usage > I.kerbSpinFrom) {
+        else if (c.status === 'run' && c.st.aLong > I.kerbSpinPower && c.st.v > 10 && c.st.usage > I.kerbSpinFrom) {
           const kerb = this.lanes.surface.kerbShare(c.st.s, c.d);
-          const kRate = I.kerbSpinRate * kerb * ((c.st.usage - I.kerbSpinFrom) / (1 - I.kerbSpinFrom)) * scale;
+          // An aggressive throttle (style, phase D) spins on a kerb more often, a smooth one less.
+          const sty = c.entrant.driver.style;
+          const kRate = I.kerbSpinRate * kerb * ((c.st.usage - I.kerbSpinFrom) / (1 - I.kerbSpinFrom)) * scale * (sty ? 0.5 + sty.throttle : 1);
           if (kRate > 0 && c.rng.next() < kRate * dt) {
             c.cause = this.emit('slide', [i], `${this.name(i)} puts the power down on the kerb at ${this.cornerName(c.st.s)}`);
             this.startSpin(c, c.cause, 'on the kerb at');

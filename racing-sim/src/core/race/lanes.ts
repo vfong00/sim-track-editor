@@ -1,5 +1,6 @@
-import type { CarModel, Effects } from '../physics/model';
+import { CarModel, type CarSpec, type DriverStyle, type Effects, type PhysicsParams } from '../physics/model';
 import { solveSpeedProfile, type SpeedProfile } from '../physics/profile';
+import { fastLine, type LineBounds } from '../track/fastline';
 import { pathFromOffsets, racingLine, type TrackPath } from '../track/line';
 import { Surface } from '../track/surface';
 import type { Track } from '../track/track';
@@ -57,7 +58,7 @@ export class LaneSet {
   readonly grips: Float64Array[];
 
   constructor(readonly track: Track, line?: TrackPath) {
-    this.line = line ?? racingLine(track);
+    this.line = line ?? geometricLine(track);
     this.lim = dHard(track);
     this.wall = dWall(track);
     const k = Math.ceil((2 * this.lim) / this.step);
@@ -72,7 +73,7 @@ export class LaneSet {
       }
       this.paths.push(pathFromOffsets(track, shiftedLane(this.line.d, off, this.lim, Math.round(LANE_EASE / track.ds))));
     }
-    this.surface = new Surface(track, this.line);
+    this.surface = surfaceFor(track);
     this.grips = this.paths.map((p) => Float64Array.from(p.d, (d, i) => this.surface.nodeGrip(i, d)));
   }
 
@@ -135,6 +136,82 @@ export class LaneSet {
 }
 
 /**
+ * The track's surface (kerbs; rain later). Kerbs are placed once per track from the geometric
+ * racing line (where it comes near the edge in a corner), whatever line a car drives, so they
+ * stay put when the lines change (phase D).
+ */
+const surfaceCache = new WeakMap<Track, Surface>();
+export function surfaceFor(track: Track): Surface {
+  let s = surfaceCache.get(track);
+  if (!s) surfaceCache.set(track, (s = new Surface(track, geometricLine(track))));
+  return s;
+}
+
+/**
+ * The geometric racing line (`racingLine`), cached per track: kerbs and corner names come from it,
+ * so they stay put whatever line a class drives (phase D: names from the class line shifted T3 to T4).
+ */
+const geoCache = new WeakMap<Track, TrackPath>();
+export function geometricLine(track: Track): TrackPath {
+  let l = geoCache.get(track);
+  if (!l) geoCache.set(track, (l = racingLine(track)));
+  return l;
+}
+
+/**
+ * The braking share a class's line is worked out for: under what drivers plan with (BRAKE_USE), so
+ * a driver braking later than planned (bravery, a corner over race pace) can still make the
+ * corner. Worked out at BRAKE_USE, the line braked and turned right at the limit into Laguna's
+ * hairpin: a car a little over the plan slid wide, and MX-5 crashes tripled. 0.8% slower a lap.
+ */
+export const LINE_BRAKE_USE = 0.9;
+
+/**
+ * How far from the road edge the fastest line keeps the car's body off a kerb (m): room for a
+ * slide (0.4 left cars that slid wide no room: spins and offs more than doubled at Laguna). The
+ * line's centre keeps 1.5 m from the edge there, as the old line did everywhere. On a kerb it may use that too (KERB_REACH), wheels on the kerb, for its grip cost
+ * and spin risk (kerbs as width, phase D).
+ */
+export const EDGE_KEEP = 0.6;
+export const KERB_REACH = 0.6;
+
+/** Bounds for the fastest line: EDGE_KEEP inside dHard, and up to `kerbUse`·KERB_REACH more where a kerb lines that edge. */
+export function lineBounds(track: Track, kerbUse = 1): LineBounds {
+  const k = surfaceFor(track).kerbs, lim = dHard(track) - EDGE_KEEP, extra = kerbUse * KERB_REACH;
+  const lo = new Float64Array(track.n), hi = new Float64Array(track.n);
+  for (let i = 0; i < track.n; i++) {
+    hi[i] = lim + (k.left[i] ? extra : 0);
+    lo[i] = -lim - (k.right[i] ? extra : 0);
+  }
+  return { lo, hi };
+}
+
+/**
+ * Lanes around the fastest line for a car spec (driven at full grip, braking as drivers plan to),
+ * cached per track, spec and physics. One line per class: a driving style changes how the car is
+ * driven along it (its plans), not the line. Worked out per style, the fastest lines differed by
+ * under 10 cm: a point-mass car has no rotation, which is where V and U lines really differ.
+ */
+const fastCache = new WeakMap<Track, Map<string, LaneSet>>();
+export function fastLanes(track: Track, spec: CarSpec, physics: Partial<PhysicsParams> = {}): LaneSet {
+  let byKey = fastCache.get(track);
+  if (!byKey) fastCache.set(track, (byKey = new Map()));
+  const { id: _id, ...shape } = spec;
+  const key = JSON.stringify([shape, physics.gripLevel ?? 1, physics.drag ?? true]);
+  let ls = byKey.get(key);
+  if (!ls) {
+    const phys = { ...(physics.gripLevel !== undefined ? { gripLevel: physics.gripLevel } : {}), ...(physics.drag !== undefined ? { drag: physics.drag } : {}) };
+    const model = new CarModel(spec, phys);
+    byKey.set(key, (ls = new LaneSet(track, fastLine(track, lineBounds(track), { model, brakeUse: LINE_BRAKE_USE, surface: surfaceFor(track) }))));
+  }
+  return ls;
+}
+
+/** Share of the braking a style plans with: BRAKE_USE ± BRAKE_STYLE/2 from early and smooth (0) to late and hard (1). */
+export const BRAKE_STYLE = 0.05;
+export const brakeUseFor = (style: DriverStyle | undefined) => (style ? BRAKE_USE + (style.braking - 0.5) * BRAKE_STYLE : BRAKE_USE);
+
+/**
  * Share of the maximum braking drivers plan with. The rest is a safety margin: braking bumps,
  * misjudged grip, and room for a brave driver to brake later without overshooting.
  */
@@ -151,12 +228,13 @@ export class LanePlans {
    * thickest dirty air (less grip). Drivers blend toward each envelope by how deep in it they
    * are, so they brake for the car they're actually driving, not the clean-air one.
    */
-  constructor(readonly lanes: LaneSet, readonly model: CarModel, effects?: Effects, tow?: Effects, dirty?: Effects) {
-    this.profiles = lanes.paths.map((p, k) => solveSpeedProfile(p, model, { effects, grip: lanes.grips[k] }));
-    this.envelopes = lanes.paths.map((p, k) => solveSpeedProfile(p, model, { effects, forward: false, brakeUse: BRAKE_USE, grip: lanes.grips[k] }).v);
+  constructor(readonly lanes: LaneSet, readonly model: CarModel, effects?: Effects, tow?: Effects, dirty?: Effects, readonly brakeUse = BRAKE_USE) {
+    // The lap the driver really drives: braking with the share it plans with (its style), as it does.
+    this.profiles = lanes.paths.map((p, k) => solveSpeedProfile(p, model, { effects, brakeUse, grip: lanes.grips[k] }));
+    this.envelopes = lanes.paths.map((p, k) => solveSpeedProfile(p, model, { effects, forward: false, brakeUse, grip: lanes.grips[k] }).v);
     this.speeds = this.profiles.map((p) => p.v);
     const inv = (v: Float64Array) => v.map((x) => 1 / Math.max(x * x, 1e-6));
-    const env = (fx?: Effects) => (fx ? lanes.paths.map((p, k) => inv(solveSpeedProfile(p, model, { effects: fx, forward: false, brakeUse: BRAKE_USE, grip: lanes.grips[k] }).v)) : this.invSq);
+    const env = (fx?: Effects) => (fx ? lanes.paths.map((p, k) => inv(solveSpeedProfile(p, model, { effects: fx, forward: false, brakeUse, grip: lanes.grips[k] }).v)) : this.invSq);
     this.invSq = this.envelopes.map(inv);
     this.towInvSq = env(tow);
     this.dirtyInvSq = env(dirty);

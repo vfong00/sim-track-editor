@@ -172,6 +172,11 @@ export function statRows(field: Entrant[], i: number): { blurb: { driver: string
       row('Aggression', ds.map((d) => d.aggression), f2, 'How readily they try a pass: the urge to attack, and how far back they start (14 m, up to 20 m at 1).'),
       row('Bravery', ds.map((d) => d.bravery), f2, 'How much later they brake when fighting for a corner: up to 4% less braking margin at 1.'),
       row('Racecraft', ds.map((d) => d.racecraft), f2, 'Defending: chance to cover the inside when attacked (up to 60%). From speed and consistency (their mean) unless set.'),
+      // Driving style (phase D): not better or worse; rank 1st = the most of it. Absent (a generated field) shows neutral.
+      row('Braking', ds.map((d) => d.style?.braking ?? 0.5), (v) => `${v < 0.4 ? 'early' : v > 0.6 ? 'late' : 'mid'} ${v.toFixed(2)}`, 'Braking style: early and smooth (0) to late and hard (1). Late is a little quicker (a bigger share of the brakes) and locks up more.'),
+      row('Line', ds.map((d) => d.style?.line ?? 0.5), (v) => `${v < 0.4 ? 'U' : v > 0.6 ? 'V' : 'U–V'} ${v.toFixed(2)}`, 'U (0): trail-brakes and carries speed, using all the grip the car gives braking and turning together; runs wide more. V (1): brakes straight, turns, drives out straight: more peak braking and traction, less combined grip. Which is quicker depends on the car (its balance).'),
+      row('Throttle', ds.map((d) => d.style?.throttle ?? 0.5), (v) => `${v < 0.4 ? 'smooth' : v > 0.6 ? 'aggressive' : 'mid'} ${v.toFixed(2)}`, 'Out of corners: smooth (0) uses 95% of the traction, aggressive (1) all of it; aggressive gets loose and spins on kerbs more.'),
+      row('Kerbs', ds.map((d) => d.style?.kerbs ?? 0.5), f2, 'How much kerb they take where the line runs near a kerbed edge (0 none, 1 all of it). Kerbs cost a little grip and can spin a car under power.'),
       // Lower is safer: rank 1st = the least incident-prone.
       row('Incident risk', ds.map(incidentScale), (v) => `×${v.toFixed(2)}`, 'How likely a slide or contact ends in a spin or crash, from consistency and aggression + bravery. 1 = an average driver.', false),
     ],
@@ -180,6 +185,7 @@ export function statRows(field: Entrant[], i: number): { blurb: { driver: string
       row('Accel', cars.map((c) => c.accel), (v) => `${v.toFixed(1)} m/s²`, 'Engine acceleration before drag; tyre grip caps it at low speed.'),
       row('Grip', cars.map((c) => c.grip), f2, 'Mechanical tyre grip in g (before downforce).'),
       row('Brakes', cars.map((c) => c.brake), f2, 'Braking strength relative to grip.'),
+      row('Balance', cars.map((c) => c.trail ?? 2), f2, 'How much braking or drive the tyres still give while cornering (2: a balanced car that takes trail braking, like an MX-5, suits U drivers; F1 1.7: brake, turn, then drive, suits V drivers).'),
       // Extra grip from downforce at 250 km/h (69.4 m/s), in g.
       row('Downforce', cars.map((c) => (c.downforce ?? 0) * 69.4 * 69.4), (v) => `+${v.toFixed(1)} g @250`, 'Extra grip from downforce at 250 km/h; it grows with the square of speed.'),
     ],

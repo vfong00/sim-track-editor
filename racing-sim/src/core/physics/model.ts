@@ -1,4 +1,4 @@
-import { hypot } from '../fmath';
+import { exp, hypot, log } from '../fmath';
 /**
  * The one physics model (design rule 1). The speed planner and the time-stepped integrator both
  * call these functions, so they can never disagree about what the car can do.
@@ -28,6 +28,51 @@ export interface CarSpec {
   downforce?: number;
   /** The preset it was built from, if any (for display; the numbers above are what count). */
   preset?: CarPreset;
+  /**
+   * How much braking or drive the tyres still give while cornering (phase D, a stand-in for weight
+   * distribution and balance): the exponent of the grip limit, (a_long/μ)^p + (a_lat/μ)^p ≤ 1.
+   * 2 is the friction ellipse (a balanced car that takes trail braking: MX-5); lower is less grip
+   * combined, so braking and turning want doing apart (F1). Default 2.
+   */
+  trail?: number;
+}
+
+/**
+ * A driver's way of using the grip (phase D styles), each 0–1:
+ * - `braking`: early and smooth (0) to late and hard (1): the share of the braking the plans use.
+ * - `line`: U (0) to V (1). A U driver trail-brakes and carries speed, using all the grip the car
+ *   gives combined; a V driver brakes straight, turns, then drives out straight, giving up some of
+ *   the combined grip for a harder peak on the brakes and the throttle. The fastest line follows.
+ * - `throttle`: smooth (0) to aggressive (1): the share of the traction used out of a corner.
+ * - `kerbs`: how much kerb the driver's line takes.
+ * Each costs mistakes (lock-ups, power slides, running wide); see `racecraft.ts`.
+ */
+export interface DriverStyle {
+  braking: number;
+  line: number;
+  throttle: number;
+  kerbs: number;
+}
+export const NEUTRAL_STYLE: DriverStyle = { braking: 0.5, line: 0.5, throttle: 0.5, kerbs: 0.5 };
+
+/** How a style uses a car's grip: the limit's exponent, the peak longitudinal share, and the traction share. */
+export interface GripUse {
+  shape: number;
+  peak: number;
+  drive: number;
+}
+export const FULL_USE: GripUse = { shape: 2, peak: 1, drive: 1 };
+/** Exponent a V driver (line 1) uses at most; a U driver (line 0) uses the car's own. */
+export const V_SHAPE = 1.7;
+/** Peak braking and traction: a U driver (line 0) PEAK_U of it, a V driver all of it. */
+export const PEAK_U = 0.97;
+/** Traction share out of a corner: smooth (throttle 0) DRIVE_SMOOTH, aggressive all of it. */
+export const DRIVE_SMOOTH = 0.95;
+export function gripUse(spec: CarSpec, style: DriverStyle | undefined): GripUse {
+  const car = spec.trail ?? 2;
+  if (!style) return { ...FULL_USE, shape: car };
+  const want = 2 + (V_SHAPE - 2) * style.line;
+  return { shape: Math.min(car, want), peak: PEAK_U + (1 - PEAK_U) * style.line, drive: DRIVE_SMOOTH + (1 - DRIVE_SMOOTH) * style.throttle };
 }
 
 export const STANDARD_CAR: CarSpec = { id: 'standard', topSpeed: 85, accel: 11, grip: 1.0, brake: 1.0 };
@@ -39,12 +84,12 @@ export const STANDARD_CAR: CarSpec = { id: 'standard', topSpeed: 85, accel: 11, 
  * corners a little tighter than the real track, so F1 grip is on the high side to match its lap.
  */
 export const CAR_PRESETS = {
-  civilian: { label: 'Civilian car (Camry-like sedan)', topSpeed: 56, accel: 3.6, grip: 0.85, brake: 0.95, downforce: 0 },
-  mx5: { label: 'MX-5 Cup (race car on slicks)', topSpeed: 60, accel: 5.0, grip: 1.35, brake: 1.0, downforce: 0 },
-  road: { label: 'Sports car', topSpeed: 83, accel: 8, grip: 1.05, brake: 1.0, downforce: 0 },
-  gt3: { label: 'GT3', topSpeed: 79, accel: 8.5, grip: 1.35, brake: 1.05, downforce: 1.7e-4 },
-  lmp: { label: 'LMP (prototype)', topSpeed: 92, accel: 10, grip: 1.55, brake: 1.05, downforce: 4.0e-4 },
-  f1: { label: 'F1', topSpeed: 96, accel: 14, grip: 2.1, brake: 1.0, downforce: 8.5e-4 },
+  civilian: { label: 'Civilian car (Camry-like sedan)', topSpeed: 56, accel: 3.6, grip: 0.85, brake: 0.95, downforce: 0, trail: 2 },
+  mx5: { label: 'MX-5 Cup (race car on slicks)', topSpeed: 60, accel: 5.0, grip: 1.35, brake: 1.0, downforce: 0, trail: 2 },
+  road: { label: 'Sports car', topSpeed: 83, accel: 8, grip: 1.05, brake: 1.0, downforce: 0, trail: 1.95 },
+  gt3: { label: 'GT3', topSpeed: 79, accel: 8.5, grip: 1.35, brake: 1.05, downforce: 1.7e-4, trail: 1.85 },
+  lmp: { label: 'LMP (prototype)', topSpeed: 92, accel: 10, grip: 1.55, brake: 1.05, downforce: 4.0e-4, trail: 1.8 },
+  f1: { label: 'F1', topSpeed: 96, accel: 14, grip: 2.1, brake: 1.0, downforce: 8.5e-4, trail: 1.7 },
 } as const;
 export type CarPreset = keyof typeof CAR_PRESETS;
 /**
@@ -123,7 +168,10 @@ export class CarModel {
   readonly cd: number;
   readonly physics: PhysicsParams;
 
-  constructor(readonly spec: CarSpec, physics: Partial<PhysicsParams> = {}) {
+  readonly use: GripUse;
+
+  constructor(readonly spec: CarSpec, physics: Partial<PhysicsParams> = {}, use?: GripUse) {
+    this.use = use ?? { ...FULL_USE, shape: spec.trail ?? 2 };
     this.physics = { ...DEFAULT_PHYSICS, ...physics };
     this.mu = spec.grip * this.physics.g * this.physics.gripLevel;
     this.aero = (spec.downforce ?? 0) * this.physics.g * this.physics.gripLevel;
@@ -140,8 +188,16 @@ export class CarModel {
   /** Tire grip left over for driving/braking at speed v after `alat` of cornering (0 if over the limit). */
   private longitudinalGrip(v: number, alat: number, f: Effects): number {
     const mu = this.gripLimit(f, v);
-    const r = mu * mu - alat * alat;
-    return r > 0 ? Math.sqrt(r) : 0;
+    const p = this.use.shape;
+    if (p === 2) {
+      const r = mu * mu - alat * alat;
+      return r > 0 ? this.use.peak * Math.sqrt(r) : 0;
+    }
+    // (a_long/μ)^p + (a_lat/μ)^p ≤ 1, in engine-exact maths (fmath).
+    const u = Math.abs(alat) / mu;
+    if (!(u < 1)) return 0;
+    if (u === 0) return this.use.peak * mu;
+    return this.use.peak * mu * exp(log(1 - exp(p * log(u))) / p);
   }
 
   /**
@@ -166,7 +222,7 @@ export class CarModel {
   /** Net forward acceleration available at speed v while cornering at `alat` (may be negative). */
   maxDrive(v: number, alat: number, f: Effects = NO_EFFECTS): number {
     if (this.cd === 0 && v >= this.spec.topSpeed) return 0;
-    return Math.min(this.spec.accel, this.longitudinalGrip(v, alat, f)) - this.cd * f.drag * v * v;
+    return Math.min(this.spec.accel, this.use.drive * this.longitudinalGrip(v, alat, f)) - this.cd * f.drag * v * v;
   }
 
   /** Net deceleration available at speed v while cornering at `alat` (positive number). */

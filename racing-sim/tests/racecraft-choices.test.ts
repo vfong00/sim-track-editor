@@ -17,7 +17,7 @@ describe('racecraft decisions (phase B)', () => {
     expect(ds.some((d) => d.role === 'defend')).toBe(true);
     for (const d of ds) {
       expect(d.other).not.toBe(d.car);
-      if (d.role === 'attack') expect(['inside', 'outside', 'dummy', 'hold', 'stay']).toContain(d.kind);
+      if (d.role === 'attack') expect(['inside', 'outside', 'dummy', 'cutback', 'hold', 'stay']).toContain(d.kind);
       else expect(['inside', 'mirror', 'line']).toContain(d.kind.replace(/-late$/, ''));
     }
   });

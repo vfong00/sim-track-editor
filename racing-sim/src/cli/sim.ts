@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { type Baseline, type BaselineComparison, type BatchSummary, buildTrack, compareBaseline, hashText, makeBaseline, type RunResult, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, makeField, makeRng, parseScenario, Race, runBatch, ScenarioBuildError, scenarioRaceOptions, seedRange, simulateLap, type Spread, STANDARD_CAR } from '../core';
+import { type Baseline, type BaselineComparison, type BatchSummary, buildTrack, compareBaseline, hashText, makeBaseline, type RunResult, CarModel, generateTrack, LanePlans, LaneSet, loadScenario, makeField, makeRng, parseScenario, Race, runBatch, ScenarioBuildError, scenarioLanes, scenarioRaceOptions, seedRange, simulateLap, type Spread, STANDARD_CAR } from '../core';
 import { decodeGrayPngBytes } from './png-node';
 
 const HELP = `Racing sim CLI
@@ -62,7 +62,7 @@ if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     ? decodeGrayPngBytes(Buffer.from(data.track.image.slice(22), 'base64')) : undefined;
   const s = res.scenario;
   const track = buildTrack(s.track, png);
-  const lanes = new LaneSet(track);
+  const lanes = scenarioLanes(s, track);
   const runs = flag(args, 'runs', 20);
   const json = args.includes('--json');
   const results: RunResult[] = [];

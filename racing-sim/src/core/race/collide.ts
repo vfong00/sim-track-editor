@@ -22,6 +22,8 @@ interface Body {
   fixed?: boolean;
   /** Cleared away by marshals: no longer there to hit. */
   cleared?: boolean;
+  /** The lanes its st.delta is measured from (phase D: each car its own line); absent = the race's. */
+  lanes?: LaneSet;
 }
 
 /** Speed lost by both cars in a contact of 2 m/s or more (fraction), on top of the inelastic exchange. */
@@ -64,8 +66,12 @@ export function resolveCollisions(cars: Body[], lanes: LaneSet, edgeWall = false
           const va = Math.sqrt(Math.max(0, A.st.v * A.st.v - A.st.vDelta * A.st.vDelta)), vb = Math.sqrt(Math.max(0, B.st.v * B.st.v - B.st.vDelta * B.st.vDelta));
           // Sideways relative to the racing line for both (one may be spinning or in the run-off,
           // its sideways speed across the road), converted with the same slope of the line.
-          const slope = lanes.lineSlope(A.st.s);
-          const closing = (va - vb) * nx + (lineSideSpeed(A.st, lanes, slope) - lineSideSpeed(B.st, lanes, slope)) * ny;
+          // With each car on its own line (phase D), B's speed off its line is put in A's line's frame:
+          // the two frames differ by the lines' slopes times the speed along.
+          const la = A.lanes ?? lanes, lb = B.lanes ?? lanes;
+          const slope = la.lineSlope(A.st.s), slopeB = lb === la ? slope : lb.lineSlope(B.st.s);
+          const sideB = lineSideSpeed(B.st, lb, slopeB) + (slopeB - slope) * vb;
+          const closing = (va - vb) * nx + (lineSideSpeed(A.st, la, slope) - sideB) * ny;
           const angle = alongS ? Math.min(1, Math.abs(dd) / HIT_W) : 1;
           out.push({ a: i, b: j, closing: Math.max(0, closing), angle });
           if (closing > 0 && !(A.fixed && B.fixed)) {
@@ -103,7 +109,7 @@ function setVel(st: CarState, along: number, side: number): void {
 function move(c: Body, lanes: LaneSet, dS: number, dD: number, L: number, lim: number): number {
   c.st.s = (((c.st.s + dS) % L) + L) % L;
   c.st.dist += dS;
-  const lineD = lanes.lineD(c.st.s);
+  const lineD = (c.lanes ?? lanes).lineD(c.st.s);
   const d = clamp(c.d + dD, -lim, lim);
   const movedD = d - c.d;
   c.d = d;

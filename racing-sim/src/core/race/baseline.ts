@@ -17,8 +17,10 @@ export interface Metric {
 /** What a baseline records per race. */
 export const BASELINE_METRICS: Metric[] = [
   { key: 'passes', label: 'Passes', digits: 1, of: (r) => r.stats.passes },
+  { key: 'racingPasses', label: '  not after an incident', digits: 1, of: (r) => r.racingPasses ?? NaN },
   { key: 'contacts', label: 'Contacts', digits: 1, of: (r) => r.stats.contacts },
   { key: 'lap1Contacts', label: 'Lap-1 contacts', digits: 1, of: (r) => r.lap1Contacts },
+  { key: 'lap1Pinches', label: 'Lap-1 pinches', digits: 1, of: (r) => r.lap1Pinches ?? NaN },
   { key: 'incidents', label: 'Incidents', digits: 1, of: (r) => r.incidents },
   { key: 'spins', label: 'Spins', digits: 1, of: (r) => r.stats.spins },
   { key: 'dnfs', label: 'DNFs', digits: 2, of: (r) => r.stats.dnfs },

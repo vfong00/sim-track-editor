@@ -1,4 +1,4 @@
-import { type DecisionLog, FRAME_STRIDE, lanePlansFor, type LanePlans, MODE, type Race, STATUS } from '../core';
+import { type DecisionLog, type DriverStyle, FRAME_STRIDE, lanePlansFor, type LanePlans, MODE, type Race, STATUS } from '../core';
 
 /** A racecraft decision in words, for the follow panel ("Dummy on Abreu", "Covers the inside late from Chen"). */
 export function decisionText(d: DecisionLog, name: (i: number) => string): string {
@@ -101,11 +101,11 @@ export class RaceAt {
   }
 
   /** The lane plans the driver was using at this time (grip and damage then). */
-  plans(i: number): LanePlans {
+  plans(i: number, style?: DriverStyle): LanePlans {
     const e = this.r.cars[i].entrant;
     const dmg = this.damage(i);
     const spec = dmg > 0 ? { ...e.car, grip: e.car.grip * (1 - dmg) } : e.car;
-    return lanePlansFor(this.r.lanes, spec, this.r.paceOf(e), { ...this.r.physics, gripLevel: this.gripLevel }).plans;
+    return lanePlansFor(this.r.cars[i].lanes, spec, this.r.paceOf(e), { ...this.r.physics, gripLevel: this.gripLevel }, style ?? e.driver.style).plans;
   }
 
   /** Checkpoints car i had passed by now (index of the last one, -1 = none). */

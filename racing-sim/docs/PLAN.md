@@ -394,8 +394,12 @@ racecraft rules the phases are checked against are under "Racecraft rules" in th
   - Cars keep their grid side down to T1 and arrive two or three wide; restarts the same way.
   - Car size per preset (under "Driving styles" below): whether three wide fits depends on it.
   - Measure: lap-1 contacts and DNFs on F1 Yas, GT3 and MX-5 Laguna.
-- **D. Driving styles and corner lines.** L ("Driving styles, corner lines and lap 1" below,
-  less the lap-1 part)
+- **D. Driving styles and corner lines.** L. **Done 2026-11-27** (see the handoff → "Phase D: what
+  landed"). PLANSUMMARY
+  Left open: styles cost only mistakes until tyres (E); kerbs barely widen the line; V and U
+  share each class's line (no rotation in a point-mass car: Later → vehicle dynamics); roster
+  styles provisional; the track-character check change (2× → 1.5×) awaits the user.
+  ("Driving styles, corner lines and lap 1" below, less the lap-1 part)
   - Handling styles: late and hard vs early and smooth braking, V vs U lines, throttle.
   - Pace is skill times how well the style fits the car and the track, so some styles are
     innately quicker in some cars. Each style needs a cost so no style wins everywhere; until
@@ -661,6 +665,14 @@ Some of this can wait for driving styles. Some of it is logic we can fix now.
 
 **Later (a "racing revamp" with playability)**
 - Tyre wear and temperature, weather that builds, pit stops, team radio, picking your driver.
+- Vehicle dynamics (from phase D, the user's point: the car decides the style). The car is a
+  point with a grip limit, so it has no weight transfer, yaw or rotation. That's why V and U
+  drivers find the same fastest line (worked out per style, the lines differed by under 10 cm):
+  in a real car the V line comes from rotating the car on the brakes and driving out straight.
+  With yaw and load transfer: weight distribution, suspension and alignment as car settings,
+  lift-off oversteer (a lift mid-corner rotates the car, a V driver's tool and a spin risk),
+  and lines that really differ by style. Phase D's stand-in is one figure per car (`trail`,
+  how much braking or drive the tyres give while cornering).
 
 **Watching**
 - Done: sector times. The track takes `sectors: [m1, m2]` (metres from the start line; default

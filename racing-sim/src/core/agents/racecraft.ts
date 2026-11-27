@@ -1,6 +1,6 @@
 import { exp } from '../fmath';
 import type { CarState, Controls } from '../race/car';
-import { CAR_WIDTH, clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet, offShare, RUNOFF_GRIP } from '../race/lanes';
+import { BRAKE_STYLE, BRAKE_USE, brakeUseFor, CAR_WIDTH, clamp, EDGE_KEEP, HIT_LEN, HIT_W, type LanePlans, type LaneSet, offShare, RUNOFF_GRIP } from '../race/lanes';
 import { type CarModel, contactTolerance, dirtyEffects, type PhysicsParams } from '../physics/model';
 import type { Rng } from '../rng';
 import type { Corner } from '../track/corners';
@@ -60,7 +60,7 @@ export const classQuicker = (fast: CraftCar, slow: CraftCar) =>
 export type Mode = 'line' | 'attack' | 'defend';
 
 export interface Mistake {
-  kind: 'lockup' | 'wide';
+  kind: 'lockup' | 'wide' | 'power';
   until: number;
   corner: number;
 }
@@ -73,6 +73,10 @@ export interface Craft {
    */
   gridD: number;
   lap1Done: boolean;
+  /** Double-file form-up behind the safety car: the lateral position of my column (NaN: none). */
+  column: number;
+  /** Race distance the side hold ends by at the latest: the end of lap 1, or a lap after a double-file restart. */
+  holdTo: number;
   mode: Mode;
   /** Car being attacked or defended against. */
   other: number;
@@ -107,6 +111,8 @@ export interface Craft {
   gaveUp: number;
   /** Attacking (phase B): the plan for this move. */
   plan: AttackPlan;
+  /** The corner a cutback was weighed for (once per corner, phase D). */
+  cutCorner: number;
   /** Defending (phase B): the cover chosen for this corner, and whether the move waits until just before braking. */
   cover: Cover;
   late: boolean;
@@ -123,7 +129,7 @@ export interface Craft {
  * An attacker's plan (phase B): go for the inside, go round the outside, or show one side and
  * switch once before braking (the dummy).
  */
-export type AttackPlan = 'inside' | 'outside' | 'dummy';
+export type AttackPlan = 'inside' | 'outside' | 'dummy' | 'cutback';
 /**
  * A defender's cover (phase B): the inside, the side the attacker shows (`mirror`), or the
  * racing line, to protect the exit.
@@ -138,7 +144,7 @@ export interface Seen {
 const newSeen = (): Seen => ({ cover: { inside: 0, outside: 0, line: 0 }, attack: { inside: 0, outside: 0 } });
 const seenOf = (cr: Craft, j: number) => { let s = cr.memory.get(j); if (!s) cr.memory.set(j, (s = newSeen())); return s; };
 
-export const newCraft = (): Craft => ({ gridD: NaN, lap1Done: false, mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, rhythmLap: -1, rhythm: 0, mistake: null, hold: NaN, gaveUp: -1, plan: 'inside', cover: 'inside', late: false, moved: false, stayCorner: -1, stay: false, memory: new Map() });
+export const newCraft = (): Craft => ({ gridD: NaN, lap1Done: false, holdTo: NaN, column: NaN, mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, rhythmLap: -1, rhythm: 0, mistake: null, hold: NaN, gaveUp: -1, plan: 'inside', cover: 'inside', late: false, moved: false, stayCorner: -1, stay: false, cutCorner: -1, memory: new Map() });
 
 /** A racecraft decision, for the log (variety per driver in `batch`). */
 export interface CraftChoice {
@@ -221,6 +227,101 @@ export interface CraftDecision {
 }
 
 /** Path distance (m) from s to sample `apex`, going forward. */
+/**
+ * Three lines per corner (phase D): the racing line, the inside (the dive: the inside edge from
+ * DIVE_FROM before the apex) and the outside: a car's width (OUTSIDE_WIDTH) outside the racing
+ * line from OUTSIDE_FROM before the apex, held to the apex and eased back onto the line over
+ * OUTSIDE_EXIT after it. Worked out from the corner, so it doesn't move with the other car.
+ */
+export const OUTSIDE_FROM = 120;
+export const OUTSIDE_EASE = 50;
+export const OUTSIDE_EXIT = 60;
+export const OUTSIDE_WIDTH = () => SIDE_GAP + 0.3;
+/** The outside line's offset from the racing line at s (my lanes), for `corner`. */
+export function outsideLine(lanes: LaneSet, corner: Corner, s: number, lineD: number): number {
+  const L = lanes.track.length;
+  let x = s - corner.apex * lanes.track.ds; // metres past the apex
+  x = ((x % L) + L) % L;
+  if (x > L / 2) x -= L;
+  let w = 0;
+  if (x >= -OUTSIDE_FROM && x < -OUTSIDE_FROM + OUTSIDE_EASE) { const u = (x + OUTSIDE_FROM) / OUTSIDE_EASE; w = u * u * (3 - 2 * u); }
+  else if (x >= -OUTSIDE_FROM + OUTSIDE_EASE && x <= 0) w = 1;
+  else if (x > 0 && x < OUTSIDE_EXIT) { const u = x / OUTSIDE_EXIT; w = 1 - u * u * (3 - 2 * u); }
+  const d = clamp(lineD - corner.dir * OUTSIDE_WIDTH() * w, -lanes.lim, lanes.lim);
+  return d - lineD;
+}
+/** The switchback: the next braking corner turns the other way within SWITCH_REACH m of this one's apex. */
+export const SWITCH_REACH = 200;
+export const SWITCH_GAIN = 1.5;
+function switchback(plans: LanePlans, ctx: CraftContext, ci: number): boolean {
+  if (ci < 0) return false;
+  const map = brakingCorners(plans, ctx.corners, ctx.lanes);
+  const next = map[(ci + 1) % ctx.corners.length];
+  if (next < 0 || next === ci) return false;
+  const a = ctx.corners[ci], b = ctx.corners[next];
+  const L = ctx.lanes.track.length;
+  const gap = ((((b.apex - a.apex) * ctx.lanes.track.ds) % L) + L) % L;
+  return b.dir !== a.dir && gap < SWITCH_REACH;
+}
+/** An attacker waiting in the tow takes its own line, not the leader's, when the leader is more than OFFLINE m off its line with braking within OFFLINE_LEAD s. */
+export const OFFLINE = 2;
+export const OFFLINE_LEAD = 2.5;
+/** Cutback: weighed from CUT_FROM m before the apex; a held-up car needs CUT_FASTER s/lap on the leader; CUT_RATE scales the odds. */
+export const CUT_FROM = 160;
+export const CUT_FASTER = 0.3;
+export const CUT_RATE = 0.5;
+
+/** A line within this of its edge bound (m) on a kerbed edge is "using the kerb", and a kerb-loving driver leans further onto it. */
+export const KERB_NEAR_LINE = 0.6;
+/** Kerb lean only where the line is tighter than this radius (m). */
+export const KERB_LEAN_RADIUS = 150;
+/** Offset from the line (toward the kerb) a driver with kerb use `use` (0–1) aims for at s. */
+export function kerbLean(lanes: LaneSet, s: number, lineD: number, use: number): number {
+  if (use <= 0) return 0;
+  const k = lanes.surface.kerbs, n = lanes.track.n;
+  const i = Math.min(n - 1, Math.floor((((s % lanes.track.length) + lanes.track.length) % lanes.track.length) / lanes.track.ds));
+  const side = lineD > 0 ? 1 : -1;
+  if (!(side > 0 ? k.left[i] : k.right[i])) return 0;
+  // Only in a real corner: riding the kerb through a flat-out kink gains nothing.
+  if (Math.abs(lanes.line.kappa[i]) < 1 / KERB_LEAN_RADIUS) return 0;
+  const room = lanes.lim - Math.abs(lineD);
+  if (room > EDGE_KEEP + KERB_NEAR_LINE || room <= 0) return 0;
+  return side * room * use;
+}
+
+/** Late braking from bravery (at bravery 1): up to this share of speed into the braking zone. */
+export const BRAVE_GAIN = 0.04;
+/** Of an aggressive driver's (throttle 1) mistakes on the way out of a corner, this share is getting loose on the power (the rest run wide). */
+export const POWER_SHARE = 0.6;
+
+/** A corner needs braking in a car if its plan's apex speed is under this share of the fastest it goes in the BRAKE_LOOK m before. */
+export const FLAT_SHARE = 0.98;
+const BRAKE_LOOK = 300;
+const brakingCache = new WeakMap<LanePlans, Int32Array>();
+/**
+ * For each corner on the map, the index of the first corner at or after it that needs braking in
+ * this car (on its racing-line plan); -1 if none does. Cached per plan set.
+ */
+export function brakingCorners(plans: LanePlans, corners: Corner[], lanes: LaneSet): Int32Array {
+  let t = brakingCache.get(plans);
+  if (t) return t;
+  const v = plans.profiles[lanes.zero].v, n = v.length, back = Math.round(BRAKE_LOOK / lanes.track.ds);
+  const brakes = corners.map((c) => {
+    let top = 0;
+    for (let k = 0; k <= back; k++) top = Math.max(top, v[(c.apex - k + n) % n]);
+    return v[c.apex] < FLAT_SHARE * top;
+  });
+  t = new Int32Array(corners.length).fill(-1);
+  for (let k = 0; k < corners.length; k++) {
+    for (let m = 0; m < corners.length; m++) {
+      const j = (k + m) % corners.length;
+      if (brakes[j]) { t[k] = j; break; }
+    }
+  }
+  brakingCache.set(plans, t);
+  return t;
+}
+
 function distTo(lanes: LaneSet, s: number, apex: number): number {
   const L = lanes.track.length;
   return (((apex * lanes.track.ds - s) % L) + L) % L;
@@ -265,7 +366,12 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const lineD = lanes.lineD(st.s);
   const lim = lanes.lim;
   const i = Math.min(Math.floor(st.s / lanes.track.ds), lanes.track.n - 1);
-  const ci = ctx.nextCorner[i];
+  // The next corner on the map (pace scatter, lap 1), and the next one that needs braking in this
+  // car (racecraft): a flat-out kink isn't a corner to attack into or defend (phase D, Laguna T1:
+  // attacks ended and defences began on a bend taken flat, and the attacker lost its run).
+  const ciMap = ctx.nextCorner[i];
+  const toMapCorner = ciMap >= 0 ? distTo(lanes, st.s, ctx.corners[ciMap].apex) : Infinity;
+  const ci = ciMap >= 0 ? brakingCorners(plans, ctx.corners, lanes)[ciMap] : -1;
   const corner = ci >= 0 ? ctx.corners[ci] : null;
   const toCorner = corner ? distTo(lanes, st.s, corner.apex) : Infinity;
   const wake = wakeEffects(me, near, ctx);
@@ -289,8 +395,8 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   let vEnv = plans.envelope(ahead, st.delta, depth.tow, depth.dirty);
   if (ctx.push) {
     // A fresh go at each corner: how close to (or past) the limit this one is driven.
-    if (ci !== cr.pushCorner) {
-      cr.pushCorner = ci;
+    if (ciMap !== cr.pushCorner) {
+      cr.pushCorner = ciMap;
       cr.push = 1 + me.rng.normal() * (PUSH_SPREAD + PUSH_PER_INCONSISTENCY * (1 - drv.consistency));
     }
     vEnv *= cr.push;
@@ -303,15 +409,15 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       cr.rhythmLap = lap;
       cr.rhythm = me.rng.normal() * RHYTHM_SHARE * sd;
     }
-    if (ci !== cr.pushCorner) {
-      cr.pushCorner = ci;
+    if (ciMap !== cr.pushCorner) {
+      cr.pushCorner = ciMap;
       cr.push = 1 + me.rng.normal() * sd;
     }
     vEnv *= cr.push + cr.rhythm;
     // Lap 1: cold tyres, a full field and nobody sure where the others will brake, so a margin
     // under race pace, largest into T1 and smaller for a braver driver (phase C; the user's view:
     // T1 can't be taken flat out physically, but racers still go as fast as they can).
-    if (st.dist < lanes.track.length && corner) vEnv *= 1 - (ci === 0 ? LAP1_CAUTION.t1 : LAP1_CAUTION.rest) * (1 - drv.bravery);
+    if (st.dist < lanes.track.length && ciMap >= 0) vEnv *= 1 - (ciMap === 0 ? LAP1_CAUTION.t1 : LAP1_CAUTION.rest) * (1 - drv.bravery);
   }
   // Over the plan's top speed with no braking ahead (the plan is flat for the next second): that's
   // speed carried from a tow, not a corner to slow for. Stay flat out and let drag take it off.
@@ -323,16 +429,20 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   if (off > 0) vEnv *= Math.sqrt(1 - off * (1 - RUNOFF_GRIP));
   // In the braking zone for the next corner: the plan asks to slow down.
   const braking = vEnv < st.v - 1;
-  let wantDelta = 0;
+  // Kerb use (style, phase D): where the line runs near an edge that has a kerb, a driver who
+  // likes kerbs takes more of it (the lanes' plans pay its grip; it spins more on the power).
+  let wantDelta = drv.style ? kerbLean(lanes, st.s, lineD, drv.style.kerbs) : 0;
   // Off the start, every car keeps its grid side down to the first braking zone (phase C): the
   // field arrives at T1 two or three wide instead of funnelling onto the racing line within two
   // seconds. Moves made by attacking or defending (their one move) still override it below.
   if (Number.isNaN(cr.gridD)) cr.gridD = me.d;
   if (!cr.lap1Done) {
     // Down to T1: its braking zone, or its approach for a corner taken without braking.
-    if (braking || toCorner < LAP1_HOLD_TO || st.dist > lanes.track.length || ctx.neutral || ctx.push) cr.lap1Done = true;
+    if (braking || toMapCorner < LAP1_HOLD_TO || st.dist > (Number.isNaN(cr.holdTo) ? lanes.track.length : cr.holdTo) || ctx.neutral || ctx.push) cr.lap1Done = true;
     else wantDelta = clamp(cr.gridD, -lim, lim) - lineD;
   }
+  // Forming up two wide behind the safety car: my column, under the usual side spacing.
+  if (!Number.isNaN(cr.column)) wantDelta = clamp(cr.column, -lim, lim) - lineD;
   let started: Mistake | null = null;
   let choice: CraftChoice | undefined;
   const view = { st, d: me.d, model: me.model, plans, lanes, dt, effects };
@@ -344,12 +454,18 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     // Base rate: an average driver (consistency 0.85) slips about once every 20–25 laps.
     // Beyond the limit (sliding: braking too late, dirty air, a lunge) the rate climbs steeply.
     const excess = st.slide / me.model.gripLimit(undefined, st.v);
-    const rate = (1 - drv.consistency) * (0.004 + 4 * excess);
+    const braking = st.aLong < -3 && toCorner < 200;
+    const cornering = Math.abs(st.aLat) > 0.5 * me.model.gripLimit(undefined, st.v);
+    // Styles cost mistakes (phase D, until tyres give them a long-run cost): a late, hard braker
+    // locks up more; a U driver, carrying speed, runs wide more; an aggressive throttle gets
+    // loose on the way out.
+    const sty = drv.style;
+    const styleRate = !sty ? 1 : braking ? 0.6 + 0.8 * sty.braking : (1.2 - 0.4 * sty.line) * (0.8 + 0.4 * sty.throttle);
+    const rate = (1 - drv.consistency) * (0.004 + 4 * excess) * styleRate;
     if (me.rng.next() < rate * dt && st.v > 15) {
-      const braking = st.aLong < -3 && toCorner < 200;
-      const cornering = Math.abs(st.aLat) > 0.5 * me.model.gripLimit(undefined, st.v);
       if (braking || cornering) {
-        cr.mistake = { kind: braking ? 'lockup' : 'wide', until: ctx.t + (braking ? 0.9 : 1.6), corner: ci };
+        const power = !braking && sty !== undefined && st.aLong > 0 && me.rng.next() < POWER_SHARE * sty.throttle;
+        cr.mistake = { kind: braking ? 'lockup' : power ? 'power' : 'wide', until: ctx.t + (braking ? 0.9 : power ? 0.8 : 1.6), corner: ci };
         started = cr.mistake;
         cr.mode = 'line';
       }
@@ -360,9 +476,12 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
     const bMax = me.model.maxBrake(st.v, 0, effects);
     // Lock-up: only ~45% braking, so the car overshoots and runs wide. Wide: off line, slow.
     const outward = corner ? -corner.dir : 0;
+    // Power: the rear steps out on the way out; the driver lifts to catch it and drifts wide.
     const ctl: Controls = m.kind === 'lockup'
       ? { vTarget: Math.max(0, st.v - 0.45 * bMax * dt), deltaTarget: st.delta, effects }
-      : { vTarget: vEnv * 0.88, deltaTarget: clamp(lineD + outward * lim, -lim, lim) - lineD, effects };
+      : m.kind === 'power'
+        ? { vTarget: Math.min(vEnv, st.v), deltaTarget: clamp(lineD + st.delta + outward * 1.5, -lim, lim) - lineD, effects }
+        : { vTarget: vEnv * 0.88, deltaTarget: clamp(lineD + outward * lim, -lim, lim) - lineD, effects };
     const tc = trafficControls(view, near, avoidSlowCar(view, near, ctl.deltaTarget).delta, ctl.vTarget, 0.95);
     // Running wide goes past the edge by how sloppy the driver is (Phase 5): a consistent one
     // just uses the kerb, an error-prone one drops wheels on the grass. Only if the traffic
@@ -446,9 +565,13 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       const seen = seenOf(cr, front.j).cover;
       const n = seen.inside + seen.outside + seen.line + 3;
       const lean = (share: number) => exp(-READ_GAIN * drv.racecraft * (share - 1 / 3));
-      const plan = lapping ? 'inside' : pick<AttackPlan>({
-        inside: (0.6 + 0.4 * drv.aggression) * lean((seen.inside + 1) / n),
-        outside: (0.3 + 0.3 * (1 - drv.aggression)) * lean((seen.outside + 1) / n),
+      // Styles (phase D): a late braker dives, a U driver goes round the outside; the outside of
+      // a corner is the inside of the next if it turns the other way soon after (the switchback,
+      // the user's Monza T9/T10 ruling).
+      const sty = drv.style;
+      const plan = lapping ? 'inside' : pick<Exclude<AttackPlan, 'cutback'>>({
+        inside: (0.6 + 0.4 * drv.aggression) * (sty ? 0.6 + 0.8 * sty.braking : 1) * lean((seen.inside + 1) / n),
+        outside: (0.3 + 0.3 * (1 - drv.aggression)) * (sty ? 0.6 + 0.8 * (1 - sty.line) : 1) * (switchback(plans, ctx, ci) ? 1 + SWITCH_GAIN : 1) * lean((seen.outside + 1) / n),
         dummy: 0.35 * drv.racecraft * lean((seen.inside + 1) / n),
       }, me.rng.next());
       // Outside first for the outside plan; the dummy shows the inside and switches.
@@ -469,20 +592,37 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
         cr.commit = lapping;
         cr.swapped = false;
         cr.plan = side === first ? plan : side === inside ? 'inside' : 'outside';
-        choice = { role: 'attack', other: front.j, kind: cr.plan, corner: ci };
+        // Logged when the move is made (the pull-out), not when the car starts waiting in the tow
+        // for one: a car stuck behind logged an attack at nearly every corner (phase D).
+        if (lapping) choice = { role: 'attack', other: front.j, kind: cr.plan, corner: ci };
         break;
       }
     }
   }
 
-  let brave = ctx.push ? 1 + 0.04 * drv.bravery : 1;
+  // Bravery's late braking only uses the margin the driver's braking style hasn't already taken: a
+  // late braker (style 0.95) plans with 96% of the brakes, and adding bravery on top put Hughes into
+  // the back of cars at Yas T5 on lap 1 (lap-1 crashes 1 → 7 in 8 races, phase D).
+  const braveGain = BRAVE_GAIN * drv.bravery * clamp(1 - (brakeUseFor(drv.style) - BRAKE_USE) / (BRAKE_STYLE / 2), 0, 1);
+  let brave = ctx.push ? 1 + braveGain : 1;
   const relax: GapRuleRelax = {};
   if (cr.mode === 'attack') {
     let o: Near | undefined;
     for (const x of near) if (x.j === cr.other) o = x;
-    const passed = !o || o.gap < -ALONGSIDE;
+    // Past it once clear ahead (no overlap): holding the move until ALONGSIDE behind kept the
+    // passer a car's width off the car it had passed, mirroring it across the road (Monza seed 1,
+    // phase D: Abreu, leading, slid across the straight with Alvarez as Alvarez pulled out).
+    const passed = !o || o.gap < -HIT_LEN;
     const dropped = o && o.gap > 35;
-    const beatenAtApex = o && toCorner < 8 && corner && ci === cr.corner && o.gap > HIT_LEN;
+    // A cutback runs the outside line through the corner behind the leader, then attacks on the
+    // way out: past the apex it carries on as an ordinary attack on the next corner.
+    if (cr.plan === 'cutback' && ci !== cr.corner && o && !passed && !dropped) {
+      cr.plan = corner && Math.sign(o.d - me.d) === corner.dir ? 'outside' : 'inside';
+      cr.corner = ci;
+      cr.commit = false;
+      cr.swapped = false;
+    }
+    const beatenAtApex = o && toCorner < 8 && corner && ci === cr.corner && o.gap > HIT_LEN && cr.plan !== 'cutback';
     if (passed || dropped || beatenAtApex || ci !== cr.corner && o && o.gap > ALONGSIDE) {
       cr.mode = 'line';
     } else if (o) {
@@ -505,12 +645,13 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
         // No room for another car into the corner since the move began (a third car came
         // alongside): stay in the tow.
         const roomFor = classQuicker(me, cars[cr.other]) || ci !== cr.corner || contesting(o) <= cornerRoom(corner, lim);
-        if (roomFor && (run || (brakingSoon && o.gap < DIVE_GAP))) {
+        if (roomFor && cr.plan !== 'cutback' && (run || (brakingSoon && o.gap < DIVE_GAP))) {
           // The leader's line swings across the road; if our side has no room, use the other.
           if ((!room(cr.side) || busy(cr.side)) && room(-cr.side) && !busy(-cr.side)) cr.side = -cr.side;
           // No slot on either side: stay in the tow and wait.
           if (room(cr.side) && !busy(cr.side)) {
             cr.commit = true;
+            choice = { role: 'attack', other: cr.other, kind: cr.plan, corner: ci };
             // The defender sees which side the move went for (reading the opponent).
             if (corner) seenOf(cars[cr.other].craft, me.idx).attack[cr.side === corner.dir ? 'inside' : 'outside']++;
           }
@@ -565,21 +706,51 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       if (cr.mode !== 'attack') {
         // Gave the move up: back to driving the line.
       } else if (!cr.commit) {
-        // The leader's line, as an offset from the racing line where the leader is (its lateral
-        // position now would be a different point of the corner here).
-        wantDelta = o.d - lanes.lineD(st.s + o.gap);
+        // The cutback (phase D), weighed once per corner: the leader has dived for the inside, or
+        // I'm quicker but held up in its dirty air. Run the outside line through the corner (off
+        // the leader's line and out of its wake) for the better exit, and go on the way out.
+        if (corner && ci === cr.corner && cr.cutCorner !== ci && toCorner < CUT_FROM && cr.plan !== 'cutback') {
+          cr.cutCorner = ci;
+          const t = cars[cr.other].craft;
+          const dived = t.mode === 'defend' && t.moved && t.side === corner.dir;
+          const heldUp = depth.dirty > 0.3 && cars[cr.other].plans.lapTime - plans.lapTime > CUT_FASTER;
+          const sty = drv.style;
+          if ((dived || heldUp) && me.rng.next() < CUT_RATE * (0.5 + drv.racecraft) * (sty ? 0.6 + 0.8 * sty.line : 1)) {
+            cr.plan = 'cutback';
+            choice = { role: 'attack', other: cr.other, kind: 'cutback', corner: ci };
+          }
+        }
+        if (cr.plan === 'cutback' && corner && ci === cr.corner) wantDelta = outsideLine(lanes, corner, st.s, lineD);
+        else {
+          // The leader's line, as an offset from the racing line where the leader is (its lateral
+          // position now would be a different point of the corner here). Not where the leader is
+          // well off its line with braking close (defending, or in a fight of its own): the tow
+          // isn't worth a slower way into the corner (the user's Monza T9 ruling: Alvarez
+          // shouldn't follow Abreu's line).
+          // Only past lap 1 (there every car is off its line, keeping its grid side, and taking the
+          // line under braking put attackers onto the cars ahead: Monza T1 squeezes went 2 → 19 in
+          // 8 races) and only behind a leader busy in a fight of its own.
+          const leaderOff = o.d - lanes.lineD(st.s + o.gap);
+          const busyLeader = cars[o.j].craft.mode !== 'line';
+          const brakingNear = st.dist > lanes.track.length && busyLeader && plans.envelope(ahead + st.v * OFFLINE_LEAD, st.delta, depth.tow, depth.dirty) < st.v - 1;
+          wantDelta = Math.abs(leaderOff) > OFFLINE && brakingNear ? 0 : leaderOff;
+        }
         relax.tow = cr.other;
       } else {
         // Into the corner on the inside: dive for the inside edge (the leader's line sweeps
         // across from the outside, so sitting a car's width off the leader would be squeezed onto
         // the same edge behind it). Elsewhere, sit a car's width off the leader.
         const dive = corner && ci === cr.corner && cr.side === corner.dir && toCorner < DIVE_FROM && room(cr.side);
-        wantDelta = (dive ? cr.side * lim : clamp(o.d + cr.side * (SIDE_GAP + 0.3), -lim, lim)) - lineD;
+        // Round the outside (phase D): the corner's outside line, worked out from the corner, not
+        // from the leader (sitting a car's width off the leader, the attacker was squeezed as the
+        // leader swept to the apex, and lifted).
+        const wide = corner && ci === cr.corner && cr.side === -corner.dir && toCorner < OUTSIDE_FROM;
+        wantDelta = dive ? cr.side * lim - lineD : wide ? outsideLine(lanes, corner, st.s, lineD) : clamp(o.d + cr.side * (SIDE_GAP + 0.3), -lim, lim) - lineD;
         relax.commit = cr.other;
         // Brave: brake later while fighting for the corner (not a higher cornering speed). The
         // planned braking leaves a margin (BRAKE_USE ≈ 3% of speed); an average driver uses about
         // two thirds of it, the bravest a little more than all of it (and may overshoot).
-        if (Math.abs(o.gap) < 12) brave = 1 + 0.04 * drv.bravery;
+        if (Math.abs(o.gap) < 12) brave = 1 + braveGain;
       }
     }
   }

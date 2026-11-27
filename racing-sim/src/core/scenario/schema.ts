@@ -66,7 +66,17 @@ export interface DriverEntry {
   risk?: number;
   /** CSS colour; default from the palette. */
   color?: string;
+  /** Driving style, each 0–1 (phase D): a roster driver's own, else neutral (0.5), for any not given. */
+  style?: Partial<DriverStyleEntry>;
   advanced?: AdvancedRatings;
+}
+
+/** braking: early and smooth (0) to late and hard (1); line: U (0) to V (1); throttle: smooth to aggressive; kerbs: how much kerb. */
+export interface DriverStyleEntry {
+  braking: number;
+  line: number;
+  throttle: number;
+  kerbs: number;
 }
 
 /** Drivers from the fixed roster added after the listed ones (in roster order, skipping listed names). */
@@ -376,7 +386,10 @@ export function validateScenario(x: unknown): ScenarioError[] {
   if (x.drivers !== undefined && array(v, 'drivers', x.drivers, 0, MAX_CARS)) {
     (x.drivers as unknown[]).forEach((d, i) => {
       const p = `drivers[${i}]`;
-      if (!object(v, p, d, ['name', 'car'], ['speed', 'consistency', 'risk', 'color', 'advanced'])) return;
+      if (!object(v, p, d, ['name', 'car'], ['speed', 'consistency', 'risk', 'color', 'style', 'advanced'])) return;
+      if (d.style !== undefined && object(v, `${p}.style`, d.style, [], ['braking', 'line', 'throttle', 'kerbs'])) {
+        for (const k of ['braking', 'line', 'throttle', 'kerbs'] as const) num(v, `${p}.style.${k}`, d.style[k], 0, 1, { optional: true });
+      }
       total++;
       if (str(v, `${p}.name`, d.name, { max: 40 })) {
         if (names.has(d.name as string)) err(v, `${p}.name`, `"${d.name}" is used by another driver`);
