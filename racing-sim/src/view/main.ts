@@ -650,12 +650,12 @@ function frame(now: number) {
 
     camFrom = { session: s, follow: followIdx, mode: camMode };
     drawTrack(ctx, s.track, s.cam, showLine ? s.lanes.line : undefined, r.sectorEnds.slice(0, 2), showCurvature);
-    drawSkidMarks(ctx, s.cam, skidMarksAt(r, s.clock), s.clock);
+    if (showEffects) drawSkidMarks(ctx, s.cam, skidMarksAt(r, s.clock), s.clock);
     for (let p = n - 1; p >= 0; p--) {
       const i = order[p];
       drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, r.size.length, r.size.width, i === followIdx && camMode !== 'all', poses[i].status, liveryOf(r)[i], brakeAt(r, i, s.clock));
     }
-    drawParticles(ctx, s.cam, puffsAt(r, s.clock), sparksAt(r, s.clock));
+    if (showEffects) drawParticles(ctx, s.cam, puffsAt(r, s.clock), sparksAt(r, s.clock));
     if (showNames) drawLabels(s, poses, order, dpr);
     if (scPose) {
       const { p, heading } = scPose;
@@ -969,6 +969,14 @@ function toggleLine() {
   syncViewOpts();
 }
 
+/** Visual effects: skid marks, tyre smoke and sparks (remembered; on by default). Brake lights stay. */
+let showEffects = localStorage.getItem('racing-sim.effects') !== '0';
+function toggleEffects() {
+  showEffects = !showEffects;
+  localStorage.setItem('racing-sim.effects', showEffects ? '1' : '0');
+  syncViewOpts();
+}
+
 /** The followed car's racecraft choices in its panel (remembered; off by default). */
 let showCraft = localStorage.getItem('racing-sim.craft') === '1';
 function toggleCraft() {
@@ -1020,6 +1028,7 @@ function toggleNames() {
 /** What the ⚙ menu can show or hide, with each one's key (the key handler above must match). */
 const VIEW_OPTS: { id: string; label: string; key?: string; title: string; on: () => boolean; toggle: () => void }[] = [
   { id: 'line', label: 'Racing line', key: 'l', title: 'The racing line, dashed on the track', on: () => showLine, toggle: toggleLine },
+  { id: 'effects', label: 'Visual effects', title: 'Skid marks, tyre smoke and sparks (brake lights stay on)', on: () => showEffects, toggle: toggleEffects },
   { id: 'names', label: 'Names', key: 'n', title: 'Driver names over the cars', on: () => showNames, toggle: toggleNames },
   { id: 'inputs', label: 'Inputs', key: 'i', title: 'Throttle and brake on the speed trace, worked out from the car\'s speed', on: () => showInputs, toggle: toggleInputs },
   { id: 'spoilers', label: 'Spoilers', key: 's', title: 'Show every event of the race in the feed and on the timeline, not just what you have watched', on: () => showSpoilers, toggle: toggleSpoilers },
