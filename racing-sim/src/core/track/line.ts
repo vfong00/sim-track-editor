@@ -1,3 +1,4 @@
+import { hypot } from '../fmath';
 import type { PathLike } from '../physics/profile';
 import { mengerCurvature, type Track } from './track';
 
@@ -28,7 +29,7 @@ export function pathFromOffsets(track: Track, d: Float64Array): TrackPath {
   const cum = new Float64Array(n + 1);
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
-    segLen[i] = Math.hypot(xs[j] - xs[i], ys[j] - ys[i]);
+    segLen[i] = hypot(xs[j] - xs[i], ys[j] - ys[i]);
     cum[i + 1] = cum[i] + segLen[i];
   }
   const kappa = new Float64Array(n);

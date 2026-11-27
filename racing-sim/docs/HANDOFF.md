@@ -219,7 +219,7 @@ npm on this Mac: Artifactory may be unreachable. Install with
   disagreed, so until 2026-11-23 the viewer showed a different race from the CLI, the tests and
   the batch baselines for the same scenario and seed. Core code now uses `src/core/fmath.ts`
   (fdlibm ports, only + − × ÷), and `tests/determinism.test.ts` fails on any engine-rounded Math
-  call or `**` in `src/core`. `sqrt`, `hypot`, `floor` and the like are exact and fine.
+  call or `**` in `src/core`. `sqrt`, `floor` and the like are exact and fine; `hypot` is not (Safari and V8 differ), so core uses `fmath.hypot`, a bit-exact port of V8's.
 - To check parity: `tools/parity/` runs a scenario the way the viewer does and prints its events,
   setup hashes or per-tick state (instructions at the top of the page). Run it in headless Chrome
   and diff against the same run in Node (`tools/parity/dump.js` has the shared dump functions).

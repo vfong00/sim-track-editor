@@ -1,3 +1,4 @@
+import { hypot } from '../fmath';
 import { type CarState, lineSideSpeed } from './car';
 import { clamp, HIT_LEN, HIT_W, type LaneSet } from './lanes';
 
@@ -95,7 +96,7 @@ export function resolveCollisions(cars: Body[], lanes: LaneSet, edgeWall = false
 function setVel(st: CarState, along: number, side: number): void {
   along = Math.max(0, along);
   st.vDelta = side;
-  st.v = Math.hypot(along, side);
+  st.v = hypot(along, side);
 }
 
 /** Move a car by (Δs, Δd), respecting the barrier (or the road edge, with incidents off). Returns the distance actually moved. */
@@ -107,5 +108,5 @@ function move(c: Body, lanes: LaneSet, dS: number, dD: number, L: number, lim: n
   const movedD = d - c.d;
   c.d = d;
   c.st.delta = d - lineD;
-  return Math.hypot(dS, movedD);
+  return hypot(dS, movedD);
 }

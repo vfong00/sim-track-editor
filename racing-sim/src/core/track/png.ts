@@ -1,5 +1,5 @@
 import type { Vec } from '../math';
-import { exp } from '../fmath';
+import { exp, hypot } from '../fmath';
 import { Track } from './track';
 
 /**
@@ -42,7 +42,7 @@ export function trackFromPng(image: ImageData, lengthMeters: number, width = 14,
   let px = 0;
   for (let i = 0; i < smoothed.length; i++) {
     const a = smoothed[i], b = smoothed[(i + 1) % smoothed.length];
-    px += Math.hypot(b.x - a.x, b.y - a.y);
+    px += hypot(b.x - a.x, b.y - a.y);
   }
   const k = lengthMeters / px;
   // Begin the loop at the start/finish line (the trace begins wherever its first pixel was).
@@ -51,7 +51,7 @@ export function trackFromPng(image: ImageData, lengthMeters: number, width = 14,
   for (let i = 0, run = 0; i < smoothed.length; i++) {
     if (run >= startPx) { i0 = i; break; }
     const a = smoothed[i], b = smoothed[(i + 1) % smoothed.length];
-    run += Math.hypot(b.x - a.x, b.y - a.y);
+    run += hypot(b.x - a.x, b.y - a.y);
   }
   const loop2 = [...smoothed.slice(i0), ...smoothed.slice(0, i0)];
   return Track.fromPolyline(loop2.map((p) => ({ x: p.x * k, y: -p.y * k })), width);
@@ -135,7 +135,7 @@ function walkLoop(m: Uint8Array, w: number, h: number): Vec[] {
     cur = best;
   }
   const first = path[0], last = path[path.length - 1];
-  const closeGap = Math.hypot((first % w) - (last % w), ((first / w) | 0) - ((last / w) | 0));
+  const closeGap = hypot((first % w) - (last % w), ((first / w) | 0) - ((last / w) | 0));
   if (closeGap > 3 || path.length < 0.9 * total) {
     throw new Error(`PNG import: could not trace a single closed loop (traced ${path.length}/${total} px, end gap ${closeGap.toFixed(1)} px)`);
   }

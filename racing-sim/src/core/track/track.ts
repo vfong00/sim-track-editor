@@ -1,3 +1,4 @@
+import { hypot } from '../fmath';
 import type { Vec } from '../math';
 import { closedSpline } from './spline';
 
@@ -30,7 +31,7 @@ export class Track {
     for (let i = 0; i < this.n; i++) {
       const j = (i + 1) % this.n;
       const dx = this.xs[j] - this.xs[i], dy = this.ys[j] - this.ys[i];
-      const l = Math.hypot(dx, dy);
+      const l = hypot(dx, dy);
       this.tx[i] = dx / l;
       this.ty[i] = dy / l;
       total += l;
@@ -43,7 +44,7 @@ export class Track {
     for (let i = 0; i < this.n; i++) {
       const a = (i - 1 + this.n) % this.n;
       const hx = this.tx[a] + this.tx[i], hy = this.ty[a] + this.ty[i];
-      const l = Math.hypot(hx, hy);
+      const l = hypot(hx, hy);
       this.nx[i] = -hy / l;
       this.ny[i] = hx / l;
     }
@@ -61,7 +62,7 @@ export class Track {
     const cum = new Float64Array(m + 1);
     for (let i = 0; i < m; i++) {
       const b = dense[(i + 1) % m];
-      cum[i + 1] = cum[i] + Math.hypot(b.x - dense[i].x, b.y - dense[i].y);
+      cum[i + 1] = cum[i] + hypot(b.x - dense[i].x, b.y - dense[i].y);
     }
     const total = cum[m];
     const n = Math.max(8, Math.round(total / spacing));
@@ -117,7 +118,7 @@ export class Track {
     const t = u - i;
     const j = (i + 1) % this.n;
     const x = this.nx[i] * (1 - t) + this.nx[j] * t, y = this.ny[i] * (1 - t) + this.ny[j] * t;
-    const l = Math.hypot(x, y);
+    const l = hypot(x, y);
     return { x: x / l, y: y / l };
   }
 
@@ -139,7 +140,7 @@ export class Track {
       const ax = this.xs[i], ay = this.ys[i];
       const ex = this.xs[j] - ax, ey = this.ys[j] - ay;
       const t = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey)));
-      const dd = Math.hypot(x - (ax + ex * t), y - (ay + ey * t));
+      const dd = hypot(x - (ax + ex * t), y - (ay + ey * t));
       if (dd < best) {
         best = dd;
         bi = i;
@@ -206,7 +207,7 @@ export class Track {
             if (j <= i) continue;
             const gap = Math.min(j - i, this.n - (j - i));
             if (gap <= skip) continue;
-            best = Math.min(best, Math.hypot(this.xs[i] - this.xs[j], this.ys[i] - this.ys[j]));
+            best = Math.min(best, hypot(this.xs[i] - this.xs[j], this.ys[i] - this.ys[j]));
           }
         }
       }
@@ -218,6 +219,6 @@ export class Track {
 /** Signed curvature of the circle through three points (positive = counter-clockwise). */
 export function mengerCurvature(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {
   const cr = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-  const d = Math.hypot(bx - ax, by - ay) * Math.hypot(cx - bx, cy - by) * Math.hypot(cx - ax, cy - ay);
+  const d = hypot(bx - ax, by - ay) * hypot(cx - bx, cy - by) * hypot(cx - ax, cy - ay);
   return d === 0 ? 0 : (2 * cr) / d;
 }

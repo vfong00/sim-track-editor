@@ -1,3 +1,4 @@
+import { hypot } from '../fmath';
 import type { CarSpec } from '../physics/model';
 import { STANDARD_CAR } from '../physics/model';
 import type { Rng } from '../rng';
@@ -51,7 +52,7 @@ export const raceSpread = (consistency: number) => RACE_SPREAD_BASE + RACE_SPREA
 export const RACE_MARGIN_BASE = 0.01;
 export const raceHeadroom = (bravery: number) => 2 - bravery;
 export const raceMargin = (d: Pick<DriverSpec, 'consistency' | 'bravery'>) =>
-  RACE_MARGIN_BASE + raceHeadroom(d.bravery) * 2 * raceSpread(d.consistency) * Math.hypot(1, RHYTHM_SHARE);
+  RACE_MARGIN_BASE + raceHeadroom(d.bravery) * 2 * raceSpread(d.consistency) * hypot(1, RHYTHM_SHARE);
 /** Share of the car's grip a driver uses in a race. */
 export const racePace = (d: Pick<DriverSpec, 'pace' | 'consistency' | 'bravery'>) => d.pace * (1 - raceMargin(d));
 

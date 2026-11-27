@@ -1,3 +1,4 @@
+import { hypot } from './fmath';
 export interface Vec {
   x: number;
   y: number;
@@ -5,7 +6,7 @@ export interface Vec {
 
 export const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
 export const cross = (a: Vec, b: Vec): number => a.x * b.y - a.y * b.x;
-export const dist = (a: Vec, b: Vec): number => Math.hypot(a.x - b.x, a.y - b.y);
+export const dist = (a: Vec, b: Vec): number => hypot(a.x - b.x, a.y - b.y);
 
 /** Convex hull (Andrew's monotone chain), counter-clockwise. */
 export function convexHull(pts: Vec[]): Vec[] {

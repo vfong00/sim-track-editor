@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { cos, exp, log, sin } from '../src/core/fmath';
+import { cos, exp, hypot, log, sin } from '../src/core/fmath';
 
 /**
  * The viewer (Chrome) and the CLI and tests (Node) must run the same race for a scenario and seed.
@@ -16,7 +16,7 @@ const coreFiles = (dir: string): string[] =>
 
 describe('determinism across engines', () => {
   it('core code uses no engine-rounded Math functions or **', () => {
-    const banned = /Math\.(exp|expm1|log|log1p|log2|log10|sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|pow|cbrt)\b|[\w)\]]\s*\*\*\s*[\w(]/;
+    const banned = /Math\.(exp|expm1|log|log1p|log2|log10|sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|pow|cbrt|hypot)\b|[\w)\]]\s*\*\*\s*[\w(]/;
     const hits: string[] = [];
     for (const f of coreFiles(join(__dirname, '../src/core'))) {
       readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
@@ -56,5 +56,19 @@ describe('determinism across engines', () => {
     expect(cos(0)).toBe(1);
     expect(sin(0)).toBe(0);
     expect(() => sin(1e7)).toThrow(RangeError);
+  });
+
+  it('fmath hypot gives V8\'s bits (Node and Chrome; Safari\'s Math.hypot rounds differently)', () => {
+    let seed = 7;
+    const rnd = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
+    for (let i = 0; i < 20000; i++) {
+      const e = () => (rnd() - 0.5) * 10 ** Math.floor(rnd() * 12 - 6);
+      const x = e(), y = e(), z = e();
+      expect(Object.is(hypot(x, y), Math.hypot(x, y))).toBe(true);
+      expect(Object.is(hypot(x, y, z), Math.hypot(x, y, z))).toBe(true);
+    }
+    expect(hypot(0, 0)).toBe(0);
+    expect(hypot(Infinity, NaN)).toBe(Infinity);
+    expect(hypot(NaN, 1)).toBeNaN();
   });
 });

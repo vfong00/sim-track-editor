@@ -1,3 +1,4 @@
+import { hypot } from '../fmath';
 import { type CarModel, type Effects, NO_EFFECTS } from '../physics/model';
 import { clamp, type LaneSet, offShare, RUNOFF_DRAG, RUNOFF_GRIP } from './lanes';
 
@@ -171,13 +172,13 @@ export function stepCar(st: CarState, ctl: Controls, model: CarModel, lanes: Lan
     st.wall = Math.abs(st.vDelta);
     st.delta = clamp(st.delta, lo, hi);
     st.vDelta = -0.2 * st.vDelta;
-    st.v = Math.hypot(Math.sqrt(Math.max(0, st.v * st.v - st.wall * st.wall)), st.vDelta);
+    st.v = hypot(Math.sqrt(Math.max(0, st.v * st.v - st.wall * st.wall)), st.vDelta);
   }
 
   st.aLong = a;
   st.aLat = ctl.free ? 0 : v0 * v0 * kappa + aSide;
   const tire = a + model.cd * f.drag * v0 * v0; // longitudinal tire force per unit mass
-  st.usage = Math.hypot(Math.min(Math.abs(st.aLat), mu), tire >= 0 ? tire : tire / model.spec.brake) / mu;
+  st.usage = hypot(Math.min(Math.abs(st.aLat), mu), tire >= 0 ? tire : tire / model.spec.brake) / mu;
 }
 
 /** A driven car: along its lane at speed v, steering sideways with aSide. */
@@ -260,7 +261,7 @@ function slideStraight(st: CarState, v0: number, lanes: LaneSet, dt: number, lin
   // Tangent is the left normal turned back a quarter (as in Track.toFrame).
   const along = Math.sqrt(Math.max(0, v0 * v0 - st.vDelta * st.vDelta));
   let wx = along * n0.y + st.vDelta * n0.x, wy = -along * n0.x + st.vDelta * n0.y;
-  const w = Math.hypot(wx, wy);
+  const w = hypot(wx, wy);
   if (w < 1e-9) { st.vDelta = 0; return; }
   wx /= w; wy /= w;
   const vm = (v0 + st.v) / 2;
@@ -277,5 +278,5 @@ function slideStraight(st: CarState, v0: number, lanes: LaneSet, dt: number, lin
   const n1 = track.normalAt(q.s);
   const u = Math.max(0, st.v * (wx * n1.y - wy * n1.x));
   st.vDelta = st.v * (wx * n1.x + wy * n1.y);
-  st.v = Math.hypot(u, st.vDelta);
+  st.v = hypot(u, st.vDelta);
 }

@@ -1,3 +1,4 @@
+import { hypot } from '../fmath';
 import { type RunResult, type Spread, spread } from './batch';
 
 /**
@@ -83,7 +84,7 @@ export function compareBaseline(base: Baseline, runs: RunResult[]): BaselineComp
     if (paired.length) delta = spread(paired.map((r) => m.of(r) - old[at.get(r.seed)!]));
     else {
       const a = spread(old), b = spread(now);
-      delta = { mean: b.mean - a.mean, se: Math.hypot(a.se, b.se) };
+      delta = { mean: b.mean - a.mean, se: hypot(a.se, b.se) };
     }
     const notable = Math.abs(delta.mean) > 2 * delta.se && Math.abs(delta.mean) > 1e-9;
     rows.push({ key: m.key, label: m.label, digits: m.digits, before: spread(old), after: spread(now), delta, notable });

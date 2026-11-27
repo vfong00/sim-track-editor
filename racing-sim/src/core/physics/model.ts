@@ -1,3 +1,4 @@
+import { hypot } from '../fmath';
 /**
  * The one physics model (design rule 1). The speed planner and the time-stepped integrator both
  * call these functions, so they can never disagree about what the car can do.
@@ -131,7 +132,7 @@ export class CarModel {
   cornerSpeed(kappa: number, f: Effects = NO_EFFECTS): number {
     const mu0 = this.mu * f.grip, a = this.aero * (f.aero ?? 1) * f.grip;
     const c = this.cd * f.drag;
-    const k = Math.hypot(kappa, c);
+    const k = hypot(kappa, c);
     const v = k > a ? Math.sqrt(mu0 / (k - a)) : Infinity;
     return Math.min(v, this.topSpeedWith(f));
   }

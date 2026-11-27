@@ -1,5 +1,5 @@
 /**
- * exp, log, sin and cos that give the same bits in every JavaScript engine.
+ * exp, log, sin, cos and hypot that give the same bits in every JavaScript engine.
  *
  * Math.exp, Math.log, Math.sin and Math.cos are only required to be close, and engines differ in
  * the last bit: Node 24 and Chrome disagree on all four. The race is chaotic, so one bit in a
@@ -188,4 +188,32 @@ export function cos(x: number): number {
   if (ix >= 0x7ff00000) return NaN;
   const n = remPio2(x) & 3;
   return n === 0 ? kCos(red.y0, red.y1) : n === 1 ? -kSin(red.y0, red.y1, 1) : n === 2 ? -kCos(red.y0, red.y1) : kSin(red.y0, red.y1, 1);
+}
+
+// --- hypot (V8's MathHypot in src/builtins/math.tq, to the bit)
+/**
+ * Math.hypot isn't required to be exact either: V8 (Node, Chrome) scales by the largest argument
+ * and sums the squares with Kahan compensation, Safari's JavaScriptCore rounds another way, and the
+ * race split from Chrome's within 20 s. This is V8's algorithm in + − × ÷ and sqrt (exact in IEEE
+ * 754), so Node's races keep their bits and every engine now gets them.
+ */
+export function hypot(x: number, y: number, z?: number): number {
+  const three = z !== undefined;
+  if (x !== x || y !== y || (three && z !== z)) {
+    return Math.abs(x) === Infinity || Math.abs(y) === Infinity || (three && Math.abs(z) === Infinity) ? Infinity : NaN;
+  }
+  const a = Math.abs(x), b = Math.abs(y), c = three ? Math.abs(z) : 0;
+  const max = Math.max(a, b, c);
+  if (max === Infinity) return Infinity;
+  if (max === 0) return 0;
+  // Kahan summation of the scaled squares, term by term as V8 does (a third term only if given).
+  let n = a / max, sum = n * n, comp = 0;
+  n = b / max;
+  let summand = n * n - comp, pre = sum + summand;
+  comp = (pre - sum) - summand; sum = pre;
+  if (three) {
+    n = c / max; summand = n * n - comp; pre = sum + summand;
+    sum = pre;
+  }
+  return Math.sqrt(sum) * max;
 }
