@@ -208,6 +208,7 @@ export function scenarioRaceOptions(s: Scenario, track: Track, lanes?: LaneSet):
     incidents: s.race.incidents ?? true,
     incidentRate: s.race.incidentRate ?? 1,
     safetyCar: s.race.safetyCar ?? 'off',
+    start: s.race.start ?? 'grid',
     events,
     ...(s.track.sectors ? { sectors: s.track.sectors } : {}),
   };

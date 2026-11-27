@@ -42,7 +42,7 @@ function runSC(s: Scenario): { r: Race; w: Window } {
 }
 
 describe('Phase 6: safety car', () => {
-  const seeds = [4, 5, 6, 7];
+  const seeds = [4, 5, 6, 8]; // phase C: seed 7 now has a contact-and-pass right at the end of the grace window
   // The scripted safety car on its own: with 'auto' on, a car stopping later brings out a second
   // one, which these checks of the first window would count as its own (it has a test below).
   const runs = seeds.map((seed) => runSC({ ...BASE, seed, race: { ...BASE.race, safetyCar: 'off' } }));

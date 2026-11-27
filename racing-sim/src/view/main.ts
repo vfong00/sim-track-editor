@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import {
   buildTrack, CAR_LENGTH, CAR_WIDTH, dataUrlBytes, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, LaneSet, parseScenario,
-  pngPixels, qualifyingRun, readPng, Race, type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
+  LIGHTS, pngPixels, qualifyingRun, readPng, Race, type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
 } from '../core';
 import { ScenarioEditor } from '../editor/scenario-editor';
 import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
@@ -446,7 +446,7 @@ function craftTag(mode: string, finished: boolean): string {
   return `<span class="tag ${mode}">${mode === 'attack' ? 'ATK' : 'DEF'}</span>`;
 }
 
-const FEED_TYPES = new Set(['pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'cleared', 'grip', 'safety-car']);
+const FEED_TYPES = new Set(['start', 'jump', 'pass', 'mistake', 'contact', 'off', 'rejoin', 'spin', 'crash', 'retire', 'cleared', 'grip', 'safety-car']);
 const FEED_MAX = 40;
 let feedKey = '';
 /** Events ahead of the replay the feed shows (watched before, or spoilers), nearest first. */
@@ -521,13 +521,19 @@ function sectorRow(at: RaceAt, i: number): string {
 }
 
 /**
- * Watching a qualifying run: the clean-air lap at the limit (their speed rating), the lap the
- * driver is chasing. Not shown in races, where nobody drives to it.
+ * The ideal laps: in qualifying, the clean-air lap at the limit (their speed rating), the lap the
+ * driver is chasing. In a race, the clean-air lap at race pace (the limit less the driver's race
+ * margin) with the current grip and damage, the most a driver can do lap after lap: since phase C
+ * no lap beats it except by the odd corner over the limit. Tyre wear isn't in it yet (phase E).
  */
 function idealRows(s: Session, at: RaceAt, i: number): string {
-  if (s.race.opts.session !== 'qualifying') return '';
-  const pct = `${(s.race.cars[i].entrant.driver.pace * 100).toFixed(1)}%`;
-  return `<div class="row" title="Clean air at the limit, using ${pct} of the car's grip (their speed rating)"><span class="lbl">Ideal push lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>`;
+  const d = s.race.cars[i].entrant.driver;
+  if (s.race.opts.session === 'qualifying') {
+    const pct = `${(d.pace * 100).toFixed(1)}%`;
+    return `<div class="row" title="Clean air at the limit, using ${pct} of the car's grip (their speed rating)"><span class="lbl">Ideal push lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>`;
+  }
+  const pct = `${(s.race.paceOf(s.race.cars[i].entrant) * 100).toFixed(1)}%`;
+  return `<div class="row" title="Clean air at race pace, using ${pct} of the car's grip (their speed rating less a race margin for consistency and bravery), with the grip and damage now. Tyre wear isn't in it yet."><span class="lbl">Ideal race lap</span><span>${fmtTime(at.plans(i).lapTime)}</span></div>`;
 }
 
 /** Driver ratings and car spec of the followed car, each ranked in the field (only re-rendered when it changes). */
@@ -630,18 +636,19 @@ function frame(now: number) {
     drawSkidMarks(ctx, s.cam, skidMarksAt(r, s.clock), s.clock);
     for (let p = n - 1; p >= 0; p--) {
       const i = order[p];
-      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, CAR_LENGTH, CAR_WIDTH, i === followIdx && camMode !== 'all', poses[i].status, liveryOf(r)[i], brakeAt(r, i, s.clock));
+      drawCar(ctx, s.cam, poses[i].p, poses[i].heading, r.cars[i].entrant.color, r.size.length, r.size.width, i === followIdx && camMode !== 'all', poses[i].status, liveryOf(r)[i], brakeAt(r, i, s.clock));
     }
     drawParticles(ctx, s.cam, puffsAt(r, s.clock), sparksAt(r, s.clock));
     if (showNames) drawLabels(s, poses, order, dpr);
     if (scPose) {
       const { p, heading } = scPose;
-      drawCar(ctx, s.cam, p, heading, '#ffb000', CAR_LENGTH * 1.1, CAR_WIDTH, true, 0);
+      drawCar(ctx, s.cam, p, heading, '#ffb000', CAR_LENGTH * 1.1, CAR_WIDTH, true, 0); // the safety car keeps its own size
       const q = { x: s.cam.ox + p.x * s.cam.scale, y: s.cam.oy - p.y * s.cam.scale };
       ctx.font = `600 ${11 * dpr}px system-ui`;
       ctx.fillStyle = '#ffb000';
       ctx.fillText('SC', q.x + 8 * dpr, q.y - 8 * dpr);
     }
+    if (r.lightsOut > 0 && s.clock < r.lightsOut + 1.5) drawLights(r.lightsOut, s.clock, dpr, W);
     // The result opens by itself once, when the viewer reaches the end of the race; rewinding closes it.
     const over = raceOver(r, at.k);
     if (over && !s.resultShown) { s.resultShown = true; setResult(true); }
@@ -702,6 +709,21 @@ const MAX_RACE_TIME = 3600;
  * Name tags over the cars: "P3 Lee". All cars once zoomed in enough to tell them apart, else
  * only the followed one; a tag that would overlap one already drawn is skipped (leaders first).
  */
+/** The start gantry: light k (1–5) comes on at k s, all go out at lights out (the race's own timing). */
+function drawLights(out: number, clock: number, dpr: number, W: number) {
+  const r = 11 * dpr, gap = 8 * dpr, n = LIGHTS.count;
+  const w = n * 2 * r + (n - 1) * gap + 2 * gap, x0 = (W - w) / 2, y0 = 44 * dpr;
+  ctx.fillStyle = 'rgba(10,10,12,0.85)';
+  ctx.fillRect(x0, y0, w, 2 * r + 2 * gap);
+  for (let k = 1; k <= n; k++) {
+    const on = clock >= k * LIGHTS.every && clock < out;
+    ctx.beginPath();
+    ctx.arc(x0 + gap + r + (k - 1) * (2 * r + gap), y0 + gap + r, r, 0, 7);
+    ctx.fillStyle = on ? '#ff2a2a' : '#2a2a30';
+    ctx.fill();
+  }
+}
+
 function drawLabels(s: Session, poses: { p: Vec; status: number }[], order: number[], dpr: number) {
   const all = s.cam.scale >= 1.2 * dpr;
   const ids = order.filter((i) => poses[i].status < STATUS.crash && (all || (i === followIdx && camMode !== 'all')));

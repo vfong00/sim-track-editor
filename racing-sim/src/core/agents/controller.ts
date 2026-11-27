@@ -1,5 +1,5 @@
 import type { Controls } from '../race/car';
-import { clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet } from '../race/lanes';
+import { clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet, setHitSize } from '../race/lanes';
 import { type CarModel, type Effects, NO_EFFECTS } from '../physics/model';
 import type { CarState } from '../race/car';
 import { exp } from '../fmath';
@@ -20,6 +20,8 @@ export interface Near {
    * it, dropped its attack and steered round it, 50 m back).
    */
   racing?: boolean;
+  /** Spinning or crashing: out of control, so a hazard at any speed (it won't brake or steer with me). */
+  spinning?: boolean;
   /** Its longitudinal acceleration last tick (m/s², negative braking); absent = not braking. */
   aLong?: number;
 }
@@ -28,13 +30,22 @@ export interface Near {
 export const RACING_SHARE = 0.7;
 
 /** Lateral clearance two cars keep when side by side (centre to centre). */
-export const SIDE_GAP = HIT_W + 0.6;
+export let SIDE_GAP = HIT_W + 0.6;
 /** Centre-to-centre distance at which a car alongside is leaning in and squeezes a car on the road edge over it. */
-export const SQUEEZE = HIT_W + 0.25;
+export let SQUEEZE = HIT_W + 0.25;
 /** How far ahead (s) the side spacing looks, for a racing line that sweeps across the road. */
 export const SIDE_LOOK = 0.4;
 /** Longitudinal distance within which a car counts as alongside. */
-export const ALONGSIDE = HIT_LEN + 2;
+export let ALONGSIDE = HIT_LEN + 2;
+
+/** Set the car size every size-dependent distance comes from (HIT_LEN, HIT_W and the three above). */
+export function useCarSize(size: { length: number; width: number }): void {
+  if (HIT_LEN === size.length && HIT_W === size.width + 0.2) return;
+  setHitSize(size.length, size.width);
+  SIDE_GAP = HIT_W + 0.6;
+  SQUEEZE = HIT_W + 0.25;
+  ALONGSIDE = HIT_LEN + 2;
+}
 
 export interface DriverView {
   st: CarState;
@@ -82,6 +93,8 @@ export interface GapRuleRelax {
    * edge on top of it.
    */
   exitRoom?: number;
+  /** Extra room (m) kept to a car ahead in my lane: lap 1 (phase C), nobody sure where the car in front will brake. */
+  extraRoom?: number;
 }
 /** Extra side spacing (m) for a car owed exit room. */
 export const EXIT_MARGIN = 0.4;
@@ -159,7 +172,9 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
   const aCorner = Math.abs(st.v * st.v * lanes.kappa(st.s, st.delta));
   const bHaz = brakeGain * me.model.maxBrake(st.v, Math.min(aCorner, 0.95 * me.model.gripLimit(fx, st.v)), fx);
   for (const o of near) {
-    const hazard = o.v < slow && !o.racing;
+    // A car spinning at speed is a hazard too: it will stop somewhere ahead, not brake with me (Monza
+    // seed 3, phase B: Hughes spun at 120 km/h and four cars ran into him; the user's ruling).
+    const hazard = !o.racing && (o.v < slow || !!o.spinning);
     if (o.gap <= 0 || o.gap > (hazard ? 40 + 4 * st.v : look)) continue;
     // Alongside (overlapping lengthwise) and not touching sideways: a car beside me, not one to
     // queue behind. The side spacing and collisions deal with it. Counting it here (it was within
@@ -175,7 +190,10 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
       const at = st.s + o.gap;
       dist = Math.min(dist, Math.abs(o.d - lanes.dOf(at, st.delta)), Math.abs(o.d - lanes.dOf(at, deltaTarget)));
     }
-    const overlap = dist < HIT_W + 0.2;
+    // A car braking ahead that I'm only just clear of sideways is still in my way: any drift back
+    // toward it under braking hits it (Monza seed 3, phase B: Jovanovic 2 m to the side of Hughes
+    // kept 368 km/h to his clean-lap brake point and ran into him; the user put it mostly on him).
+    const overlap = dist < HIT_W + 0.2 + ((o.aLong ?? 0) < -3 && !hazard ? BRAKING_MARGIN : 0);
     if (!overlap) continue;
     // A committed attacker pulling out of the tow keeps the speed it carries: held to the
     // defender's speed until it was clear sideways, it gave the whole tow back on the straight
@@ -191,7 +209,7 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
       if (closing <= 0 || clearIn < (o.gap - HIT_LEN - 0.5) / closing) continue;
     }
     const bo = me.model.maxBrake(o.v, 0);
-    const room = attacked ? o.gap - HIT_LEN - TOW_ROOM : o.gap - HIT_LEN - 1.0 - 0.03 * st.v;
+    const room = (attacked ? o.gap - HIT_LEN - TOW_ROOM : o.gap - HIT_LEN - 1.0 - 0.03 * st.v) - (hazard ? 0 : relax.extraRoom ?? 0);
     const bb = hazard ? bHaz : attacked ? b / brakeGain : b;
     // An attacker doesn't hold the tow's lower drag against its braking (that alone kept it
     // ~10 m back at speed, too far to pull out), but does count the grip dirty air costs it: a
@@ -200,7 +218,7 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
     // A hazard is (nearly) stopped and won't brake with me: stop for it with the braking I really
     // have all the way down, which falls with speed for a winged car (see hazardSpeed).
     let vAllowed = room > 0
-      ? hazard ? hazardSpeed(me.model, fx, HAZARD_RESERVE * bHaz / Math.max(1e-6, me.model.maxBrake(st.v, 0, fx)), o.v, room) : Math.sqrt(o.v * o.v * ratio + 2 * bb * room)
+      ? hazard ? hazardSpeed(me.model, fx, HAZARD_RESERVE * bHaz / Math.max(1e-6, me.model.maxBrake(st.v, 0, fx)), o.spinning ? SPIN_END * o.v : o.v, room) : Math.sqrt(o.v * o.v * ratio + 2 * bb * room)
       : Math.max(0, o.v - 2 + room);
     // Stopped behind a car that isn't moving, but heading for a clear line beside it: creep
     // forward so the car can turn out; while still in line with it, only as far as the room left.
@@ -220,6 +238,10 @@ export function trafficControls(me: DriverView, near: Near[], wantDelta: number,
 
 /** Share of the braking a driver plans a hazard stop with: the rest is kept for steering round it. */
 export const HAZARD_RESERVE = 0.9;
+/** Extra side clearance (m) under which a braking car ahead counts as in line with me. */
+export const BRAKING_MARGIN = 0.6;
+/** A spinning car scrubs speed fast: plan to reach it at this share of its speed now. */
+export const SPIN_END = 0.5;
 
 /**
  * The fastest I can be going `room` metres short of a hazard and still slow to `vEnd` by it,

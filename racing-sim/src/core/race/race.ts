@@ -1,7 +1,7 @@
 import { type DriverSpec, type Entrant, racePace } from '../agents/driver';
-import { avoidSlowCar, RACING_SHARE, trafficControls, type Near } from '../agents/controller';
+import { avoidSlowCar, RACING_SHARE, trafficControls, type Near, useCarSize } from '../agents/controller';
 import { CLASS_GAP, type Craft, type CraftCar, type CraftChoice, newCraft, raceCraft, type CraftContext, ROOM_LEVEL } from '../agents/racecraft';
-import { CarModel, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type PhysicsParams, STANDARD_CAR } from '../physics/model';
+import { CarModel, carSize, type CarSpec, DEFAULT_PHYSICS, dirtyEffects, type PhysicsParams, STANDARD_CAR } from '../physics/model';
 import { type Corner, findCorners, nextCornerTable } from '../track/corners';
 import { makeRng, type Rng } from '../rng';
 import type { Track } from '../track/track';
@@ -39,6 +39,8 @@ export interface RaceOptions {
    * the race on or beside the road. 'off' (default): only scripted deployments.
    */
   safetyCar?: 'off' | 'auto';
+  /** 'grid' (default): standing start, lights out. 'rolling': the field two-wide at ROLLING speed, held to it until the leader reaches the line. */
+  start?: 'grid' | 'rolling';
   /**
    * 'race' (default): a grid start, driven at race pace (a margin under the limit).
    * 'qualifying': each car starts QUALI_RUNUP m behind the line at speed, on the racing line, and
@@ -54,6 +56,32 @@ export interface RaceOptions {
 
 /** Qualifying: the flying run-up to the line (m). Within CP_BASE, so the checkpoints cover it. */
 export const QUALI_RUNUP = 350;
+/** Shortest grid slot (m, from one car to the next, alternating sides). */
+export const GRID_SLOT = 7;
+/**
+ * Rolling start (phase C): the field lines up on its grid slots `back` m further behind the line,
+ * at `share` of the class's top speed (F1 ≈ 120 km/h), and holds that pace in formation until the
+ * leader reaches the line: green. (The formation lap itself, behind the safety car, isn't driven.)
+ */
+export const ROLLING = { back: 150, share: 0.35 };
+
+/**
+ * Standing start (phase C): one red light a second from t = 1 until all five are on, a random
+ * hold, then lights out. The race clock runs from the first light, so lights out is at 5.2–8 s.
+ */
+export const LIGHTS = { every: 1, count: 5, holdMin: 0.2, holdMax: 3 };
+/**
+ * Reaction after lights out (s): `best` for the steadiest, most racecraft-savvy driver, `worst` for
+ * the least, plus noise; never under `min` unless the car jumps the start.
+ */
+export const REACTION = { best: 0.15, worst: 0.35, sd: 0.03, min: 0.12 };
+/** Chance a car anticipates and moves before the lights go out, at aggression 0.5 (scales with it). */
+export const JUMP_RATE = 0.004;
+/**
+ * Launch: a car gets `launch` of its drive for the first `time` s (wheelspin or bog-down), drawn
+ * from |normal| × (sdBase + sdPerInconsistency × (1 − consistency)), never under `min`.
+ */
+export const LAUNCH = { time: 2.0, sdBase: 0.03, sdPerInconsistency: 0.3, min: 0.6 };
 
 /**
  * A scripted mid-race event. It fires when the leader starts lap `lap` (lap 1 = at the start):
@@ -64,7 +92,7 @@ export type ScriptedEvent =
   | { lap: number; type: 'spin' | 'retire'; car: number; note?: string }
   | { lap: number; type: 'safety-car'; laps: number; note?: string };
 
-export type RaceEventType = 'start' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'cleared' | 'grip' | 'safety-car' | 'lap' | 'finish';
+export type RaceEventType = 'start' | 'jump' | 'contact' | 'pass' | 'mistake' | 'slide' | 'off' | 'rejoin' | 'spin' | 'crash' | 'retire' | 'cleared' | 'grip' | 'safety-car' | 'lap' | 'finish';
 
 export interface RaceEvent {
   t: number;
@@ -168,7 +196,10 @@ export interface RaceCar {
   st: CarState;
   /** Lateral position (derived from st each tick, for neighbours and the log). */
   d: number;
+  /** When the car moves off the grid: lights out plus its reaction (negative reaction = a jump start). */
   startDelay: number;
+  /** Share of the drive it gets off the line for LAUNCH.time s (wheelspin or bog-down below 1). */
+  launch: number;
   rng: Rng;
   /** Highest line crossing seen (0 = crossed the start line, k = completed k laps). */
   crossings: number;
@@ -352,18 +383,26 @@ export class Race {
     this.corners = findCorners(this.lanes.line);
     this.nextCorner = nextCornerTable(track.n, this.corners);
     const quali = opts.session === 'qualifying';
+    // The field's car size: the largest preset in it (a mixed field judges every pair by the biggest).
+    this.size = entrants.reduce((m, e) => { const z = carSize(e.car); return { length: Math.max(m.length, z.length), width: Math.max(m.width, z.width) }; }, { length: 0, width: 0 });
+    useCarSize(this.size);
+    // Grid slots by car length: 7 m apart (staggered, so 14 m on each side) for short cars, F1's 8 m.
+    const slot = Math.max(GRID_SLOT, this.size.length + 2.4);
+    const rolling = !quali && opts.start === 'rolling';
+    this.rolling = rolling;
+    this.lightsOut = quali || rolling ? 0 : LIGHTS.count * LIGHTS.every + LIGHTS.holdMin + (LIGHTS.holdMax - LIGHTS.holdMin) * this.rng.next();
     this.cars = entrants.map((e, idx) => {
       const { model, plans } = this.plansFor(e, 0);
       // Race: a staggered two-wide grid behind the line. Qualifying: on the racing line, at speed,
       // QUALI_RUNUP m back (further cars a run-up apart).
-      const s0 = quali ? -QUALI_RUNUP * (idx + 1) : -5 - 7 * idx;
+      const s0 = quali ? -QUALI_RUNUP * (idx + 1) : -5 - slot * idx - (rolling ? ROLLING.back : 0);
       const s = ((s0 % track.length) + track.length) % track.length;
       const d = quali ? this.lanes.lineD(s) : (idx % 2 === 0 ? 1 : -1) * Math.min(3.2, this.lanes.lim - 1);
-      const st = newCarState(s, d - this.lanes.lineD(s), quali ? plans.speed(s, 0) : 0, s0);
+      const st = newCarState(s, d - this.lanes.lineD(s), quali ? plans.speed(s, 0) : rolling ? Math.min(this.rollingSpeed(), plans.speed(s, 0)) : 0, s0);
       const rng = this.rng.fork();
       return {
         idx, entrant: e, model, plans, st, d, rng,
-        startDelay: quali ? (rng.next(), 0) : 0.15 + 0.35 * rng.next(),
+        ...(quali || rolling ? { startDelay: 0, launch: 1 } : this.standingStart(e, rng)),
         crossings: -1, lapTimes: [], lastCross: NaN, finished: false, finishTime: NaN, finishLaps: 0, cp: [], following: -1,
         craft: newCraft(), wake: -1,
         status: 'run', dnf: false, fixed: false, yaw: 0, yawRate: 0, drift: 0, vSpin: 0, restartAt: 0, offEvent: -1, cause: -1,
@@ -372,7 +411,33 @@ export class Race {
     });
     for (const c of this.cars) c.d = this.lanes.dOf(c.st.s, c.st.delta);
     this.log();
-    this.emit('start', [], quali ? 'Qualifying: on a flying lap' : 'Lights out');
+    if (quali) this.emit('start', [], 'Qualifying: on a flying lap');
+    if (rolling) this.emit('start', [], 'Rolling start: the field in formation');
+  }
+
+  /** Rolling start: in formation until the leader reaches the line (then green). */
+  private readonly rolling: boolean;
+  private green = false;
+  /** The formation pace: the slowest car's ROLLING share of its top speed, so every car can hold it. */
+  private rollingSpeed(): number {
+    return ROLLING.share * Math.min(...this.opts.entrants.map((e) => e.car.topSpeed));
+  }
+
+  /** The field's car body, length × width (m): collisions, side gaps and the grid use it. */
+  readonly size: { length: number; width: number };
+
+  /** When lights out comes (s on the race clock; 0 in qualifying). Light k (1–5) is on from k·LIGHTS.every s. */
+  readonly lightsOut: number;
+
+  /** A car's reaction (a jump start if it anticipates) and launch off a standing start. */
+  private standingStart(e: Entrant, rng: Rng): { startDelay: number; launch: number } {
+    const d = e.driver;
+    const steady = (d.consistency + d.racecraft) / 2;
+    let reaction = Math.max(REACTION.min, REACTION.best + (REACTION.worst - REACTION.best) * (1 - steady) + REACTION.sd * rng.normal());
+    if (rng.next() < JUMP_RATE * 2 * d.aggression) reaction = -(0.05 + 0.25 * rng.next());
+    const sd = LAUNCH.sdBase + LAUNCH.sdPerInconsistency * (1 - d.consistency);
+    const launch = Math.max(LAUNCH.min, 1 - Math.abs(rng.normal()) * sd);
+    return { startDelay: this.lightsOut + reaction, launch };
   }
 
   /** Car model and lane plans for an entrant with `damage` grip loss (shared across races on the lanes). */
@@ -418,7 +483,7 @@ export class Race {
       else if (gap < -L / 2) gap += L;
       if (gap > 300 || gap < -60) continue;
       const racing = o.status === 'run' && o.offEvent < 0 && o.st.v >= RACING_SHARE * o.plans.envelope(o.st.s, o.st.delta);
-      out.push({ j: o.idx, gap, dd: o.d - me.d, d: o.d, v: o.st.v, racing, aLong: o.st.aLong });
+      out.push({ j: o.idx, gap, dd: o.d - me.d, d: o.d, v: o.st.v, racing, spinning: o.status === 'spin' || o.status === 'crash', aLong: o.st.aLong });
     }
     return out;
   }
@@ -562,11 +627,24 @@ export class Race {
 
   step(): void {
     const dt = this.dt;
+    useCarSize(this.size);
     this.scripted();
     if (this.views.length !== this.cars.length) {
       this.views = this.cars.map((x) => ({ idx: x.idx, st: x.st, d: x.d, model: x.model, plans: x.plans, driver: x.entrant.driver, craft: x.craft, rng: x.rng }));
     }
     for (const v of this.views) v.d = this.cars[v.idx].d;
+    if (this.rolling && !this.green && this.cars.some((c) => c.st.dist >= 0)) {
+      this.green = true;
+      this.emit('start', [], 'Green flag: racing');
+    }
+    if (this.opts.session !== 'qualifying' && !this.rolling) {
+      if (this.t <= this.lightsOut && this.t + dt > this.lightsOut) this.emit('start', [], 'Lights out');
+      for (const c of this.cars) {
+        if (c.startDelay < this.lightsOut && this.t <= c.startDelay && this.t + dt > c.startDelay) {
+          this.emit('jump', [c.idx], `${this.name(c.idx)} jumps the start`);
+        }
+      }
+    }
     const ctls = this.cars.map((c, i): Controls => {
       if (this.t < c.startDelay || c.status === 'stopped' || c.status === 'out') return { vTarget: 0, deltaTarget: c.st.delta };
       if (c.status === 'spin' || c.status === 'crash') return { vTarget: 0, deltaTarget: c.st.delta, free: true };
@@ -577,6 +655,11 @@ export class Race {
       }
       const ctl = this.controls(i, this.neighbours(i));
       if (this.sc && !c.finished) ctl.vTarget = Math.min(ctl.vTarget, this.queueSpeed(c));
+      if (this.rolling && !this.green) ctl.vTarget = Math.min(ctl.vTarget, this.rollingSpeed());
+      // Off the line: a poor launch (wheelspin, bog-down) gets only part of the drive.
+      if (c.launch < 1 && this.t < c.startDelay + LAUNCH.time) {
+        ctl.vTarget = Math.min(ctl.vTarget, c.st.v + c.launch * Math.max(0, c.model.maxDrive(c.st.v, 0)) * dt);
+      }
       return ctl;
     });
     const prev = this.cars.map((c) => c.st.dist);

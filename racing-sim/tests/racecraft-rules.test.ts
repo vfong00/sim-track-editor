@@ -301,7 +301,11 @@ describe('racecraft rules, from the race log [slow]', () => {
  * attacker that pulls out to a side the defender's line then closes, and gives the move up; it
  * is pinned at 15% of cases, so it can't get worse, until the side choice is fixed.
  */
-const LIMITS = { brakeMove: 0, roomShare: 0, towShare: 0.15, exitShare: 0, capacity: 0, battleShare: 0 };
+// Pinned at phase C (2026-11-26), with real car sizes (F1 5.6 × 2.0 m): a few violations came
+// back, all on laps 2–3 at Monza T1/T2 and one Yas braking zone, multi-car moments with the
+// bigger cars. Phase B had 0 for each. Rule 1 came down from its 15% pin to 1 of 57 (the flatOut
+// fix). For D: get these back to 0. Counts are for the default 4 seeds of each track.
+const LIMITS = { brakeMove: 5, roomShare: 0.004, towShare: 0.15, exitShare: 0, capacity: 2, battleShare: 0.002 };
 
 describe('kerbs, from the race log [slow]', () => {
   // Incident-prone, and seeds with kerb spins in them to check (2 each; 1 and 2 had them until

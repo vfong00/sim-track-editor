@@ -7,8 +7,8 @@ const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.js
 
 describe('effects from the logs', () => {
   // A seed whose race has a contact and a lock-up (the fixture's own seed doesn't have both).
-  // Any change to the driving changes the races: re-pick it then (phase B moved it from 4 to 6).
-  const race = new Race(loadScenario({ ...scn, seed: 6, race: { ...scn.race, incidentRate: 2 } }).options).run();
+  // Any change to the driving changes the races: re-pick it then (phase B moved it from 4 to 6, phase C to 8).
+  const race = new Race(loadScenario({ ...scn, seed: 8, race: { ...scn.race, incidentRate: 2 } }).options).run();
   const first = (type: string) => race.events.find((e) => e.type === type);
 
   it('the race has the moments to test with', () => {

@@ -100,8 +100,8 @@ export interface Scenario {
   track: TrackSpec;
   race: {
     laps: number;
-    /** Only grid starts for now. */
-    start?: 'grid';
+    /** 'grid' (default): a standing start from the lights. 'rolling': two-wide at a class start speed, green at the line. */
+    start?: 'grid' | 'rolling';
     /** default 'as-listed' (generated field drivers after the listed ones). */
     gridOrder?: GridOrder;
     /** Offs, spins, crashes and damage (default true). False: the road edge is a wall. */
@@ -341,7 +341,7 @@ export function validateScenario(x: unknown): ScenarioError[] {
   if (object(v, 'race', x.race, ['laps'], ['start', 'gridOrder', 'incidents', 'incidentRate', 'safetyCar'])) {
     const r = x.race;
     if (num(v, 'race.laps', r.laps, RANGES.laps[0], RANGES.laps[1], { int: true })) laps = r.laps as number;
-    oneOf(v, 'race.start', r.start, ['grid'], true);
+    oneOf(v, 'race.start', r.start, ['grid', 'rolling'], true);
     oneOf(v, 'race.gridOrder', r.gridOrder, ['as-listed', 'qualifying', 'rating', 'reverse-rating', 'random'], true);
     bool(v, 'race.incidents', r.incidents);
     num(v, 'race.incidentRate', r.incidentRate, RANGES.incidentRate[0], RANGES.incidentRate[1], { optional: true });

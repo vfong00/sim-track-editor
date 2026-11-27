@@ -4,12 +4,20 @@ import { pathFromOffsets, racingLine, type TrackPath } from '../track/line';
 import { Surface } from '../track/surface';
 import type { Track } from '../track/track';
 
-/** Car body: drawn size and the collision circle. */
+/** Default car body (no preset). Road edges (dHard, dWall, offShare) always use this width, so lane plans don't depend on the field. */
 export const CAR_LENGTH = 4.0;
 export const CAR_WIDTH = 1.8;
-/** Collision footprint (centre to centre) in the (s, d) frame: car length, and width plus a small margin. */
-export const HIT_LEN = CAR_LENGTH;
-export const HIT_W = CAR_WIDTH + 0.2;
+/**
+ * Collision footprint (centre to centre) in the (s, d) frame: car length, and width plus a small
+ * margin. Set by each race for its field's car size (useCarSize, at the start of every step, so
+ * races stepped in turn in one process each get their own).
+ */
+export let HIT_LEN = CAR_LENGTH;
+export let HIT_W = CAR_WIDTH + 0.2;
+export function setHitSize(length: number, width: number): void {
+  HIT_LEN = length;
+  HIT_W = width + 0.2;
+}
 
 /** Sideways limit for the car's centre with the whole body on the road (drivers aim within it). */
 export const dHard = (track: Track) => track.width / 2 - CAR_WIDTH / 2;

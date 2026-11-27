@@ -47,6 +47,27 @@ export const CAR_PRESETS = {
   f1: { label: 'F1', topSpeed: 96, accel: 14, grip: 2.1, brake: 1.0, downforce: 8.5e-4 },
 } as const;
 export type CarPreset = keyof typeof CAR_PRESETS;
+/**
+ * Body size per preset, length × width (m), phase C: whether three wide fits into a corner, and
+ * how close is alongside, depend on it. A car with no preset is CAR_SIZE_DEFAULT.
+ */
+export const CAR_SIZES: Record<CarPreset, { length: number; width: number }> = {
+  civilian: { length: 4.9, width: 1.84 },
+  mx5: { length: 3.9, width: 1.73 },
+  road: { length: 4.5, width: 1.85 },
+  gt3: { length: 4.7, width: 2.0 },
+  lmp: { length: 4.7, width: 2.0 },
+  f1: { length: 5.6, width: 2.0 },
+};
+export const CAR_SIZE_DEFAULT = { length: 4.0, width: 1.8 };
+/**
+ * How much contact a class tolerates (0–1), phase C: the user's view that some classes race closer
+ * and accept bumps (an MX-5 Cup lap 1 always has some), others don't (F1). Drivers keep that much
+ * less of the lap-1 following room.
+ */
+export const CONTACT_TOLERANCE: Record<CarPreset, number> = { civilian: 0.3, mx5: 0.6, road: 0.3, gt3: 0.3, lmp: 0.15, f1: 0 };
+export const contactTolerance = (spec: CarSpec) => (spec.preset ? CONTACT_TOLERANCE[spec.preset] : 0.3);
+export const carSize = (spec: CarSpec) => (spec.preset ? CAR_SIZES[spec.preset] : CAR_SIZE_DEFAULT);
 export const CAR_PRESET_IDS = Object.keys(CAR_PRESETS) as CarPreset[];
 
 export interface PhysicsParams {

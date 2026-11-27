@@ -4,7 +4,7 @@ Work on `main` in `racing-sim/` (the old `racing-sim` branch is merged and gone)
 the user works from two computers. Phases 0–7 are done (7 as a CLI), plus the work in
 `docs/PLAN.md` → **Feature map** → "Done since Phase 6". The same section lists what is next.
 
-**Next: phase C of the racing sprint** (A and B are done), phases A–I in `docs/PLAN.md` → Feature map → "Next: the racing
+**Next: phase D of the racing sprint** (A, B and C are done), phases A–I in `docs/PLAN.md` → Feature map → "Next: the racing
 sprint". They run in order: each one changes what the next one tunes against.
 
 ## Sprint loop (every phase)
@@ -44,25 +44,73 @@ its goal and scope from `docs/PLAN.md`, what the last phase left open, the files
 from, and what done looks like. Keep it to about 15 lines and point to this file and the plan
 rather than copying them.
 
-> Racing sprint, phase C (starts and lap 1). Read `racing-sim/docs/HANDOFF.md` (rules 1–7,
-> sprint loop, "Phase B: what landed") and phase C in the sprint section of `racing-sim/docs/PLAN.md`.
+> Racing sprint, phase D (driving styles and corner lines). Read `racing-sim/docs/HANDOFF.md`
+> (rules 1–7 and 3 amended, sprint loop, "Phase C: what landed") and phase D in the sprint section
+> of `racing-sim/docs/PLAN.md`.
 >
-> Open with one message (sprint loop step 1) and wait for the user's go: fixes from B you want
-> to make, the design (lights out, reaction and launch, cars keeping their grid side to T1,
-> restarts, car size per preset), and real lap-1 moments for the user to adjudicate.
+> Open with one message (sprint loop step 1) and wait for the user's go: fixes from C you want to
+> make, the design (handling styles, three lines per corner, styles feeding B's decisions, kerbs
+> as width), and real race moments for the user to adjudicate.
 >
-> Open from phase B:
-> - Lap 1 is now most of the contact: lap-1 contacts are 5.1 of 9.7 a race (F1 Monza), 5.1 of
->   7.6 (F1 Yas), 18.4 of 34 (MX-5 Laguna). The rule checks start at lap 2, so lap 1 has none yet.
-> - Car size per preset changes `cornerRoom` (two or three wide) and the side spacing.
-> - Rule 1 is pinned at 15% of cases (Monza): an attacker pulls out to a side the defender's line
->   then closes, and gives the move up. A side-choice fix, maybe with D's corner lines.
-> - Re-pick the seeds in `tests/effects.test.ts` and `tests/view-at.test.ts` if races change.
+> Open from phase C:
+> - Rule checks pinned back above 0 with real car sizes: rule 3 (5 in 8 races), rule 2 (1 of 295),
+>   corner capacity (2), rule 5 (1 of 585), all multi-car moments at Monza T1/T2 laps 2–3 and one
+>   Yas braking zone. The lap-1 pinch count halved (43.6 → 22.5 a race) but is noisy.
+> - Passes fell 19–45% (the user accepted: there was never a right number). Look for passes that
+>   should happen: GT3 Laguna has 15 stretches in 6 seeds of a car ≥0.4 s/lap quicker stuck within
+>   1 s for 2.5+ laps (seed 1: Jovanovic behind Ueda the whole race, 1 s/lap quicker).
+> - The rolling start (`race.start: 'rolling'`) arrives at T1 too tight: squeezes for the field.
+> - Re-pick the seeds in `tests/effects.test.ts` and `tests/safety-car.test.ts` if races change.
 >
-> Files: `src/core/race/race.ts` (grid, start), `src/core/agents/racecraft.ts`. Baselines to
-> compare against: `baselines/phase-a/` (16 seeds) unless the user re-saves them for B. Done: the
-> agreed design built, a lap-1 rule check, a watch list, the full suite passing, and the phase D
-> kickoff written here.
+> Files: `src/core/agents/racecraft.ts`, `src/core/agents/controller.ts`, `src/core/track/line.ts`.
+> Baselines: `baselines/phase-b/` (16 seeds, from f36283f); re-save for C if the user agrees.
+> Done: the agreed design built, rule checks for it, a watch list, the full suite passing, and the
+> phase E kickoff written here.
+
+## Phase C: what landed (2026-11-26)
+
+Measured against phase B batches for the watch set at 16 seeds (`baselines/phase-b/`, saved from
+f36283f), paired by seed. Lap-1 contacts: Monza 5.1 → 1.3, Yas 5.1 → 4.1, MX-5 18.4 → 6.5, GT3
+2.2 → 1.7, safety-car Yas 5.6 → 2.0. Contacts over the race: flat for F1, −38% GT3, −44% MX-5.
+DNFs: Monza 0.88 → 0.13, MX-5 1.9 → 0.4, Yas 0.13 → 0.31. Passes −19% to −45%, and fastest laps
++0.4% to +4% (laps no longer beat the ideal; Monza most, where the tow is worth most).
+
+- **Laps no longer beat physics** (`flatOut` in `racecraft.ts`): a car keeps speed over its plan
+  only where the plan is capped by top speed, not by grip (a corner at a steady radius is flat
+  too). Qualifying laps were 1.7% under the push plan at Yas; now +0.1% (−0.2% to +0.3%).
+- **Lights out** (`race.ts`, `LIGHTS`, `REACTION`, `JUMP_RATE`, `LAUNCH`): the race clock starts
+  at the first red light, one a second, a 0.2–3 s hold, lights out at 5.2–8 s. Reaction 0.15–0.35 s
+  from consistency and racecraft; a jump start (moving before the lights go out, about 0.1 a
+  race) is logged (`jump` event, a penalty once H has them). Launch: a share of the drive for 2 s
+  by consistency (wheelspin, bog-down). The viewer draws the gantry; `race.lightsOut` has the time.
+- **Grid side to T1** (`Craft.gridD`): every car holds its grid side down to T1's braking or its
+  approach (`LAP1_HOLD_TO`); attacking and defending moves still override it. Off the grid side
+  before braking: 53% of cars at B, 3% now.
+- **Car size per preset** (`CAR_SIZES` in `model.ts`): F1 5.6 × 2.0, LMP and GT3 4.7 × 2.0, MX-5
+  3.9 × 1.73; the field's largest is the race's `size`, and `useCarSize` (each step) sets
+  `HIT_LEN`, `HIT_W`, `SIDE_GAP`, `SQUEEZE` and `ALONGSIDE` from it. Road edges keep the default
+  width, so lane plans don't depend on the field. Grid slots by length (F1 8 m). The bigger F1
+  cars are the main reason passes fell (Monza 4 seeds: 64 a race, 98 with the old size).
+- **Rule 3 amended** (from the user's Monza seed 5 rulings): under braking, with a car alongside
+  on that side, following the racing line toward it is a move too: hold your place across the
+  road (`HOLD_REACH`). First into a gap owns it; taking the open side is fair.
+- **Hazards and braking cars** (`controller.ts`): a spinning car is a hazard at any speed (plan to
+  reach it at `SPIN_END` of its speed; the user's Monza seed 3 ruling). A braking car ahead I'm
+  within `BRAKING_MARGIN` of sideways counts as in line (Jovanovic into Hughes, same race).
+- **Lap 1 caution** (`LAP1_CAUTION`, `LAP1_FOLLOW`, `CONTACT_TOLERANCE`): a margin under race
+  pace, 6% into T1 and 2% after at bravery 0; extra following room on lap 1 (most of the lap-1
+  gain: contacts were nose to tail at 3–4 km/h); classes that tolerate bumps (MX-5 0.6, GT3 0.3,
+  F1 0) keep less of it. The tolerance lever is weak: it barely moved MX-5.
+- **Rolling start** (`race.start: 'rolling'`, `ROLLING`): two-wide, 150 m further back, at 35% of
+  the slowest car's top speed, green when the leader reaches the line. The formation lap isn't
+  driven. Open: the field reaches T1 too tight (squeezes); SC restarts are still single file.
+- **Ideal race lap** in the car details (the race plan's clean-air lap at race pace, with grip and
+  damage now; tyre wear comes with E).
+- **Rule checks**: `tests/lap1-rules.test.ts` (amended rule 3 on lap 1, grid side, lights out).
+  `tests/racecraft-rules.test.ts` limits re-pinned (see the kickoff above). Rule 1 fell from its
+  15% pin to 1 of 57.
+- **Safari parity** (before C proper): the viewer decodes PNGs in code (bb9c67e) and core uses an
+  engine-exact `hypot` (f36283f); see Determinism.
 
 ## Phase B: what landed (2026-11-26)
 
@@ -158,7 +206,10 @@ the kerb-spin check in `tests/racecraft-rules.test.ts` (3 and 4).
    time to see it.
 3. The defender gets one move before braking. No moving back, no moving under braking. This
    binds any car with an attacker pulled out beside it, including one that is itself diving on
-   the car ahead (phase B). Following the racing line is not a move.
+   the car ahead (phase B). Following the racing line is not a move,
+   except toward a car alongside on that side (phase C, from the user's Monza seed 5 rulings): then
+   it is, and the car holds its place across the road. First into a gap owns it; a car taking the
+   open side is racing fair.
 4. The attacker is only entitled to the other side. Braking early can be right, to set up the
    exit or keep the tow.
 5. Cars behind a battle expect early, uneven braking and use the whole width of the road.

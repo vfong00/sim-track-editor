@@ -384,7 +384,12 @@ racecraft rules the phases are checked against are under "Racecraft rules" in th
     racecraft driver leans against them.
   - Rule 5: cars behind a battle expect early, uneven braking and use the whole road.
   - Measure: how varied the choices are per driver, contacts and passes with `batch`.
-- **C. Starts and lap 1.** M
+- **C. Starts and lap 1.** M. **Done 2026-11-26** (see the handoff → "Phase C: what landed").
+  Lap-1 contacts fell 20–74% across the watch set, DNFs mostly down; passes fell 19–45% (real car
+  sizes, and laps no longer beat the ideal; accepted by the user). Added from the user's rulings:
+  rule 3 amended (following the line onto a car alongside is a move), spinning cars as hazards.
+  Left open: rule checks re-pinned slightly above 0, the rolling start's tight T1, single-file SC
+  restarts, faster cars stuck behind slower ones (GT3 most).
   - Lights out, reaction time and launch variation ("Race starts" above).
   - Cars keep their grid side down to T1 and arrive two or three wide; restarts the same way.
   - Car size per preset (under "Driving styles" below): whether three wide fits depends on it.

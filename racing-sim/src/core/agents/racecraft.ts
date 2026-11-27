@@ -1,7 +1,7 @@
 import { exp } from '../fmath';
 import type { CarState, Controls } from '../race/car';
 import { CAR_WIDTH, clamp, HIT_LEN, HIT_W, type LanePlans, type LaneSet, offShare, RUNOFF_GRIP } from '../race/lanes';
-import { type CarModel, dirtyEffects, type PhysicsParams } from '../physics/model';
+import { type CarModel, contactTolerance, dirtyEffects, type PhysicsParams } from '../physics/model';
 import type { Rng } from '../rng';
 import type { Corner } from '../track/corners';
 import { ALONGSIDE, avoidSlowCar, type GapRuleRelax, type Near, SIDE_GAP, trafficControls } from './controller';
@@ -67,6 +67,12 @@ export interface Mistake {
 
 /** A driver's memory between ticks. */
 export interface Craft {
+  /**
+   * Lap 1 (phase C): the lateral position the car started from (its grid side), held down to the
+   * first braking zone; NaN until the car first moves. lap1Done once that braking starts.
+   */
+  gridD: number;
+  lap1Done: boolean;
   mode: Mode;
   /** Car being attacked or defended against. */
   other: number;
@@ -132,7 +138,7 @@ export interface Seen {
 const newSeen = (): Seen => ({ cover: { inside: 0, outside: 0, line: 0 }, attack: { inside: 0, outside: 0 } });
 const seenOf = (cr: Craft, j: number) => { let s = cr.memory.get(j); if (!s) cr.memory.set(j, (s = newSeen())); return s; };
 
-export const newCraft = (): Craft => ({ mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, rhythmLap: -1, rhythm: 0, mistake: null, hold: NaN, gaveUp: -1, plan: 'inside', cover: 'inside', late: false, moved: false, stayCorner: -1, stay: false, memory: new Map() });
+export const newCraft = (): Craft => ({ gridD: NaN, lap1Done: false, mode: 'line', other: -1, side: 0, corner: -1, defendedCorner: -1, commit: false, swapped: false, nextThink: 0, pushCorner: -1, push: 1, rhythmLap: -1, rhythm: 0, mistake: null, hold: NaN, gaveUp: -1, plan: 'inside', cover: 'inside', late: false, moved: false, stayCorner: -1, stay: false, memory: new Map() });
 
 /** A racecraft decision, for the log (variety per driver in `batch`). */
 export interface CraftChoice {
@@ -302,6 +308,10 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       cr.push = 1 + me.rng.normal() * sd;
     }
     vEnv *= cr.push + cr.rhythm;
+    // Lap 1: cold tyres, a full field and nobody sure where the others will brake, so a margin
+    // under race pace, largest into T1 and smaller for a braver driver (phase C; the user's view:
+    // T1 can't be taken flat out physically, but racers still go as fast as they can).
+    if (st.dist < lanes.track.length && corner) vEnv *= 1 - (ci === 0 ? LAP1_CAUTION.t1 : LAP1_CAUTION.rest) * (1 - drv.bravery);
   }
   // Over the plan's top speed with no braking ahead (the plan is flat for the next second): that's
   // speed carried from a tow, not a corner to slow for. Stay flat out and let drag take it off.
@@ -314,6 +324,15 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   // In the braking zone for the next corner: the plan asks to slow down.
   const braking = vEnv < st.v - 1;
   let wantDelta = 0;
+  // Off the start, every car keeps its grid side down to the first braking zone (phase C): the
+  // field arrives at T1 two or three wide instead of funnelling onto the racing line within two
+  // seconds. Moves made by attacking or defending (their one move) still override it below.
+  if (Number.isNaN(cr.gridD)) cr.gridD = me.d;
+  if (!cr.lap1Done) {
+    // Down to T1: its braking zone, or its approach for a corner taken without braking.
+    if (braking || toCorner < LAP1_HOLD_TO || st.dist > lanes.track.length || ctx.neutral || ctx.push) cr.lap1Done = true;
+    else wantDelta = clamp(cr.gridD, -lim, lim) - lineD;
+  }
   let started: Mistake | null = null;
   let choice: CraftChoice | undefined;
   const view = { st, d: me.d, model: me.model, plans, lanes, dt, effects };
@@ -651,6 +670,22 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
       if ((wantDelta - st.delta) * Math.sign(o.dd) > 0) wantDelta = st.delta;
     }
   }
+  // --- Rule 3 amended (phase C, from the user's Monza seed 5 rulings): with a car alongside on
+  // that side, following the racing line toward it is a move too. The line pulls every car in a
+  // pack to the same spot, so a car on the line squeezed the two beside it into one lane (Chen,
+  // Kowalski), and a middle car drove down the line onto the inside one (Jovanovic onto
+  // Nakamura). Hold my place across the road instead (my d, not my offset from a sweeping line).
+  // Not for a committed attacker: its move is the pass, judged by the rules above.
+  if ((braking || plans.envelope(ahead + st.v * 0.5, st.delta, depth.tow, depth.dirty) < st.v - 1) && !ctx.neutral && avoid.hazard < 0 && !(cr.mode === 'attack' && cr.commit)) {
+    const toward = lineD + wantDelta - me.d;
+    if (Math.abs(toward) > 0.2) {
+      for (const o of near) {
+        if (Math.abs(o.gap) >= ALONGSIDE || o.v < 10 || Math.sign(o.dd) !== Math.sign(toward) || Math.abs(o.dd) > SIDE_GAP + HOLD_REACH) continue;
+        wantDelta = me.d - lineD;
+        break;
+      }
+    }
+  }
 
   // --- Exit room: a car level beside me on the outside of the exit (its centre no more than
   // ROOM_LEVEL behind mine) is owed room to the end of the exit; a car further back isn't (it
@@ -680,7 +715,7 @@ export function raceCraft(me: CraftCar, near: Near[], cars: CraftCar[], ctx: Cra
   const braveNow = brave > 1 && vEnv < st.v && toCorner > 30;
   if (braveNow) vEnv = Math.min(st.v, vEnv * brave);
   if (cr.mode !== 'attack') cr.commit = false;
-  const tc = trafficControls(view, near, wantDelta, vEnv, battle ? BATTLE_BRAKE : undefined, { ...(cr.mode === 'attack' ? relax : {}), ...(owed >= 0 ? { yieldTo: owed } : {}), ...(exitRoom >= 0 ? { exitRoom } : {}) });
+  const tc = trafficControls(view, near, wantDelta, vEnv, battle ? BATTLE_BRAKE : undefined, { ...(cr.mode === 'attack' ? relax : {}), ...(owed >= 0 ? { yieldTo: owed } : {}), ...(exitRoom >= 0 ? { exitRoom } : {}), ...(st.dist < lanes.track.length && !ctx.push ? { extraRoom: LAP1_FOLLOW * st.v * (1.5 - drv.bravery) * (1 - contactTolerance(me.model.spec)) } : {}) });
   // Moving across the road: respect the speed of the lane we're heading for too, so a car isn't
   // carried onto a tighter line faster than it can take it.
   let vLane = plans.envelope(ahead, tc.ctl.deltaTarget, depth.tow, depth.dirty);
@@ -717,10 +752,25 @@ export function owedRoom(near: Near[], corner: Corner | null, toCorner: number):
  * which a car carrying speed from a tow may be over without needing to slow down.
  */
 function flatOut(me: CraftCar, delta: number, depth: { tow: number; dirty: number }, ahead: number): boolean {
+  // Only where the plan is capped by top speed (a straight), never by grip: a corner held at a
+  // steady radius is flat too, and letting a car keep its speed over the plan there let it beat
+  // physics (phase B: qualifying and race laps came in under the ideal lap; phase C fix).
+  const top = TOP_SHARE * me.model.topSpeedWith();
   const env = (s: number) => me.plans.envelope(s, delta, depth.tow, depth.dirty);
   const now = env(ahead);
-  return env(ahead + me.st.v * 0.5) >= now - 0.5 && env(ahead + me.st.v) >= now - 0.5;
+  if (now < top) return false;
+  return env(ahead + me.st.v * 0.5) >= top && env(ahead + me.st.v) >= top;
 }
+/** How much further than the side gap (m) a car alongside still pins me to my place across the road (rule 3 amended). */
+export const HOLD_REACH = 1.5;
+/** Lap 1: extra following room, seconds of my speed at bravery 0.5 (more for a timid driver, less for a brave one). */
+export const LAP1_FOLLOW = 0.06;
+/** Lap 1: the grid side is held until this far (m) from the first corner's apex at the latest. */
+export const LAP1_HOLD_TO = 150;
+/** Lap-1 speed margin at bravery 0 (share of the envelope): into T1, and the corners after it. */
+export const LAP1_CAUTION = { t1: 0.06, rest: 0.02 };
+/** Share of the car's clean-air top speed at which a plan counts as top-speed limited (flatOut). */
+const TOP_SHARE = 0.985;
 
 /**
  * A driver doesn't steer onto a lane it can't take at its current speed: at the cornering limit
