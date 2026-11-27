@@ -11,16 +11,14 @@
 -->
 <pre id="out">running</pre>
 <script type="module">
-import { loadScenario, Race } from '/src/core';
+import { dataUrlBytes, loadScenario, pngPixels, Race, readPng } from '/src/core';
 import { tickDump, setupDump } from './dump.js';
 const out = document.getElementById('out');
 const q = new URLSearchParams(location.search);
 const data = await (await fetch('/scenarios/' + (q.get('s') ?? 'f1-constructors-yas') + '.json')).json();
 data.race.laps = Number(q.get('laps') ?? 30);
-const bmp = await createImageBitmap(await (await fetch(data.track.image)).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
-const c = new OffscreenCanvas(bmp.width, bmp.height); const g = c.getContext('2d');
-g.fillStyle = '#fff'; g.fillRect(0, 0, bmp.width, bmp.height); g.drawImage(bmp, 0, 0);
-const img = g.getImageData(0, 0, bmp.width, bmp.height);
+const png = readPng(dataUrlBytes(data.track.image));
+const img = pngPixels(png, new Uint8Array(await new Response(new Blob([png.idat]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer()));
 let sum = 0; for (let i = 0; i < img.data.length; i += 4) sum += img.data[i];
 const { track, options } = loadScenario(data, img);
 if (q.get('setup')) { out.textContent = setupDump(new Race(options)).join('\n'); out.id = 'done'; throw 0; }

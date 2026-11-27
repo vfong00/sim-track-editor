@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import {
-  buildTrack, CAR_LENGTH, CAR_WIDTH, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, LaneSet, parseScenario,
-  qualifyingRun, Race, type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
+  buildTrack, CAR_LENGTH, CAR_WIDTH, dataUrlBytes, decodeScenario, encodeScenario, FRAME_STRIDE as F, formatError, LaneSet, parseScenario,
+  pngPixels, qualifyingRun, readPng, Race, type Scenario, ScenarioBuildError, scenarioRaceOptions, STATUS, Track, trackKey, type Vec,
 } from '../core';
 import { ScenarioEditor } from '../editor/scenario-editor';
 import { BATTLE_MAX, BATTLE_MIN, BATTLE_NEAR, battleGroup, type CamMode, centred, clampZoom, FOLLOW_SCALE, frame as frameView, zoomAt } from './camera';
@@ -111,7 +111,17 @@ function urlScenario(): Scenario {
 /** Built tracks and lane sets by trackKey (rule 5: the key covers every track input). */
 const trackCache = new Map<string, { track: Track; lanes: LaneSet }>();
 
+/**
+ * A track image's pixels. Decoded in code (png-decode.ts, the same as Node), so every browser builds
+ * the same track: Safari colour-managed the canvas path and its races differed from the CLI's. The
+ * canvas is only a fallback for PNGs that decoder doesn't handle (palette, 16-bit, interlaced).
+ */
 async function decodePng(dataUrl: string): Promise<ImageData> {
+  const bytes = dataUrlBytes(dataUrl), png = bytes && readPng(bytes);
+  if (png) {
+    const raw = new Uint8Array(await new Response(new Blob([png.idat]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
+    return pngPixels(png, raw);
+  }
   const bmp = await createImageBitmap(await (await fetch(dataUrl)).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
   const c = new OffscreenCanvas(bmp.width, bmp.height);
   const g = c.getContext('2d')!;

@@ -4,6 +4,7 @@ export * from './track/track';
 export * from './track/spline';
 export * from './track/generate';
 export * from './track/png';
+export * from './track/png-decode';
 export * from './track/line';
 export * from './track/surface';
 export * from './physics/model';
