@@ -69,7 +69,7 @@ describe('follow panel stats', () => {
       'Pace 97.9% · 2nd of 3', 'Race pace 94.2% · 2nd of 3', 'Consistency 0.90 · 2nd of 3', 'Aggression 0.30 · 3rd of 3', 'Bravery 0.30 · 3rd of 3',
       'Racecraft 0.84 · 2nd of 3',
       // No style given (a generated field): every dial neutral.
-      'Braking mid 0.50 · all equal', 'Line U–V 0.50 · all equal', 'Throttle mid 0.50 · all equal', 'Kerbs 0.50 · all equal',
+      'Braking 0.50 · all equal', 'Line 0.50 · all equal', 'Throttle 0.50 · all equal', 'Kerbs 0.50 · all equal',
       'Incident risk ×0.74 · 1st of 3',
     ]);
     expect(st.car[0]).toMatchObject({ label: 'Top speed', value: '324 km/h', rank: '1st of 3' });
@@ -99,7 +99,7 @@ describe('timing tower modes', () => {
       if (gap.includes('lap') || !gap || !int || int.includes('lap')) continue;
       // The interval is the time to the car ahead, which is part of the gap to the leader. (Gaps
       // are timed at each car's last checkpoint, so intervals don't add up to the gap exactly.)
-      expect(int).toBe(`+${at.gap(order[p], order[p - 1]).toFixed(3)}`);
+      expect(int).toBe(`+${Math.max(0, at.gap(order[p], order[p - 1])).toFixed(3)}`);
       expect(Number(int)).toBeGreaterThanOrEqual(0);
       expect(Number(int)).toBeLessThan(Number(gap));
       checked++;

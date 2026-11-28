@@ -557,10 +557,11 @@ function styleFitRow(at: RaceAt, i: number): string {
   const e = at.r.cars[i].entrant;
   if (!e.driver.style) return '';
   const mine = at.plans(i).lapTime, neutral = at.plans(i, NEUTRAL_STYLE).lapTime;
-  const pct = (mine / neutral - 1) * 100;
-  const text = `${pct <= 0 ? '−' : '+'}${Math.abs(pct).toFixed(2)}%`;
-  const word = pct < -0.05 ? 'suits the car' : pct > 0.05 ? "doesn't suit the car" : 'neutral';
-  return `<div class="sr" title="Their ideal race lap against the same driver with a neutral style (every dial 0.5), in this car on this track. Styles also differ in mistakes, not counted here."><span class="lbl">Style fit</span><span>${text}</span><span class="rk">${word}</span></div>`;
+  // Positive: their style is quicker than neutral in this car.
+  const pct = (neutral / mine - 1) * 100;
+  const text = `${pct < 0 ? '−' : '+'}${Math.abs(pct).toFixed(2)}%`;
+  const word = pct > 0.05 ? 'suits the car' : pct < -0.05 ? "doesn't suit the car" : 'neutral';
+  return `<div class="sr" title="How much quicker (+) or slower (−) their ideal race lap is than the same driver with a neutral style (every dial 0.5), in this car on this track. Styles also differ in mistakes, not counted here."><span class="lbl">Style fit</span><span>${text}</span><span class="rk">${word}</span></div>`;
 }
 
 /** Driver ratings and car spec of the followed car, each ranked in the field (only re-rendered when it changes). */

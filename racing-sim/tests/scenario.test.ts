@@ -218,8 +218,10 @@ describe('Phase 6: driver ratings', () => {
   it('qualifying: each car runs its own session; best lap sets the grid; close drivers swap pole', () => {
     const s = read('equal-field.json');
     const lanes = new LaneSet(buildTrack(s.track));
-    // Chen's ideal lap is a hair quicker; Alvarez is far steadier (their roster ratings).
-    const base = { ...s, drivers: [{ name: 'Chen', car: s.cars[0].id }, { name: 'Alvarez', car: s.cars[0].id }], field: undefined };
+    // Chen's ideal lap is a hair quicker; Alvarez is far steadier (their roster ratings). Both on
+    // neutral style dials: Alvarez's U style suits this car (phase D) and took every pole.
+    const neutral = { braking: 0.5, line: 0.5, throttle: 0.5, kerbs: 0.5 };
+    const base = { ...s, drivers: [{ name: 'Chen', car: s.cars[0].id, style: neutral }, { name: 'Alvarez', car: s.cars[0].id, style: neutral }], field: undefined };
     const grid = (seed: number) => scenarioEntrants({ ...base, seed, race: { ...s.race, gridOrder: 'qualifying' } }, lanes);
     expect(grid(3)).toEqual(grid(3));
     const poles = { Chen: 0, Alvarez: 0 };

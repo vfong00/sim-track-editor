@@ -61,6 +61,31 @@ export interface GripUse {
   peak: number;
   drive: number;
 }
+/**
+ * (1 − u^p)^(1/p) for u in [0, 1): how much of the grip is left for braking or drive when u of it
+ * is used sideways. Four transcendental calls per sample made the speed plans slow, so it's
+ * tabulated per exponent (built with fmath, so every engine gets the same table) and read with
+ * linear interpolation; the last cells, where the curve turns vertical, are computed exactly.
+ */
+const ELLIPSE_N = 4096;
+const ELLIPSE_EXACT = 1 - 8 / ELLIPSE_N;
+const ellipseTables = new Map<number, Float64Array>();
+const ellipseExact = (p: number, u: number) => (u === 0 ? 1 : exp(log(1 - exp(p * log(u))) / p));
+export function ellipseTable(p: number): Float64Array {
+  let t = ellipseTables.get(p);
+  if (!t) {
+    t = new Float64Array(ELLIPSE_N + 1);
+    for (let k = 0; k <= ELLIPSE_N; k++) t[k] = ellipseExact(p, k / ELLIPSE_N);
+    ellipseTables.set(p, t);
+  }
+  return t;
+}
+export function ellipse(p: number, u: number, t = ellipseTable(p)): number {
+  if (u >= ELLIPSE_EXACT) return ellipseExact(p, u);
+  const x = u * ELLIPSE_N, k = Math.floor(x), f = x - k;
+  return t[k] + (t[k + 1] - t[k]) * f;
+}
+
 export const FULL_USE: GripUse = { shape: 2, peak: 1, drive: 1 };
 /** Exponent a V driver (line 1) uses at most; a U driver (line 0) uses the car's own. */
 export const V_SHAPE = 1.7;
@@ -169,6 +194,8 @@ export class CarModel {
   readonly physics: PhysicsParams;
 
   readonly use: GripUse;
+  /** The grip-ellipse table for this car's exponent (built on first use). */
+  private ellipseT?: Float64Array;
 
   constructor(readonly spec: CarSpec, physics: Partial<PhysicsParams> = {}, use?: GripUse) {
     this.use = use ?? { ...FULL_USE, shape: spec.trail ?? 2 };
@@ -193,11 +220,10 @@ export class CarModel {
       const r = mu * mu - alat * alat;
       return r > 0 ? this.use.peak * Math.sqrt(r) : 0;
     }
-    // (a_long/μ)^p + (a_lat/μ)^p ≤ 1, in engine-exact maths (fmath).
+    // (a_long/μ)^p + (a_lat/μ)^p ≤ 1, from a table (exact fmath only near the edge).
     const u = Math.abs(alat) / mu;
     if (!(u < 1)) return 0;
-    if (u === 0) return this.use.peak * mu;
-    return this.use.peak * mu * exp(log(1 - exp(p * log(u))) / p);
+    return this.use.peak * mu * ellipse(p, u, this.ellipseT ??= ellipseTable(p));
   }
 
   /**

@@ -12,7 +12,7 @@ Usage:
   npm run sim -- lap [--seed N]
   npm run sim -- race [--seed N] [--race N] [--cars N] [--laps N]
   npm run sim -- scenario <file.json> [--seed N]
-  npm run sim -- batch <file.json> [--runs N] [--from S] [--json] [--save] [--baseline FILE]
+  npm run sim -- batch <file.json> [--runs N] [--from S] [--json] [--save | --save-to FILE] [--baseline FILE]
 
 Commands:
   track   Generate a random track and print its stats (length, min corner radius, clearance).
@@ -52,7 +52,7 @@ if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
   const lap = simulateLap(lanes, plans, model);
   console.log(JSON.stringify({ length: +t.length.toFixed(1), solverLap: +plans.lapTime.toFixed(3), steppedLap: +lap.lapTime.toFixed(3), maxGripUsage: +lap.maxUsage.toFixed(4) }));
 } else if (args[0] === 'batch') {
-  if (!args[1] || args[1].startsWith('--')) { console.error('Usage: npm run sim -- batch <file.json> [--runs N] [--from S] [--json] [--save] [--baseline FILE]'); process.exit(1); }
+  if (!args[1] || args[1].startsWith('--')) { console.error('Usage: npm run sim -- batch <file.json> [--runs N] [--from S] [--json] [--save | --save-to FILE] [--baseline FILE]'); process.exit(1); }
   let data: { track?: { type?: string; image?: string } };
   let text: string;
   try { text = readFileSync(args[1], 'utf8'); data = JSON.parse(text); } catch (e) { console.error(`${args[1]}: ${(e as Error).message}`); process.exit(1); }
@@ -73,18 +73,22 @@ if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
   if (!json && process.stderr.isTTY) process.stderr.write('\r');
   const bpath = baselinePath(args, args[1]);
   const hash = hashText(text);
-  if (args.includes('--save')) {
+  // --save-to FILE: save this batch as a baseline there and still compare with --baseline (one run
+  // for both, e.g. the end of a phase: against the phase's start, saved as its own).
+  const si = args.indexOf('--save-to');
+  const savePath = args.includes('--save') ? bpath : si >= 0 ? args[si + 1] : undefined;
+  if (savePath) {
     let commit: string | undefined;
     try { commit = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { /* not a git checkout */ }
-    mkdirSync(dirname(bpath), { recursive: true });
-    writeFileSync(bpath, JSON.stringify(makeBaseline(s.name, hash, results, new Date().toISOString(), commit)) + '\n');
+    mkdirSync(dirname(savePath), { recursive: true });
+    writeFileSync(savePath, JSON.stringify(makeBaseline(s.name, hash, results, new Date().toISOString(), commit)) + '\n');
   }
   const base: Baseline | null = !args.includes('--save') && existsSync(bpath) ? JSON.parse(readFileSync(bpath, 'utf8')) : null;
   const cmp = base ? compareBaseline(base, results) : null;
   if (json) console.log(JSON.stringify(cmp ? { ...sum, baseline: { file: bpath, ...cmp } } : sum, null, 1));
   else {
     console.log(batchReport(s.name, sum));
-    if (args.includes('--save')) console.log(`\n  Saved as the baseline: ${bpath}`);
+    if (savePath) console.log(`\n  Saved as the baseline: ${savePath}`);
     if (base && cmp) console.log(`\n${baselineReport(bpath, base, cmp, hash)}`);
   }
 } else if (args[0] === 'race' || args[0] === 'scenario') {

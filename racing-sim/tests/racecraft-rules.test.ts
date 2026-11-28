@@ -309,8 +309,11 @@ describe('racecraft rules, from the race log [slow]', () => {
           const c = r.cars[a];
           // Its own plan brakes anywhere in the next 1.5 s (into a corner, or the last of the
           // braking before an apex: looking only 1.5 s on saw the corner's exit there).
-          const off = A.d - c.lanes.lineD(A.s);
-          if ([0, 0.25, 0.5, 0.75, 1, 1.25, 1.5].some((x) => c.plans.envelope(A.s + x * A.v, off) < A.v - 1)) continue;
+          // From where the window starts: looking on from its end missed the braking zone the car
+          // had just driven, and counted the end of every real braking zone (most of the count).
+          const off = A0.d - c.lanes.lineD(A0.s);
+          // Clean air or someone's dirty air (a follower plans with less grip; up to 80 m back).
+          if ([0, 0.25, 0.5, 0.75, 1, 1.25, 1.5].some((x) => Math.min(c.plans.envelope(A0.s + x * A0.v, off), c.plans.envelope(A0.s + x * A0.v, off, 0, 1)) < A0.v - 1)) continue;
           cases++;
           if ((A0.v - A.v) / (W * r.dt) < 15) continue;
           if (k - (last.get(a) ?? -1e9) < 3 / r.dt) continue;
@@ -326,7 +329,7 @@ describe('racecraft rules, from the race log [slow]', () => {
           if (reason) continue;
           last.set(a, k);
           bad++;
-          if (seen.length < 5) seen.push(`${label.get(r)} t=${(k * r.dt).toFixed(1)} ${r.name(a)}`);
+          if (seen.length < 12) seen.push(`${label.get(r)} t=${(k * r.dt).toFixed(1)} ${r.name(a)} ${(A.v * 3.6).toFixed(0)} km/h`);
         }
       }
     }
@@ -389,9 +392,14 @@ describe('racecraft rules, from the race log [slow]', () => {
 const LIMITS = { brakeMove: 5, roomShare: 0.004, towShare: 0.15, exitShare: 0, capacity: 2, battleShare: 0.002, straightBrake: 0, middleShare: 0 };
 
 describe('kerbs, from the race log [slow]', () => {
-  // Incident-prone, and seeds with kerb spins in them to check (2 each; 1 and 2 had them until
-  // phase B's calmer racing: re-pick when the driving changes).
-  const kerbRaces = [3, 4].map((seed) => new Race(loadScenario({ ...scn, seed, race: { ...scn.race, laps: 3, incidentRate: 4 } }, image).options).run());
+  // Incident-prone, and the first Monza race with a kerb spin in it to check. Searched, not fixed:
+  // the picks moved with every change to the driving (Yas 1 and 2, then 3 and 4; since D's spins
+  // need the power down, Yas seeds 1–10 had none).
+  const kerbRaces: Race[] = [];
+  for (let seed = 1; seed <= 12 && !kerbRaces.length; seed++) {
+    const r = new Race(loadScenario({ ...monza.scn, seed, race: { ...monza.scn.race, laps: 3, incidentRate: 4 } }, monza.image).options).run();
+    if (r.events.some((e) => /on the kerb/.test(e.text))) kerbRaces.push(r);
+  }
 
   it('a car spins on a kerb only with the power down on it, and the moment is logged first', () => {
     let n = 0;

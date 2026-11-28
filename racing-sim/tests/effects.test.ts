@@ -6,9 +6,12 @@ import { brakeAt, PUFF_LIFE, puffsAt, SPARK_LIFE, skidMarksAt, sparksAt } from '
 const scn = JSON.parse(readFileSync(new URL('./fixtures/scenarios/equal-field.json', import.meta.url).pathname, 'utf8')) as Scenario;
 
 describe('effects from the logs', () => {
-  // A seed whose race has a contact and a lock-up (the fixture's own seed doesn't have both).
-  // Any change to the driving changes the races: re-pick it then (phase B moved it from 4 to 6, phase C to 8, phase D back to 6).
-  const race = new Race(loadScenario({ ...scn, seed: 6, race: { ...scn.race, incidentRate: 2 } }).options).run();
+  // The first seed whose race has a contact and a lock-up (the fixture's own seed doesn't have
+  // both). Searched, not fixed: any change to the driving changes the races, and the pick moved at
+  // every phase (4, 6, 8, 6 for phases A–D).
+  const has = (r: Race) => r.events.some((e) => e.type === 'contact') && r.events.some((e) => e.type === 'mistake' && e.text.includes('locks up'));
+  let race = new Race(loadScenario({ ...scn, seed: 1, race: { ...scn.race, incidentRate: 2 } }).options).run();
+  for (let seed = 2; seed <= 20 && !has(race); seed++) race = new Race(loadScenario({ ...scn, seed, race: { ...scn.race, incidentRate: 2 } }).options).run();
   const first = (type: string) => race.events.find((e) => e.type === type);
 
   it('the race has the moments to test with', () => {

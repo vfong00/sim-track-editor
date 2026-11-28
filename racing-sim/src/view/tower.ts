@@ -25,7 +25,8 @@ function behind(at: RaceAt, i: number, ahead: number): string {
   const down = distAt(at, ahead) - distAt(at, i);
   if (down >= L) return `+${Math.floor(down / L)} lap`;
   const g = at.gap(i, ahead);
-  return isFinite(g) ? `+${g.toFixed(3)}` : '';
+  // Timed at each car's last checkpoint: just after a pass it can come out below zero ("+-0.012").
+  return isFinite(g) ? `+${Math.max(0, g).toFixed(3)}` : '';
 }
 
 /**

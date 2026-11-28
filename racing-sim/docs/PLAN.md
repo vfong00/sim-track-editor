@@ -395,7 +395,12 @@ racecraft rules the phases are checked against are under "Racecraft rules" in th
   - Car size per preset (under "Driving styles" below): whether three wide fits depends on it.
   - Measure: lap-1 contacts and DNFs on F1 Yas, GT3 and MX-5 Laguna.
 - **D. Driving styles and corner lines.** L. **Done 2026-11-27** (see the handoff → "Phase D: what
-  landed"). PLANSUMMARY
+  landed"). The fastest line per car class (laps 1–3% quicker), driving styles (braking, U/V line,
+  throttle, kerbs) fitted to the car's balance, three lines per corner (dive, outside, cutback,
+  switchback), double-file restarts; from the user's rulings, once-per-corner decisions reset per
+  corner, a threat-weighted defence, no chops or squeezes three wide, no late outside moves into
+  tight corners. Contacts and spins down at Yas, the safety-car race and MX-5; Monza DNFs up;
+  Laguna passes down. Plans load ~4× faster.
   Left open: styles cost only mistakes until tyres (E); kerbs barely widen the line; V and U
   share each class's line (no rotation in a point-mass car: Later → vehicle dynamics); roster
   styles provisional; the track-character check change (2× → 1.5×) awaits the user.

@@ -59,8 +59,13 @@ rather than copying them.
 > - Kerbs hardly widen the line (0.9 grip isn't worth 0.6 m); the user may want kerbs cheaper.
 > - V and U drivers share each class's line (a point-mass car has no rotation): vehicle dynamics
 >   is on PLAN → Later.
-> - Proposed check change awaiting the user: track character 2× → 1.5× (`racing-tracks.test.ts`).
-> - Re-pick the seeds in `tests/effects.test.ts` and `tests/safety-car.test.ts` if races change.
+> - Proposed check change awaiting the user: track character 2× → 1.5× (`racing-tracks.test.ts`);
+>   rule 2, straight braking and slipstream pins (HANDOFF → Phase D, last bullet).
+> - Monza DNFs 0.13 → 0.5 and lap-1 pinches +27%; Laguna racing passes −21 to −27% (fewer
+>   outside moves into tight corners); Yas lap-1 tangles with a defender in them.
+> - Unwatched D moments: Ito's squeeze (Monza s1 12:35), Laurent braking early at T10 (s4 4:59).
+> - The speed trace shows the racing line's plan; a car on another lane looks over or under it.
+> - Batch in parallel (`scripts/batch-all.sh`); 8 seeds while iterating, 16 to finish.
 >
 > Files: `src/core/physics/model.ts` (grip use), `src/core/race/lanes.ts` (plans, lines),
 > `src/core/agents/racecraft.ts`. Baselines: `baselines/phase-d/` (16 seeds).
@@ -70,7 +75,14 @@ rather than copying them.
 ## Phase D: what landed (2026-11-27)
 
 Measured against phase C batches for the watch set at 16 seeds (`baselines/phase-c/`, saved
-from 14549a8, the same races as 7af9c6a), paired by seed. NUMBERS.
+from 14549a8, the same races as 7af9c6a), paired by seed; `baselines/phase-d/` is the end of D.
+Laps 1–3% quicker everywhere (the fastest line). Contacts down at Yas (−75%), the safety-car race
+(−82%) and MX-5 (−21%, n.s.), Monza −14% (n.s.); spins down 40–81% (MX-5, Yas, safety car). Racing
+passes (not after an incident) Monza +13%, Yas −1%, GT3 −21% (n.s.), MX-5 −27%, safety car −31%:
+fewer incident passes everywhere, and at Laguna fewer outside moves into the tight corners (below).
+DNFs: Monza 0.13 → 0.5 a race (+0.38 ± 0.20), MX-5 0.44 → 0.69 (n.s.; mid-D it was 1.38), GT3
+0.06 → 0, Yas and safety car unchanged. Lap-1 pinches Monza +27%. Stuck time Monza +48%, Yas +24%,
+GT3 −25%.
 
 - **The fastest line** (`src/core/track/fastline.ts`). The old racing line (`racingLine`) never
   converged at the fine scale, so it got slower the more road it had (GT3 Laguna 85.5 s at 3 m
@@ -127,9 +139,56 @@ from 14549a8, the same races as 7af9c6a), paired by seed. NUMBERS.
     test, too noisy for a unit test).
 - **Rule checks**: no hard braking on a straight with nothing to brake for; the middle car of three
   holds its line; lines (faster with room, drivable, kerb bounds); style fit (`tests/lines.test.ts`).
+- **From the user's D rulings (late in D)**:
+  - once-per-corner decisions (gave up a move, defended, weighed a cutback, kept a move going)
+    reset at each new corner. They were only replaced by the same decision at another corner, so a
+    car that gave up a move into Monza T1 never attacked into it again (Abreu behind Alvarez, seed
+    4: 24 km/h of run, lifted to 15 m behind). Yas passes +40% from this alone;
+  - defending stays a weighted roll (the user: drivers make mistakes), likelier the plainer the
+    threat: a committed move (+0.5) or a run out of the tow (up to +0.4 at 6 m/s), weighed from
+    2.5 s before the apex (was 220 m, 2 s at Monza T1), and only once there's someone to defend
+    against. No cover toward a car alongside or within two car lengths of it on that side (a chop:
+    Monza contacts went +81% without this);
+  - the dive stops a car's width short of a car already alongside on the inside (three wide into
+    Monza T1, the middle car dived for the edge with Dlamini on it; the user's Ito ruling);
+  - no move to the outside of a tight corner (radius < 25 m) inside OUTSIDE_FROM: committed 83 m
+    out at Laguna T3, the car crossed a car's width while braking and turning in, braking fell to
+    1 m/s², and it went into the outside barrier. MX-5 T3 crashes 22 → ~5 in 16 races, DNFs 1.38 →
+    0.69. Bigger corners keep the late outside move (Laguna passes fall more without that);
+  - the dummy switches sides only with time to get across before reaching the leader (Abreu cut
+    back behind Dlamini at Monza and braked 60 km/h);
+  - the straight-braking check measured from the end of its window (counting every braking zone's
+    end) and only against the clean-air plan: 692 → 16, the rest mostly cars lifting to tuck in
+    behind one moving back across;
+  - viewer: style dials are plain numbers with the scale in the tooltip ("0 early · 1 late"); style
+    fit is + when the style suits the car; the latest feed event is a tinted row (the bar covered
+    the time); the tower interval never shows "+-0.012" just after a pass.
+- **Speed**: the grip ellipse (1 − u^p)^(1/p) is a table per exponent (built with fmath, exact
+  near u = 1) and the backward pass skips nodes it can't lower: Yas loads in ~14 s (was ~57 s),
+  a driver switch costs 0.16 s (was 1 s). `scripts/batch-all.sh` batches the watch set in parallel
+  (8.5 min against ~30) and `batch --save-to FILE` saves while comparing with `--baseline`.
+- **Tests** that need a race with a moment in it search a seed range for one (`effects`, kerb
+  spins) instead of a fixed seed that broke at every phase; the qualifying pole test runs both
+  drivers on neutral styles (Alvarez's U style suits the car and took every pole).
 - **Check changes, proposed to the user**: track character (Phase 4), straights ≥ 2× the twisty
   track's passes → 1.5× (phase C 75 vs 20, D 70 vs 45 at 16 seeds: the corner lines let stuck
-  cars by on the twisty one).
+  cars by on the twisty one). Three tuning checks fail at the end of D and wait on the user: rule
+  2 (2 against ≤ 0.996), straight braking (16 against 0), slipstream (21 against ≥ 24.7 races held
+  up without it).
+
+### Watch list (end of D, `racing-sim-phase-d-wip`)
+
+- Monza seeds 1–4, T1 and T4: three wide into the chicanes, the dive short of a car alongside,
+  covers; contacts and DNFs (0.5 a race) are up from C.
+- Yas seed 1, whole race: more passes than mid-D (the gave-up fix). Lap 1 tangles (seeds 2, 6).
+- MX-5 seeds 1–8, T3: fewer crashes; outside moves into T3 should be set up before braking.
+- GT3 any seed: fewer passes at Laguna than C. Too few now?
+
+### Roster styles (provisional, for the user)
+
+From risk and consistency; braking, line (U 0 → V 1), throttle, kerbs. See `roster.ts`. Late,
+V-ish and aggressive: Walsh, Ruiz, Quinn, Hughes, Tanaka, Ito, Abreu. Early, U and smooth: Petrov,
+Bianchi, Alvarez, Weber, Moreau, Reyes. Dlamini is the odd one: late braker (0.6) on a U line (0.3).
 
 ## Phase C: what landed (2026-11-26)
 
